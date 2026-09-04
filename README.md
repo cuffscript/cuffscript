@@ -4,7 +4,7 @@
 
 ---
 
-# CuffScript
+# The CuffScript programming language
 
 CuffScript는 자연어 키워드와 간결한 문법을 사용하는 스크립트 언어입니다. 현재 저장소의 엔진은 CuffScript 소스 코드를 토큰화하고, 키워드를 분류한 뒤, 추상 구문 트리(AST)로 변환하는 프론트엔드 파이프라인을 제공합니다.
 
