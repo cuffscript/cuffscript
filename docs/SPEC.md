@@ -9,7 +9,7 @@
     -   변수 변경: `change [변수명] to [값]`
 -   **예시:**
     
-```play
+```cuff
 set number age to 25
 set str name to "Alice"
 set empty data to empty  note: 값이 비어있음을 선언할 때는 empty 사용
@@ -32,10 +32,10 @@ change name to "Bob"
 
 -   **예시:**
     
-```play
+```cuff
 set constant number X to 10
 set constant number PI to 3.14
-set constant str API_URL to "https://playlang.dev"
+set constant str API_URL to "https://cufflang.dev"
 ```
 
 ---
@@ -55,7 +55,7 @@ set constant str API_URL to "https://playlang.dev"
     -   구문 구분자: `[구문] do: [실행]` (`do:` 뒤의 실행부가 한 줄에서 완결되는 경우 해당 구문은 한 줄 축약형으로 취급하며 들여쓰기를 요구하지 않습니다. 실행부가 여러 줄로 확장되는 경우 블록형 구문으로 취급하며 각 실행문은 규정된 들여쓰기를 사용해야 합니다.)
 -   **예시:**
     
-```play
+```cuff
 note: 올바른 한 줄 주석 양식입니다.
 if X is 10 do: print("통과") note: do: 기호 또한 앞 공백은 금지되고 뒤 공백은 허용됩니다.
 
@@ -85,7 +85,7 @@ endnote
     -   `![불리언값]`
 -   **예시:**
     
-```play
+```cuff
 set str input_text to "Apple"
 
 if input_text is "apple" do: print("대소문자가 달라서 이 문장은 실행되지 않습니다.") end
@@ -113,7 +113,7 @@ if !is_active do: print("false가 참(true)으로 반전되어 이 문장이 구
     -   `[컬렉션명][시작인덱스~끝인덱스]`
 -   **예시:**
     
-```play
+```cuff
 set list colors to ["red", "green", "blue", "yellow"]
 
 print(colors[1])  note: 첫 번째 요소인 "red"가 화면에 출력됩니다. 0은 존재하지 않습니다.
@@ -141,7 +141,7 @@ print(sub_colors) note: 2번(green)과 3번(blue)을 모두 포함하여 ["green
     -   `[match:abc]` : 제시된 단어 중 단 하나와 대응
 -   **예시:**
     
-```play
+```cuff
 note: 휴대폰 번호 검사 (010-숫자4개-숫자4개 패턴 검증)
 if phone is "010-[num]4-[num]4" do: print("올바른 번호") end
 
@@ -166,7 +166,7 @@ if email IS "[str]+@[str]2~10.com" do: print("통과") end
     -   컬렉션 원소 파괴 및 이탈: `remove [인덱스 혹은 키 혹은 실제값] from [컬렉션명]`
 -   **예시:**
     
-```play
+```cuff
 set list inventory to ["sword", "shield"]
 
 add "potion" to inventory
@@ -208,7 +208,7 @@ remove "level" from user_profile
         `loop match [식별대상] is/IS [타겟상태] do: [코드] end`
 -   **예시:**
     
-```play
+```cuff
 if score >= 90 do: print("우수") else if score >= 80 do: print("장려") else do: print("노력") end
 
 loop repeat i to 1 ~ 10 do:
@@ -248,7 +248,7 @@ end
         `set [자료형] [받을변수] to await [비동기함수명]()`
 -   **예시:**
     
-```play
+```cuff
 set returnable function calculate_bonus(base_pay) do:
     set constant number MULTIPLIER to 2
     return base_pay * MULTIPLIER
@@ -274,7 +274,7 @@ await download_graphics()
 
 -   **예시:**
     
-```play
+```cuff
 set str config to read_file("config.txt") or_else do:
     print("파일 읽기 실패! 기본 환경 옵션을 대신 불러옵니다.")
     set str config to "default_mode"
@@ -294,7 +294,7 @@ end
     -   `input([안내메시지])`
 -   **예시:**
     
-```play
+```cuff
 set str user_name to input("이름을 입력해 주세요: ")
 print(f"환영합니다, {user_name}님!")
 ```
@@ -314,7 +314,7 @@ print(f"환영합니다, {user_name}님!")
     -   커스텀 로컬 모듈 부품 흡수: `use [모듈파일명] from [상대폴더경로]`
 -   **예시:**
     
-```play
+```cuff
 use DLC:network
 use dlc_graphic_pack from ./assets/plugins
 ```
@@ -323,7 +323,7 @@ use dlc_graphic_pack from ./assets/plugins
 
 # CuffScript 종합 검증 코드
 
-```play
+```cuff
 note: 1단계: 외부 공식 라이브러리(DLC) 및 커스텀 모듈 로드 (한 줄 작성 규칙 엄수)
 use DLC:network
 use stage_data from ./maps/core_engine
@@ -335,10 +335,10 @@ endnote
 
 note: 2단계: 핵심 변수 및 고정 상수 라인 마운트 (상수는 오직 to만 사용)
 set constant number MAX_LEVEL to 99
-set constant str ENGINE_SIGNATURE to "PLAY_LANG_V1"
+set constant str ENGINE_SIGNATURE to "CUFF_LANG_V1"
 
 set number current_lvl to 1
-set str user_email to "Player_One@Playlang.com"
+set str user_email to "Player_One@CuffLang.com"
 set list reward_tier_list to ["Gold", "Silver", "Bronze"]
 
 note: 3단계: 논리 검증 및 텍스트 정보 파싱을 담당하는 지능형 리턴 제어 함수 선언 (한 줄 배치 절대 엄금)
@@ -389,6 +389,6 @@ loop repeat step to 1 ~ 5 do:
         print("반복 강제 정지를 발동합니다.")
         stop
     end
-    print(f"Playlang 고속 가상 머신 동기화 엔진 가동 중... 현재 루프 마디 번호: {step}")
+    print(f"CuffScript 고속 가상 머신 동기화 엔진 가동 중... 현재 루프 마디 번호: {step}")
 end
 ```
