@@ -4,13 +4,13 @@
 
 ---
 
-# The CuffScript programming language
+# The CuffScript Programming Language
 
-CuffScript는 자연어 키워드와 간결한 문법을 사용하는 스크립트 언어입니다. 현재 저장소의 엔진은 CuffScript 소스 코드를 토큰화하고, 키워드를 분류한 뒤, 추상 구문 트리(AST)로 변환하는 프론트엔드 파이프라인을 제공합니다.
+CuffScript is a scripting language that uses natural-language keywords and concise syntax. The current engine in this repository provides a frontend pipeline that tokenizes CuffScript source code, classifies keywords, and converts the result into an Abstract Syntax Tree (AST).
 
-## 현재 상태
+## Current Status
 
-현재 구현의 처리 흐름은 다음과 같습니다.
+The current processing flow is as follows:
 
 ```text
 CuffScript source
@@ -20,13 +20,13 @@ CuffScript source
     -> AST
 ```
 
-`main.cpp`는 파일 경로를 인자로 받거나 표준 입력에서 소스 코드를 읽습니다. 처리에 성공하면 토큰화 결과, 렉서 결과, AST를 출력하고, 실패하면 오류를 출력합니다.
+`main.cpp` accepts a file path as an argument or reads source code from standard input. When processing succeeds, it outputs the tokenization results, lexer results, and AST. If processing fails, it outputs an error message.
 
-이 저장소의 `engine/`는 주로 언어 프론트엔드 구현으로 구성되어 있습니다. 명세에 정의된 실행 문법이 모두 런타임에서 실행된다는 의미는 아니며, 현재 진입점도 AST 생성 결과를 출력하는 단계까지 담당합니다.
+The `engine/` directory primarily consists of the language frontend implementation. The fact that all execution syntax defined in the specification is supported does not mean that all of it is currently executable at runtime. The current entry point only handles processing up to AST generation and output.
 
-## 문법 개요
+## Syntax Overview
 
-### 변수 선언과 변경
+### Variable Declaration and Modification
 
 ```cuff
 set number age to 25
@@ -36,15 +36,15 @@ set list colors to ["red", "green", "blue"]
 change age to 26
 ```
 
-상수는 `constant`를 사용하며 이름은 대문자와 밑줄 조합을 사용합니다.
+Constants use the `constant` keyword, and their names consist of uppercase letters and underscores.
 
 ```cuff
 set constant number MAX_LEVEL to 99
 ```
 
-### 조건문과 반복문
+### Conditional Statements and Loops
 
-제어문은 `do:`로 실행부를 시작하고 `end`로 닫습니다. 한 줄 축약형과 여러 줄 블록형을 사용할 수 있으며, 여러 줄 블록은 들여쓰기를 사용합니다.
+Control statements begin their execution block with `do:` and are closed with `end`. Both single-line shorthand syntax and multi-line block syntax are supported. Multi-line blocks use indentation.
 
 ```cuff
 if score >= 90 do: print("excellent") end
@@ -54,16 +54,16 @@ loop repeat i to 1 ~ 3 do:
 end
 ```
 
-지원하도록 정의된 반복문 형태는 `loop repeat`, `loop while`, `loop match`입니다. 반복문 안에서는 `stop`으로 가장 가까운 반복문을 종료합니다.
+The defined loop forms are `loop repeat`, `loop while`, and `loop match`. Inside a loop, `stop` terminates the nearest enclosing loop.
 
-### 표현식과 컬렉션
+### Expressions and Collections
 
-- 비교: `is`, 대소문자 무시 문자열 비교: `IS`
-- 부정: `!`
-- 리스트와 맵: `[]`, `{}`
-- 1부터 시작하는 인덱스와 포함 범위 슬라이싱: `[1]`, `[2~4]`
-- f-string: `f"Hello, {name}"`
-- 컬렉션 조작: `add`, `remove`, `replace`
+- Comparison: `is`, case-insensitive string comparison: `IS`
+- Negation: `!`
+- Lists and maps: `[]`, `{}`
+- 1-based indexing and inclusive range slicing: `[1]`, `[2~4]`
+- f-strings: `f"Hello, {name}"`
+- Collection manipulation: `add`, `remove`, `replace`
 
 ```cuff
 set list items to ["sword", "shield"]
@@ -72,9 +72,9 @@ replace items[1] to "magic_staff"
 remove 2 from items
 ```
 
-### 함수와 모듈
+### Functions and Modules
 
-함수 선언에는 `function`, `returnable`, `async`를 사용할 수 있습니다. 모듈은 `use`와 `from`으로 불러오도록 명세되어 있습니다.
+Function declarations can use `function`, `returnable`, and `async`. Modules are imported using `use` and `from` as defined in the specification.
 
 ```cuff
 set returnable function double(value) do:
@@ -84,60 +84,62 @@ end
 set number result to double(21)
 ```
 
-오류 처리 결합 구문은 `or_else do: ... end`로 정의되어 있습니다.
+The error-handling composition syntax is defined as `or_else do: ... end`.
 
-## 디렉터리 구조
+## Directory Structure
 
 ```text
 engine/
-├── common/       공통 타입, 토큰, 오류, 소스 위치
-├── debug/        토큰 및 AST 출력
-├── lexer/        키워드 분류와 콜론 규칙 검증
-├── parser/       표현식, 선언, 제어문, 함수 및 모듈 파싱
-└── tokenizer/    문자열을 원시 토큰으로 변환
+├── common/       Common types, tokens, errors, and source locations
+├── debug/        Token and AST output
+├── lexer/        Keyword classification and colon rule validation
+├── parser/       Parsing of expressions, declarations, control statements, functions, and modules
+└── tokenizer/    Conversion of source code into raw tokens
 ```
 
-주요 공개 진입점은 `engine/CuffEngine.h`의 `CuffEngine::run`입니다. 언어 규칙의 상세 내용은 [docs/SPEC.md](docs/SPEC.md)를 참고하세요.
+The main public entry point is `CuffEngine::run` in `engine/CuffEngine.h`. For detailed language rules, refer to [docs/SPEC.md](docs/SPEC.md).
 
-## 빌드
+## Build
 
-### Makefile 사용
+### Using Makefile
 
-C++17 컴파일러가 설치된 환경에서 저장소 루트에서 실행합니다.
+Run the following command from the repository root with a C++17 compiler installed:
 
 ```bash
 make
 ```
 
-생성되는 실행 파일 이름은 `cuffc`입니다.
+The generated executable is named `cuffc`.
 
 ### Visual Studio
 
-Visual Studio에서 `Desktop development with C++` 워크로드를 설치한 뒤 빈 C++ 프로젝트를 만들고 `main.cpp`와 `engine/` 아래의 헤더 파일을 추가합니다. 프로젝트의 C++ 표준은 C++17로 설정합니다.
+Install the `Desktop development with C++` workload in Visual Studio, then create an empty C++ project and add `main.cpp` and the header files under `engine/`. Set the project's C++ standard to C++17.
 
-## 실행
+## Usage
 
-파일을 인자로 전달할 수 있습니다.
+A file can be passed as an argument:
 
 ```bash
 ./cuffc path/to/program.cuff
 ```
 
-또는 표준 입력을 사용할 수 있습니다.
+Alternatively, source code can be provided through standard input:
 
 ```bash
 echo 'print("Hello, CuffScript!")' | ./cuffc
 ```
 
-실행이 성공하면 토큰과 AST를 출력합니다. 문법 오류가 발생하면 오류 메시지를 출력하고 실패 코드로 종료합니다.
+When processing succeeds, the program outputs the tokens and AST. If a syntax error occurs, it outputs an error message and exits with a failure code.
 
-## 명세
+## Specification
 
-언어의 공식 중간 명세는 [docs/SPEC.md](docs/SPEC.md)에 있습니다. 명세에는 다음 내용이 포함되어 있습니다.
+The official intermediate specification of the language is available in [docs/SPEC.md](docs/SPEC.md). The specification includes:
 
-- `set`, `change`, `constant`를 이용한 선언 규칙
-- 콜론 공백 규칙과 `note` / `endnote` 주석
-- 비교, 부정, 인덱싱, 슬라이싱, 정규식 단축형
-- 리스트와 맵 조작
-- 조건문, 반복문, 함수, `await`, `or_else`
-- 입력, 출력, 모듈 로드 문법
+- Declaration rules using `set`, `change`, and `constant`
+- Colon spacing rules and `note` / `endnote` comments
+- Comparisons, negation, indexing, slicing, and regex shorthand syntax
+- List and map manipulation
+- Conditionals, loops, functions, `await`, and `or_else`
+- Input, output, and module loading syntax
+
+---
