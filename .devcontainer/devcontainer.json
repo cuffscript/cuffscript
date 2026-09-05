@@ -1,0 +1,18 @@
+{
+    "name": "CuffScript Codespace",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "eamodio.gitlens",
+                "esbenp.prettier-vscode",
+                "usernamehw.errorlens",
+                "oderwat.indent-rainbow",
+                "ms-ceintl.vscode-language-pack-ko",
+                "ms-vscode.cpptools",
+                "ms-vscode.cpptools-extension-pack",
+                "ritwickdey.liveserver",
+                "christian-kohler.path-intellisense"
+            ]
+        }
+    }
+}
