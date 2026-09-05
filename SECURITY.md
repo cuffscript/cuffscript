@@ -37,6 +37,7 @@ Logic issues in user-written CuffScript code and vulnerabilities in external bui
 ## 지원 버전
 
 현재 CuffScript는 초기 개발 단계입니다. 보안 패치는 `main` 브랜치 최신 버전을 기준으로 제공됩니다.
+
 ---
 
 ## 취약점 제보
