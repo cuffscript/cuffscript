@@ -130,7 +130,7 @@ print(sub_colors) note: 2번(green)과 3번(blue)을 모두 포함하여 ["green
 
     문자열 리터럴 내부에 대괄호 형태의 직관적 토큰(`[num]`, `[str]`, `[let]` 등)과 수량자(`+`, `*`, `?`), 범위 기호(`~`) 등을 조합하여 패턴을 구성할 수 있습니다. 패턴이 포함된 조건문은 문자열 **전체 일치(Full Match)**를 기본으로 검증합니다.
 
-    정규식의 상세한 토큰 목록, 수량자 규칙, 고급 기능(캡처, 검색, 치환)은 별도의 정규식 명세서(`REGEX.md`)에서 정의합니다.
+    정규식의 상세한 토큰 목록, 수량자 규칙, 고급 기능(캡처, 검색, 치환, 분할)은 별도의 정규식 명세서(`REGEX.md`)에서 정의합니다.
 
 - **기본 토큰 규격:**
     - `[num]` : 숫자 1개 (0~9)
@@ -163,18 +163,18 @@ if filename is "[str]+[one:.jpg|.png|.gif]" do: print("지원 이미지 포맷")
 
 ---
 
-### 7\. 컬렉션(List, Map) 데이터 조작 문법 (add, remove, replace to)
+### 7\. 컬렉션(List, Map) 데이터 조작 문법 (add, change, remove)
 
 - **설명:** 연속형 데이터 묶음인 리스트(list)와 키-값 쌍의 맵(map)을 다룰 때, 메서드 호출 대신 자연어 구문 구조로 데이터 입출력을 통제합니다.
 
-    리스트에 새로운 단일 원소를 맨 뒤로 추가할 때는 `add to` 명령어를 사용하며, 리스트 내부의 특정 인덱스 칸 값이나 맵의 키-값을 수정할 때는 `replace to` 명령어를 사용합니다. 컬렉션에서 원소를 제거할 때는 `remove from` 명령어를 사용합니다.
+    리스트에 새로운 단일 원소를 맨 뒤로 추가할 때는 `add to` 명령어를 사용하며, 리스트 내부의 특정 인덱스 칸 값이나 맵의 키-값을 수정할 때는 `change` 명령어를 사용합니다. 컬렉션에서 원소를 제거할 때는 `remove from` 명령어를 사용합니다.
 
-    리스트의 대괄호(`[]`) 내부에는 1-Based 인덱스를 사용합니다. 맵의 대괄호(`[]`) 내부에는 문자열 키를 사용합니다.
+    리스트의 대괄호(`[]`) 내부에는 1-Based 인덱스를 사용합니다. 맵의 대괄호(`[]`) 내부에는 문자열 키를 사용합니다. 맵에 존재하지 않는 키에 값을 할당하면 C 언어처럼 빈 값으로 초기화되어 새로운 키-값 쌍이 생성됩니다.
 
 - **문법:**
     - 리스트 맨 뒤 원소 삽입: `add [추가할값] to [리스트명]`
-    - 리스트 특정 인덱스 수정: `replace [리스트명][인덱스] to [새로운값]`
-    - 맵 특정 키 추가 및 수정: `replace [맵이름]["키값"] to [새로운값]`
+    - 리스트 특정 인덱스 수정: `change [리스트명][인덱스] to [새로운값]`
+    - 맵 특정 키 추가 및 수정: `change [맵이름]["키값"] to [새로운값]`
     - 컬렉션 원소 파괴 및 이탈: `remove [인덱스 혹은 키 혹은 실제값] from [컬렉션명]`
 - **예시:**
 
@@ -182,12 +182,12 @@ if filename is "[str]+[one:.jpg|.png|.gif]" do: print("지원 이미지 포맷")
 set list inventory to ["sword", "shield"]
 
 add "potion" to inventory
-replace inventory[1] to "magic_staff"
+change inventory[1] to "magic_staff"
 remove 2 from inventory
 
 set map user_profile to {"name": "Bob"}
 
-replace user_profile["level"] to 50
+change user_profile["level"] to 50
 remove "level" from user_profile
 ```
 
@@ -199,7 +199,7 @@ remove "level" from user_profile
 
     반복 처리하는 루프(loop)문은 메모리 변수 상주 작업이 아닌 즉시 명령 실행의 기조를 띠므로 문두에 변수 생성자 `set`을 절대로 붙이지 않습니다.
 
-    범위를 지정하여 순회하는 `loop repeat`, 조건식이 참인 동안 실행하는 `loop while`, 그리고 조건 상태가 참인 동안 반복하는 `loop match` 세 가지 형태가 제공됩니다.
+    범위를 지정하여 순회하는 `loop repeat`, 조건식이 참인 동안 실행하는 `loop while`, 그리고 조건 상태가 참인 동안 반복하는 `loop match` 세 가지 형태가 제공됩니다. `loop match`는 Python의 if 문 안에 for 문을 넣은 것과 같은 효과입니다.
 
     제어문 블록을 마감하는 종착역은 `end` 키워드가 마크하며, 짧은 구조의 실행부는 개발자의 시각적 선택에 맞춰 `end`를 한 줄로 연이어 배치할 수 있습니다.
 
@@ -241,7 +241,7 @@ end
 
     함수 호출 시에는 `do:` 기호를 사용하지 않고 오직 괄호 `()`만 사용합니다.
 
-    ���수 정의는 반드시 여러 줄의 블록형 구문으로 작성하며, 함수 본문은 반드시 들여쓰기를 사용해야 합니다. 함수 정의에는 한 줄 축약형을 허용하지 않습니다.
+    함수 정의는 반드시 여러 줄의 블록형 구문으로 작성하며, 함수 본문은 반드시 들여쓰기를 사용해야 합니다. 함수 정의에는 한 줄 축약형을 허용하지 않습니다.
 
     비동기 함수의 실제 실행 모델과 세부 동작은 별도의 구현 명세에서 정의합니다.
 
@@ -268,11 +268,47 @@ await download_graphics()
 
 ---
 
-### 10\. 안전장치 에러 핸들링 문법 (or_else do:)
+### 10\. 전역/지역 변수 및 스코프 (global)
+
+- **설명:** CuffScript는 Python과 동일한 함수 레벨 스코프(Function-Level Scope)를 사용합니다. 함수 내부에서 선언한 변수는 해당 함수 내에서만 유효하며, 함수 종료 후 자동으로 소멸합니다.
+
+    전역 변수를 함수 내에서 수정하려면 먼저 `change [변수명] to global`을 사용하여 해당 변수를 전역으로 선언한 후, 그 다음 줄에서 실제 값을 변경합니다.
+
+    중첩 함수(함수 내 함수 정의)와 클로저(함수를 값으로 취급)는 지원하지 않습니다. 함수는 전역 스코프와 자신의 로컬 스코프만 인식할 수 있습니다.
+
+- **문법:**
+    - 전역 변수 선언: `set [자료형] [변수명] to [값]` (함수 외부)
+    - 지역 변수 선언: `set [자료형] [변수명] to [값]` (함수 내부)
+    - 함수 내에서 전역 변수 수정: `change [변수명] to global` → `change [변수명] to [새로운값]`
+- **예시:**
+
+```cuff
+set number global_count to 0
+
+set function increment() do:
+    change global_count to global  note: 전역 변수로 선언
+    change global_count to global_count + 1
+end
+
+set function test_local() do:
+    set number local_var to 100  note: 로컬 변수 (함수 내에서만 유효)
+    print(local_var)             note: 100
+end
+
+increment()
+print(global_count)  note: 1 (전역 변수 수정됨)
+
+test_local()
+print(local_var)     note: Undefined Variable Error (로컬 변수는 함수 외 접근 불가)
+```
+
+---
+
+### 11\. 안전장치 에러 핸들링 문법 (or_else do:)
 
 - **설명:** 무겁고 가독성을 해치는 기존 언어의 `try-catch` 블록 대신, 에러가 발생할 위험이 있는 함수나 명령 행 바로 뒤에 한 칸 띄우고 `or_else do:` 구문을 배치하여 에러 상황을 처리합니다.
 
-    `or_else` 블록 내에서 기존 변수를 재할당할 때는 `change` 키워드를 사용합니다.
+    `or_else` 블록 내에서 기존 변수를 재할당할 때는 `change` 키워드를 사용합니다. 새로운 변수를 선언할 수도 있으며, 이 경우 블록 내 로컬 스코프를 갖습니다.
 
     `or_else`의 구체적인 실행 방식 및 반환값 처리 규칙은 별도의 구현 명세에서 정의합니다.
 
@@ -289,25 +325,32 @@ end
 
 ---
 
-### 11\. 화면 출력 및 키보드 입력 기본 함수 (print, input)
+### 12\. 화면 출력 및 키보드 입력 기본 함수 (print, input)
 
 - **설명:** 화면에 텍스트를 출력하는 기능은 표준적인 `print()` 함수를 사용하고, 키보드로부터 사용자의 텍스트 입력을 받는 기능은 표준적인 `input()` 함수를 사용합니다.
 
-    변수 내부 삽입은 문자열 정면에 접두사 `f`를 붙이는 f-스트링 방식을 따릅니다.
+    변수 내부 삽입은 문자열 정면에 접두사 `f`를 붙이는 f-스트링 방식을 따르며, f-스트링 내에는 간단한 표현식도 포함할 수 있습니다. 중괄호를 리터럴로 출력하려면 이중 중괄호 `{{` `}}`를 사용합니다.
 
 - **문법:**
     - `print([값])`
     - `input([안내메시지])`
+    - f-스트링: `f"텍스트 {변수} 텍스트"`
 - **예시:**
 
 ```cuff
 set str user_name to input("이름을 입력해 주세요: ")
 print(f"환영합니다, {user_name}님!")
+
+set number x to 5
+print(f"x + 1 = {x + 1}")
+
+note: 중괄호 리터럴 출력
+print(f"JSON: {{\"name\": \"Alice\"}}")
 ```
 
 ---
 
-### 12\. 모듈 및 라이브러리(DLC) 로드 시스템 (use & from)
+### 13\. 모듈 및 라이브러리(DLC) 로드 시스템 (use & from)
 
 - **설명:** CuffScript 공식 내장 라이브러리 패키지 세트는 본 언어의 유머 코드를 투영하여 DLC라고 명칭합니다.
 
@@ -336,7 +379,7 @@ use stage_data from ./maps/core_engine
 
 note:
 이 영역은 여러 줄 주석 영역입니다.
-1-Based 인덱스, or_else, 패턴 매칭 등이 통합된 최종 검증용 코드입니다.
+1-Based 인덱스, or_else, 패턴 매칭, 전역/지역 변수 등이 통합된 최종 검증용 코드입니다.
 endnote
 
 note: 2단계: 핵심 변수 및 고정 상수 라인 마운트 (상수는 오직 to만 사용)
@@ -371,7 +414,7 @@ end
 
 note: 4단계: 비동기 데이터 처리를 대행하는 독립형 함수 개설
 set async function backup_user_cloud_data() do:
-    print("가상 머신 내부 데이터 스냅샷을 원격 클라우드 인���라로 전송 동기화합니다.")
+    print("가상 머신 내부 데이터 스냅샷을 원격 클라우드 인프라로 전송 동기화합니다.")
 end
 
 note: 5단계: 메인 런타임 비즈니스 로직 실행 및 1-Based 컬렉션 데이터 조작 테스팅
@@ -385,9 +428,9 @@ end
 note: 1-Based 인덱싱에 의거해 1번이 즉시 첫 번째 요소인 "Gold"를 겨냥합니다.
 print(f"최고 등급의 보상 엠블럼 식별 데이터: {reward_tier_list[1]}")
 
-note: 독립 명령어 구문인 add to 와 replace to를 통해 리스트 내부 정보 수정
+note: 독립 명령어 구문인 add to 와 change를 통해 리스트 내부 정보 수정
 add "None_Tier" to reward_tier_list
-replace reward_tier_list[1] to "Platinum_Tier" note: 1번째 주소의 기존 단어를 플래티넘으로 변경
+change reward_tier_list[1] to "Platinum_Tier" note: 1번째 주소의 기존 단어를 플래티넘으로 변경
 
 note: 6단계: 물결 범위 지시 기호(~)와 loop repeat 제어 구조를 활용한 고속 반복 제어
 loop repeat step to 1 ~ 5 do:
