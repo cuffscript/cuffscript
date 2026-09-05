@@ -1,2055 +1,720 @@
-# CuffScript Regex Specification
+# CuffScript 정규식 명세서
 
-> CuffScript Regular Expression / Pattern Matching Specification  
-> Version: 1.0
+> CuffScript 정규 표현식 및 패턴 매칭 명세서
+> Version: 2.0
 
 ---
 
 ## 1. 목적
 
-CuffScript의 Regex는 JavaScript RegExp 수준의 패턴 표현력을 목표로 한다.
+CuffScript의 정규 표현식(Regex)은 JavaScript 수준의 강력한 텍스트 검증 및 가공 능력을 유지하면서, 복잡하고 난해한 특수기호(`\d`, `\w`, `\s`, `(?<=...)`, `\1` 등)를 배제하고 직관적인 단어형 토큰(`[num]`, `[str]` 등)과 자연어 스타일 구문으로 재설계되었습니다.
 
-단, 기존 정규식의 복잡한 문법을 그대로 노출하지 않고 CuffScript의 짧고 직관적인 타입 패턴을 우선 사용한다.
-
-```cuff
-"[num]4"
-"[str]+"
-"010-[num]4-[num]4"
-"[one:yes|no]"
-```
-
-Cuff Regex는 **표현력은 높게, 기본 문법은 짧게** 설계한다.
+프로그래밍 입문자가 일상적인 업무 자동화, 웹 데이터 수집, 데이터 정제 스크립트를 작성할 때 패턴을 직관적으로 이해하고 즉시 적용할 수 있도록 지원하는 것을 목적으로 합니다.
 
 ---
 
-# 2. 기본 사용법
+## 2. 기본 사용법과 조건문 결합 (`is`, `IS`)
 
-문자열 패턴은 `is` 또는 `IS`와 결합하여 검사한다.
+CuffScript에서 패턴 검증은 별도의 함수 호출 없이 비교 연산자 `is` 또는 `IS`를 통해 즉시 수행할 수 있습니다.
 
 ```cuff
-if value is "[num]4" do:
-    print("4자리 숫자")
+set str user_code to "AB-1234"
+
+if user_code is "[up]2-[num]4" do:
+    print("규격에 맞는 코드입니다.")
 end
 ```
 
-`is`는 일반적인 대소문자 구분 매칭을 수행한다.
+문자열 리터럴 안에 대괄호 토큰(`[num]`, `[str]` 등)이나 수량자 기호가 포함되어 있으면 엔진은 이를 정규식 패턴으로 자동 인식합니다.
+
+---
+
+## 3. 대소문자 판정 엔진 (`is` vs `IS`)
+
+- **`is`**: 영문 알파벳의 대소문자를 엄격하게 구분하여 비교합니다.
+- **`IS`**: 영문 알파벳의 대소문자 구분을 완전히 소멸시키고 대소문자 무시(Case-Insensitive) 패턴 매칭을 수행합니다.
 
 ```cuff
-if value is "Cuff" do:
-    ...
+set str answer to "Yes"
+
+note: 소문자 yes만을 기대하므로 거짓(false) 판정
+if answer is "yes" do:
+    print("소문자 일치")
+end
+
+note: IS 연산자를 사용하여 대소문자 무시 참(true) 판정
+if answer IS "yes" do:
+    print("대소문자 상관없이 통과")
 end
 ```
 
-`IS`는 영어 알파벳의 대소문자를 무시한다.
-
-```cuff
-if value IS "Cuff" do:
-    ...
-end
-```
-
-패턴이 포함된 문자열은 일반 문자열 비교가 아닌 Regex 패턴으로 해석된다.
-
----
-
-# 3. 전체 문자열 매칭
-
-Cuff Regex는 기본적으로 **전체 문자열 매칭(Full Match)** 이다.
-
-따라서 시작과 끝을 나타내는 `^`, `$`가 필요하지 않다.
-
-```cuff
-if code is "[num]4" do:
-    ...
-end
-```
-
-위 패턴은 정확히 숫자 4개인 문자열만 허용한다.
-
-```text
-1234    -> true
-123     -> false
-A123    -> false
-12345   -> false
-```
-
-부분 문자열 검색이 필요한 경우에는 `find` 기능을 사용한다.
-
-```cuff
-find text with "[num]+"
-```
-
-`find`의 상세 규칙은 19장에서 정의한다.
-
----
-
-# 4. 일반 문자
-
-특수한 의미가 없는 문자는 입력 문자열의 동일한 문자와 매칭된다.
-
-```cuff
-"hello"
-```
-
-다음과 매칭된다.
-
-```text
-hello
-```
-
-다음과는 매칭되지 않는다.
-
-```text
-Hello
-HELLO
-hello!
-```
-
-`IS`를 사용하면 영어 알파벳의 대소문자를 무시한다.
-
-```cuff
-"hello"
-```
-
-```cuff
-value IS "hello"
-```
-
----
-
-# 5. 기본 타입 패턴
-
-Cuff는 자주 사용하는 문자 종류를 짧은 타입 패턴으로 제공한다.
-
-| 패턴    | 의미                            |
-| ------- | ------------------------------- |
-| `[num]` | ASCII 숫자 1개 (`0-9`)          |
-| `[str]` | 영문자 또는 숫자 1개            |
-| `[let]` | 영문자 1개                      |
-| `[up]`  | 영문 대문자 1개                 |
-| `[low]` | 영문 소문자 1개                 |
-| `[sp]`  | 공백 1개                        |
-| `[any]` | 줄바꿈을 제외한 임의의 문자 1개 |
-| `[nl]`  | 줄바꿈 1개                      |
-
-예:
-
-```cuff
-"[num]"
-"[let]"
-"[up]"
-"[low]"
-```
-
----
-
-# 6. `[str]`의 범위
-
-`[str]`은 다음 문자만 허용한다.
-
-```text
-A-Z
-a-z
-0-9
-```
-
-따라서 `_`, `-`, `.`, `@` 등은 포함하지 않는다.
-
-```cuff
-"[str]+"
-```
-
-다음은 성공한다.
-
-```text
-abc
-ABC
-abc123
-123ABC
-```
-
-다음은 실패한다.
-
-```text
-hello_world
-hello-world
-hello.world
-```
-
-문자 집합을 더 세밀하게 지정하려면 10장의 문자 집합 문법을 사용한다.
-
----
-
-# 7. 반복
-
-타입 패턴 및 그룹 뒤에 반복 연산자를 사용할 수 있다.
-
-## 7.1 정확한 반복
-
-```cuff
-"[num]4"
-```
-
-숫자 정확히 4개.
-
-```cuff
-"[str]10"
-```
-
-문자/숫자 정확히 10개.
-
----
-
-## 7.2 1개 이상
-
-`+`
-
-```cuff
-"[num]+"
-```
-
-숫자 1개 이상.
-
-```cuff
-"[str]+"
-```
-
-문자/숫자 1개 이상.
-
----
-
-## 7.3 0개 이상
-
-`*`
-
-```cuff
-"[num]*"
-```
-
-숫자 0개 이상.
-
-빈 문자열도 허용된다.
-
----
-
-## 7.4 0개 또는 1개
-
-`?`
-
-```cuff
-"[num]?"
-```
-
-숫자 0개 또는 1개.
-
-```cuff
-"colou?r"
-```
-
-다음과 매칭된다.
-
-```text
-color
-colour
-```
-
----
-
-## 7.5 범위 반복
-
-`최소~최대`
-
-```cuff
-"[num]2~5"
-```
-
-숫자 2개 이상 5개 이하.
-
----
-
-## 7.6 최소값만 지정
-
-```cuff
-"[num]2~"
-```
-
-숫자 2개 이상.
-
-최대값은 제한하지 않는다.
-
----
-
-## 7.7 반복 우선순위
-
-반복 연산자는 바로 앞의 **하나의 원자(atom)** 에 적용된다.
-
-```cuff
-"[num]+"
-"[let]3"
-"(abc)+"
-```
-
-`+`, `*`, `?`, `N`, `N~M`은 서로 중복하여 사용할 수 없다.
-
-잘못된 예:
-
-```cuff
-"[num]+4"
-"[num]*2"
-"[num]2+"
-```
-
-이 경우 `Regex Syntax Error`가 발생한다.
-
----
-
-# 8. 탐욕 / 최소 반복
-
-기본 반복은 Greedy 방식이다.
-
-필요한 경우 `?`를 반복 연산자 뒤에 붙여 Lazy 방식으로 변경한다.
-
-```cuff
-"[any]*?"
-"[any]+?"
-"[num]2~5?"
-```
-
-예:
-
-```text
-*   = 가능한 많이
-*?  = 가능한 적게
-+   = 가능한 많이
-+?  = 가능한 적게
-```
-
-Lazy 반복은 `?` 하나를 사용한다.
-
-따라서:
-
-```cuff
-"[num]??"
-```
-
-은 `[num]?`를 Lazy 방식으로 사용한다.
-
----
-
-# 9. 그룹
-
-괄호 `()`는 패턴을 하나의 그룹으로 묶는다.
-
-```cuff
-"(abc)+"
-```
-
-`abc` 전체를 반복한다.
-
-다음과 매칭된다.
-
-```text
-abc
-abcabc
-abcabcabc
-```
-
-그룹에는 반복 연산자를 사용할 수 있다.
-
-```cuff
-"(ab)3"
-"(ab)+"
-"(ab)*"
-"(ab)?"
-"(ab)2~5"
-```
-
----
-
-# 10. 선택
-
-Cuff는 선택을 위해 짧은 `[one:...]` 문법을 제공한다.
-
-```cuff
-"[one:cat|dog|bird]"
-```
-
-다음 중 하나와 매칭된다.
-
-```text
-cat
-dog
-bird
-```
-
-`one` 내부의 `|`는 선택 구분자다.
-
----
-
-## 10.1 그룹과 선택
-
-복잡한 선택은 그룹과 함께 사용할 수 있다.
-
-```cuff
-"(cat|dog)+"
-```
-
-또는 간단한 선택이라면:
-
-```cuff
-"[one:cat|dog]+"
-```
-
-를 권장한다.
-
----
-
-## 10.2 선택 우선순위
-
-선택지는 왼쪽부터 시도한다.
-
-```cuff
-"[one:cat|caterpillar]"
-```
-
-엔진은 `cat`을 먼저 시도한다.
-
-필요한 경우 더 구체적인 패턴을 먼저 배치해야 한다.
-
----
-
-# 11. 문자 집합
-
-개별 문자 중 하나를 선택하려면 `[]` 문자 집합을 사용한다.
-
-```cuff
-"[abc]"
-```
-
-`a`, `b`, `c` 중 하나와 매칭된다.
-
-```cuff
-"[a-z]"
-```
-
-`a`부터 `z` 중 하나와 매칭된다.
-
-```cuff
-"[0-9]"
-```
-
-숫자 하나와 매칭된다.
-
----
-
-## 11.1 여러 범위
-
-```cuff
-"[a-zA-Z0-9]"
-```
-
-영문자 또는 숫자 하나.
-
----
-
-## 11.2 부정 문자 집합
-
-문자 집합의 시작에 `!`를 사용한다.
-
-```cuff
-"[!0-9]"
-```
-
-숫자가 아닌 문자 하나.
-
-```cuff
-"[!a-z]"
-```
-
-소문자가 아닌 문자 하나.
-
----
-
-## 11.3 문자 집합과 반복
-
-```cuff
-"[a-z]+"
-"[0-9]4"
-"[a-f0-9]+"
-```
-
----
-
-# 12. 타입 패턴과 문자 집합의 차이
-
-다음은 서로 다른 문법이다.
-
-```cuff
-"[num]"
-"[0-9]"
-```
-
-기본적으로 동일한 의미를 가진다.
-
-반면:
-
-```cuff
-"[str]"
-"[a-zA-Z0-9]"
-```
-
-도 기본적으로 동일한 범위를 가진다.
-
-타입 패턴은 **가독성을 위해 우선 사용**한다.
-
----
-
-# 13. Escape
-
-Regex에서 특별한 의미를 가진 문자를 그대로 매칭하려면 `\`를 사용한다.
-
-```cuff
-"\+"
-"\*"
-"\?"
-"\["
-"\]"
-"\("
-"\)"
-"\{"
-"\}"
-"\."
-"\|"
-"\~"
-"\<"
-"\>"
-"\:"
-"\-"
-"\\"
-```
-
-예:
-
-```cuff
-if value is "10\+20" do:
-    ...
-end
-```
-
-`10+20`과 매칭된다.
-
----
-
-# 14. 기본 Escape 패턴
-
-Cuff는 자주 사용하는 Escape 패턴을 지원한다.
-
-| 패턴 | 의미        |
-| ---- | ----------- | --- |
-| `\n` | 줄바꿈      |
-| `\t` | 탭          |
-| `\r` | 캐리지 리턴 |
-| `\\` | `\`         |
-| `\[` | `[`         |
-| `\]` | `]`         |
-| `\(` | `(`         |
-| `\)` | `)`         |
-| `\+` | `+`         |
-| `\*` | `*`         |
-| `\?` | `?`         |
-| `\|` | `           | `   |
-| `\~` | `~`         |
-| `\.` | `.`         |
-
----
-
-# 15. 특수 문자
-
-다음 문자는 특별한 의미를 가진다.
-
-```text
-[
-]
-(
-)
-{
-}
-+
-*
-?
-~
-|
-\
-<
->
-```
-
-특수한 의미가 필요하지 않을 경우 `\`로 Escape한다.
-
----
-
-# 16. 반복 블록
-
-그룹을 사용하면 복잡한 패턴을 반복할 수 있다.
-
-```cuff
-"(ab)3"
-```
-
-```text
-ababab
-```
-
-```cuff
-"(ab)+"
-```
-
-```text
-ab
-abab
-ababab
-...
-```
-
----
-
-# 17. 비캡처 그룹
-
-캡처가 필요 없는 그룹은 `(?:...)`을 사용한다.
-
-```cuff
-"(?:cat|dog)+"
-```
-
-비캡처 그룹은 결과 캡처 번호를 생성하지 않는다.
-
-일반 그룹:
-
-```cuff
-"(cat|dog)"
-```
-
-비캡처 그룹:
-
-```cuff
-"(?:cat|dog)"
-```
-
----
-
-# 18. 캡처
-
-일반 그룹 `()`은 캡처 그룹으로 취급한다.
-
-```cuff
-"([num]3)-([num]4)"
-```
-
-입력:
-
-```text
-010-1234
-```
-
-캡처 결과:
-
-```text
-1 = 010
-2 = 1234
-```
-
-캡처는 1-Based 인덱싱을 따른다.
-
----
-
-# 19. Match
-
-Regex의 결과 자체가 필요할 경우 `match` 명령을 사용한다.
-
-```cuff
-set match result to match value with "([num]3)-([num]4)"
-```
-
-성공하면 `result`에는 Match 객체가 저장된다.
-
-```cuff
-print(result[1])
-print(result[2])
-```
-
-실패하면 `result`는 `empty`가 된다.
-
----
-
-# 20. Find
-
-문자열 전체가 아닌 내부에서 패턴을 찾으려면 `find`를 사용한다.
-
-```cuff
-set match result to find text with "[num]+"
-```
-
-예:
-
-```text
-"abc123xyz456"
-```
-
-결과:
-
-```text
-123
-456
-```
-
-`find`는 모든 매칭 결과를 1-Based 순서로 반환한다.
-
-```cuff
-result[1]
-result[2]
-```
-
----
-
-# 21. Named Capture
-
-캡처에 이름을 붙일 수 있다.
-
-문법:
-
-```cuff
-"<name:pattern>"
-```
-
-예:
-
-```cuff
-"<year:[num]4>-<month:[num]2>-<day:[num]2>"
-```
-
-입력:
-
-```text
-2026-09-05
-```
-
-결과:
-
-```text
-year  = 2026
-month = 09
-day   = 05
-```
-
-이름으로 접근한다.
-
-```cuff
-result["year"]
-result["month"]
-result["day"]
-```
-
----
-
-# 22. Named Capture와 일반 Capture
-
-다음은 일반 캡처다.
-
-```cuff
-"([num]4)"
-```
-
-다음은 이름 있는 캡처다.
-
-```cuff
-"<year:[num]4>"
-```
-
-Named Capture도 일반 캡처 번호를 하나 소비한다.
-
-따라서:
-
-```cuff
-"(<year:[num]4>)-([num]2)"
-```
-
-에서는:
-
-```text
-result[1] = year
-result[2] = 두 번째 숫자 그룹
-```
-
-이 된다.
-
----
-
-# 23. Backreference
-
-이전에 캡처한 문자열을 다시 사용하려면 `\N`을 사용한다.
-
-```cuff
-"([let]+)-\1"
-```
-
-입력:
-
-```text
-abc-abc
-```
-
-성공.
-
-```text
-abc-def
-```
-
-실패.
-
-`\1`은 첫 번째 캡처를 의미한다.
-
-```text
-\1
-\2
-\3
-...
-```
-
----
-
-# 24. Named Backreference
-
-Named Capture는 `\k<name>`으로 다시 참조한다.
-
-```cuff
-"<word:[let]+>-\k<word>"
-```
-
-입력:
-
-```text
-hello-hello
-```
-
-성공.
-
-```text
-hello-world
-```
-
-실패.
-
----
-
-# 25. Lookahead
-
-앞에 특정 패턴이 존재하는지만 검사하려면 `(?=...)`를 사용한다.
-
-```cuff
-"[num]+(?=원)"
-```
-
-숫자 뒤에 `원`이 존재해야 한다.
-
-Lookahead 자체는 `원`을 소비하지 않는다.
-
----
-
-# 26. Negative Lookahead
-
-앞에 특정 패턴이 존재하지 않아야 하는 경우 `(?!...)`를 사용한다.
-
-```cuff
-"[num]+(?!원)"
-```
-
-숫자 뒤에 `원`이 존재하지 않아야 한다.
-
----
-
-# 27. Lookbehind
-
-뒤에 특정 패턴이 존재하는지 검사하려면 `(?<=...)`를 사용한다.
-
-```cuff
-"(?<=USD)[num]+"
-```
-
-다음과 같은 문자열의 숫자 부분을 찾을 수 있다.
-
-```text
-USD100
-```
-
-Lookbehind 자체는 문자를 소비하지 않는다.
-
----
-
-# 28. Negative Lookbehind
-
-뒤에 특정 패턴이 존재하지 않아야 하는 경우 `(?<!...)`를 사용한다.
-
-```cuff
-"(?<!USD)[num]+"
-```
-
-`USD` 바로 뒤에 있는 숫자는 매칭하지 않는다.
-
----
-
-# 29. Dot
-
-`.`은 줄바꿈을 제외한 임의의 문자 하나를 의미한다.
-
-```cuff
-"."
-```
-
-Cuff의 기본 `[any]`와 동일한 의미를 가진다.
-
-따라서 다음 두 패턴은 동일하다.
-
-```cuff
-"."
-"[any]"
-```
-
-가독성을 위해 `[any]` 사용을 권장한다.
-
----
-
-# 30. Dotall
-
-줄바꿈까지 `.`에 포함하려면 `s` 플래그를 사용한다.
-
-```cuff
-match text with "." s
-```
-
-또는:
-
-```cuff
-match text with ".*" s
-```
-
----
-
-# 31. Word Boundary
-
-단어 경계를 검사하려면 `\b`를 사용한다.
-
-```cuff
-"\bcat\b"
-```
-
-`cat`이라는 독립 단어와 매칭된다.
-
-다음은 매칭된다.
-
-```text
-cat
-a cat
-cat!
-```
-
-다음은 매칭되지 않는다.
-
-```text
-catalog
-bobcat
-```
-
----
-
-# 32. Non-Word Boundary
-
-단어 경계가 아닌 위치를 검사하려면 `\B`를 사용한다.
-
-```cuff
-"\Bcat\B"
-```
-
----
-
-# 33. Digit / Word / Space Shortcut
-
-JavaScript 정규식 호환성을 위해 다음 Escape를 지원한다.
-
-| 패턴 | 의미             |
-| ---- | ---------------- |
-| `\d` | 숫자             |
-| `\D` | 숫자가 아닌 문자 |
-| `\w` | 영문자/숫자/`_`  |
-| `\W` | `\w`가 아닌 문자 |
-| `\s` | 공백 문자        |
-| `\S` | 공백이 아닌 문자 |
-| `\b` | 단어 경계        |
-| `\B` | 단어 경계가 아님 |
-
-단, 초보자는 다음 Cuff 패턴을 우선 사용할 수 있다.
-
-```cuff
-[num]
-[str]
-[sp]
-```
-
-즉:
-
-```text
-[num] ≈ \d
-[str] ≈ \w - _
-[sp]  ≈ 공백
-```
-
-`[str]`은 `_`를 포함하지 않는다는 점에 주의한다.
-
----
-
-# 34. Unicode
-
-Cuff Regex는 Unicode 문자열을 기본적으로 지원한다.
-
-Unicode 속성 검사가 필요한 경우 `\p{...}`와 `\P{...}`를 사용한다.
-
-```cuff
-"\p{L}+"
-```
-
-Unicode 문자.
-
-```cuff
-"\p{N}+"
-```
-
-Unicode 숫자.
-
-```cuff
-"\p{Script=Hangul}+"
-```
-
-한글 문자.
-
-부정:
-
-```cuff
-"\P{L}+"
-```
-
-Unicode 문자가 아닌 문자.
-
-Unicode 속성 문법은 Unicode 표준 속성을 따른다.
-
----
-
-# 35. Unicode Flag
-
-Unicode Regex 기능은 `u` 플래그를 사용한다.
-
-```cuff
-match text with "\p{L}+" u
-```
-
-Cuff 런타임은 Unicode Regex를 기본적으로 지원해야 하며, `u`는 Unicode 속성 및 Unicode 코드포인트 관련 고급 동작을 명시한다.
-
----
-
-# 36. Flags
-
-Cuff는 JavaScript의 `/pattern/flags` 형태 대신 패턴 뒤에 짧은 flag를 붙인다.
-
-```cuff
-match value with "pattern" i
-```
-
-여러 flag는 연속해서 작성한다.
-
-```cuff
-match value with "pattern" gim
-```
-
-지원 flag:
-
-| Flag | 의미          |
-| ---- | ------------- |
-| `i`  | 대소문자 무시 |
-| `g`  | 모든 매칭     |
-| `m`  | multiline     |
-| `s`  | dotall        |
-| `u`  | Unicode       |
-| `y`  | sticky        |
-
----
-
-# 37. `is` / `IS`와 `i` Flag
-
-일반적인 조건식에서는 `IS`가 대소문자 무시를 담당한다.
-
-```cuff
-if value IS "[str]+" do:
-    ...
-end
-```
-
-따라서 단순한 검사에서는 `i` flag가 필요하지 않다.
-
-`i`는 `match`, `find` 등의 명시적인 Regex API에서 사용할 수 있다.
-
-```cuff
-match value with "[str]+" i
-```
-
----
-
-# 38. Global Flag
-
-`g`는 첫 번째 결과만 반환하지 않고 모든 매칭을 반환한다.
-
-```cuff
-find text with "[num]+" g
-```
-
-예:
-
-```text
-"abc123def456"
-```
-
-결과:
-
-```text
-123
-456
-```
-
-`g`가 없으면 첫 번째 매칭만 반환한다.
-
----
-
-# 39. Multiline Flag
-
-`m`은 `^`, `$`의 동작을 각 줄 기준으로 변경한다.
-
-```cuff
-match text with "^abc$" m
-```
-
-`m`이 없으면 문자열 전체 기준이다.
-
----
-
-# 40. Start / End Anchor
-
-Cuff는 전체 문자열 매칭을 기본으로 하기 때문에 대부분의 경우 `^`, `$`가 필요 없다.
-
-그러나 `find` 또는 `m`과 같은 부분 매칭 상황에서는 JavaScript 호환성을 위해 지원한다.
-
-```cuff
-"^abc"
-"abc$"
-"^abc$"
-```
-
----
-
-# 41. Atomic / Possessive 확장
-
-Cuff Regex 1.0에서는 Atomic Group과 Possessive Quantifier를 기본 문법으로 정의하지 않는다.
-
-따라서 다음은 예약 문법이다.
-
-```text
-(?>
-++
-*+
-?+
-```
-
-향후 엔진 최적화 또는 고급 Regex 확장에서 추가할 수 있다.
-
----
-
-# 42. 조건부 패턴
-
-Regex 내부에서 실행 언어의 조건문을 호출하는 문법은 지원하지 않는다.
-
-즉 다음과 같은 형태는 허용하지 않는다.
-
-```text
-(?(condition)yes|no)
-```
-
-Cuff는 Regex를 실행 코드와 분리한다.
-
-복잡한 조건은 Cuff의 `if`를 사용한다.
-
----
-
-# 43. Backtracking
-
-Cuff Regex 엔진은 기본적으로 Backtracking 기반의 정규식 의미론을 따른다.
-
-다음 요소는 Backtracking 대상이다.
-
-```text
-+
-*
-?
-{N}
-{N,M}
-()
-|
-```
-
-Lookaround 및 Backreference도 Backtracking 규칙에 영향을 받는다.
-
-구현 엔진은 내부적으로 다른 알고리즘을 사용할 수 있지만 결과는 본 명세와 동일해야 한다.
-
----
-
-# 44. 반복 횟수의 정확한 의미
-
-다음:
-
-```cuff
-"[num]4"
-```
-
-는 정확히 4개의 `[num]`을 의미한다.
-
-다음:
-
-```cuff
-"[num]2~5"
-```
-
-는 2, 3, 4, 5회 중 하나를 의미한다.
-
-다음:
-
-```cuff
-"[num]2~"
-```
-
-는 2회 이상을 의미한다.
-
-반복 횟수는 음수가 될 수 없다.
-
-잘못된 예:
-
-```cuff
-"[num]-1"
-"[num]0~"
-"[num]5~2"
-```
-
----
-
-# 45. 숫자 반복 문법과 `~` 슬라이싱의 구분
-
-CuffScript에서 `~`는 컬렉션 슬라이싱에도 사용된다.
-
-```cuff
-colors[2~3]
-```
-
-Regex 문자열 내부에서는 반복 범위를 의미한다.
-
-```cuff
-"[num]2~5"
-```
-
-두 문법은 서로 다른 파서 영역에서 해석되므로 충돌하지 않는다.
-
----
-
-# 46. `:` 사용 규칙
-
-CuffScript의 전역 콜론 규칙을 Regex에도 적용한다.
-
-콜론 앞에는 공백을 둘 수 없다.
-
-올바름:
-
-```cuff
-"[one:yes|no]"
-"<name:[str]+>"
-```
-
-잘못됨:
-
-```cuff
-"[one :yes|no]"
-"<name :[str]+>"
-```
-
----
-
-# 47. Regex와 일반 문자열의 구분
-
-다음 문자열은 일반 문자열로 취급할 수 있는 형태다.
-
-```cuff
-"hello"
-"hello world"
-"010-1234"
-```
-
-Regex 타입 또는 Regex 메타문자가 포함된 경우 패턴으로 해석한다.
-
-```cuff
-"[num]4"
-"[str]+"
-"(abc)"
-"[one:a|b]"
-```
-
-리터럴로 메타문자를 비교해야 하는 경우 Escape한다.
-
-```cuff
-"\[num\]4"
-```
-
-이는 실제 문자열:
-
-```text
-[num]4
-```
-
-와 매칭한다.
-
----
-
-# 48. `[num]`과 `[str]`의 특수 해석
-
-`[num]`과 `[str]`은 문자 집합이 아니라 Cuff의 기본 Pattern Token이다.
-
-따라서:
-
-```cuff
-"[num]4"
-```
-
-는:
-
-```text
-숫자 4개
-```
-
-로 해석된다.
-
-반면:
-
-```cuff
-"\[num\]4"
-```
-
-는:
-
-```text
-[num]4
-```
-
-라는 실제 문자열을 찾는다.
-
----
-
-# 49. 중첩
-
-Pattern Token은 그룹 및 반복과 함께 사용할 수 있다.
-
-```cuff
-"([num]-[num])+"
-```
-
-```cuff
-"([one:A|B][num]2)+"
-```
-
-Named Capture도 중첩할 수 있다.
-
-```cuff
-"<id:(ID-[num]4)>"
-```
-
-다만 이름이 같은 Named Capture를 중복 선언하는 것은 금지한다.
-
-잘못된 예:
-
-```cuff
-"<id:[num]2>-<id:[num]2>"
-```
-
----
-
-# 50. 이름 규칙
-
-Named Capture의 이름은 Cuff 식별자 규칙을 따른다.
-
-권장:
-
-```text
-year
-month
-day
-user_id
-name
-```
-
-금지:
-
-```text
-123
-my-name
-hello world
-```
-
-Named Capture 이름은 대소문자를 구분한다.
-
-```text
-<id:[num]+>
-<ID:[num]+>
-```
-
-`id`와 `ID`는 서로 다른 이름이다.
-
----
-
-# 51. Escape와 Cuff 문자열
-
-Regex는 Cuff 문자열 내부에 존재하므로 문자열 Escape와 Regex Escape의 두 단계를 고려해야 한다.
-
-예:
-
-```cuff
-"\\d+"
-```
-
-Cuff 문자열 해석 후 Regex 엔진에는:
-
-```text
-\d+
-```
-
-가 전달된다.
-
-런타임은 문자열 Escape 처리 후 Regex Parser를 실행해야 한다.
-
----
-
-# 52. Regex 오류
-
-Regex 문법이 잘못된 경우 단순히 `false`를 반환하지 않는다.
-
-다음은 `Regex Syntax Error`다.
-
-```text
-"[num]+4"
-"[num]5~2"
-"["
-"(abc"
-"[one:]"
-"\"
-```
-
-런타임은 패턴 컴파일 단계에서 오류를 발생시킨다.
-
----
-
-# 53. Runtime Regex Error
-
-문법은 올바르지만 실행할 수 없는 경우 `Regex Runtime Error`가 발생한다.
-
-예:
-
-- 유효하지 않은 Unicode 속성
-- 지원하지 않는 Regex 기능
-- 잘못된 Backreference
-- 엔진의 실행 제한 초과
-
----
-
-# 54. Backreference 오류
-
-존재하지 않는 캡처를 참조하면 오류다.
-
-```cuff
-"(abc)-\2"
-```
-
-첫 번째 캡처만 존재하므로 `\2`는 잘못된 참조다.
-
-Named Capture도 동일하다.
-
-```cuff
-"<name:[str]+>-\k<id>"
-```
-
-`id`가 존재하지 않으므로 오류다.
-
----
-
-# 55. 빈 패턴
-
-빈 문자열 패턴은 빈 문자열과 매칭한다.
-
-```cuff
-""
-```
-
-다른 문자열에는 매칭하지 않는다.
-
-`*`와 함께 사용할 경우 빈 문자열 매칭이 발생할 수 있다.
-
-```cuff
-"[num]*"
-```
-
 ---
-
-# 56. Regex 보안
-
-Regex 엔진은 과도한 Backtracking으로 인해 실행 시간이 폭증할 수 있다.
-
-런타임은 Regex 실행에 다음 제한을 둘 수 있다.
-
-```text
-Maximum Regex Steps
-Maximum Regex Time
-Maximum Capture Size
-```
-
-제한을 초과하면 `Regex Runtime Error`를 발생시킨다.
 
-언어 구현체는 이를 무한 실행으로 방치해서는 안 된다.
+## 4. 전체 일치(Full Match) 기본 원칙
 
----
-
-# 57. 권장 기본 문법
+CuffScript의 조건문 검증은 기본적으로 대상 문자열의 **처음부터 끝까지 전체가 일치**하는지 검사합니다.
 
-초보자는 다음 문법만으로 대부분의 검증을 작성할 수 있다.
+따라서 타 언어 정규식처럼 시작 앵커(`^`)나 끝 앵커(`$`)를 붙일 필요가 없습니다.
 
 ```cuff
-[num]
-[str]
-[let]
-[up]
-[low]
-[any]
-
-+
-*
-?
-N
-N~M
-
-[one:a|b|c]
-[abc]
-[a-z]
+set str pin to "1234"
 
-(abc)
-<name:abc>
-```
-
----
-
-# 58. 예제 — PIN
-
-```cuff
+note: 정확히 4자리 전체가 일치해야 참이 됩니다.
 if pin is "[num]4" do:
-    print("PIN 통과")
+    print("올바른 PIN 번호")
+end
+```
+
+- `"1234"` → 참 (`true`)
+- `"123"` → 거짓 (`false`)
+- `"A123"` → 거짓 (`false`)
+- `"12345"` → 거짓 (`false`)
+
+---
+
+## 5. 기본 문자 단위 토큰
+
+외우기 어려운 이스케이프 기호 대신, 대괄호로 감싼 직관적인 단어형 토큰을 제공합니다.
+
+| 패턴 토큰 | 의미                    | 매칭 범위                                |
+| :-------- | :---------------------- | :--------------------------------------- |
+| `[num]`   | 숫자 1개                | `0` ~ `9`                                |
+| `[let]`   | 영문 알파벳 1개         | `a` ~ `z`, `A` ~ `Z`                     |
+| `[low]`   | 영문 소문자 1개         | `a` ~ `z`                                |
+| `[up]`    | 영문 대문자 1개         | `A` ~ `Z`                                |
+| `[sp]`    | 공백 문자 1개           | 스페이스(공백), 탭(`\t`)                 |
+| `[nl]`    | 줄바꿈 문자 1개         | 개행 문자(`\n`, `\r\n`)                  |
+| `[any]`   | 임의의 문자 1개         | 줄바꿈을 제외한 세상의 모든 글자 및 기호 |
+
+---
+
+## 6. `[str]` 토큰 (영문자 및 숫자)
+
+`[str]`은 프로그래밍에서 가장 흔히 검사하는 **영문 알파벳과 숫자의 조합** 1글자를 나타냅니다.
+
+- 매칭 대상: `A-Z`, `a-z`, `0-9`
+- 특수문자(`_`, `-`, `@`, `.` 등)는 포함되지 않습니다.
+
+```cuff
+set str id to "user2026"
+
+if id is "[str]8" do:
+    print("영문/숫자 8글자 일치")
 end
 ```
 
 ---
 
-# 59. 예제 — 사용자 ID
+## 7. `[word]` 토큰 (식별자 및 단어 문자)
+
+`[word]`는 영문자, 숫자뿐만 아니라 **언더바(`_`) 기호**까지 포함하는 단어 구성 문자 1개를 의미합니다.
+
+- 매칭 대상: `A-Z`, `a-z`, `0-9`, `_`
+- 변수명, 계정 ID 등에 특수문자 `_`를 허용할 때 주로 사용합니다.
 
 ```cuff
-if user_id is "[str]3~20" do:
-    print("ID 통과")
+set str account to "admin_cuff_01"
+
+if account is "[word]+" do:
+    print("유효한 계정 식별자 형식입니다.")
 end
 ```
 
 ---
 
-# 60. 예제 — 전화번호
+## 8. 정확한 반복 횟수 (`N`)
+
+토큰 뒤에 양의 정수 숫자를 붙이면 **해당 횟수만큼 정확히 반복**됨을 의미합니다. 중괄호(`{N}`) 기호를 사용할 필요가 없습니다.
 
 ```cuff
-if phone is "010-[num]4-[num]4" do:
-    print("올바른 번호")
+note: 숫자 6자리 (생년월일 형식)
+"[num]6"
+
+note: 영문 대문자 3자리
+"[up]3"
+
+note: 영문자/숫자 4자리
+"[str]4"
+```
+
+---
+
+## 9. 최소 반복 수량자 (`+`, `*`)
+
+- `+` : 직전 원자가 **1개 이상** 존재해야 함 (최소 1번)
+- `*` : 직전 원자가 **0개 이상** 존재해야 함 (없어도 되고 여러 개 있어도 됨)
+
+```cuff
+note: 공백이 1개 이상 연속됨
+"[sp]+"
+
+note: 숫자가 아예 없거나 여러 개 연속됨
+"[num]*"
+```
+
+---
+
+## 10. 선택적 존재 수량자 (`?`)
+
+`?`는 직전 원자가 **0개 또는 1개** 존재함을 나타냅니다. (있어도 되고 없어도 되는 조건)
+
+```cuff
+note: http 또는 https 둘 다 허용
+if protocol is "https?" do:
+    print("웹 프로토콜 확인")
+end
+
+note: color(미국식) 및 colour(영국식) 둘 다 일치
+if text is "colou?r" do:
+    print("단어 일치")
 end
 ```
 
 ---
 
-# 61. 예제 — 이메일
+## 11. 물결 범위 반복 수량자 (`~`)
 
-간단한 이메일:
+CuffScript의 고유 문법인 물결(`~`) 기호를 사용하여 최소 횟수와 최대 횟수를 직관적으로 지정합니다.
+
+- `N~M` : 최소 N개 이상, 최대 M개 이하 (Inclusive)
+- `N~` : 최소 N개 이상 (상한선 없음)
+- `~M` : 최대 M개 이하 (최소 0개부터 M개까지)
 
 ```cuff
-if email IS "[str]+@[str]+.[str]2~10" do:
-    print("이메일 형식")
+note: 비밀번호 영문/숫자 8자리 이상 16자리 이하
+if password is "[str]8~16" do:
+    print("적절한 길이의 비밀번호")
 end
-```
 
-`.`을 실제 문자로 사용하려면 Regex에서 `\.`을 사용한다.
-
-```cuff
-if email IS "[str]+@[str]+\.[str]2~10" do:
-    print("이메일 형식")
-end
-```
-
-실제 서비스 수준의 이메일 검증은 별도의 `[email]` 타입 패턴을 사용할 수 있다.
-
----
-
-# 62. 예제 — 선택
-
-```cuff
-if status is "[one:ready|running|stopped]" do:
-    print("상태 확인")
+note: 영문자 2글자 이상 무제한
+if code is "[let]2~" do:
+    print("통과")
 end
 ```
 
 ---
 
-# 63. 예제 — 날짜
+## 12. 탐욕(Greedy) 및 게으른(Lazy) 매칭
+
+기본 수량자(`+`, `*`, `~`)는 가능한 한 가장 긴 문자열을 삼키는 **Greedy(탐욕적)** 방식으로 동작합니다.
+
+수량자 바로 뒤에 `?`를 덧붙이면 가능한 한 가장 짧게 일치하는 **Lazy(소극적)** 방식으로 전환됩니다.
 
 ```cuff
-if date is "<year:[num]4>-<month:[num]2>-<day:[num]2>" do:
-    print("날짜 형식")
+note: Greedy 방식: 첫 번째 <tag>부터 맨 마지막 </tag>까지 전부 삼킴
+"<tag>[any]*</tag>"
+
+note: Lazy 방식: 가장 가까운 </tag>를 만나면 즉시 매칭 완료
+"<tag>[any]*?</tag>"
+```
+
+---
+
+## 13. 소괄호 그룹 (`(...)`)
+
+여러 패턴 토큰을 하나로 묶어 수량자를 적용하거나 연산 단위를 만들 때는 소괄호 `()`를 사용합니다.
+
+```cuff
+note: "AB"라는 단어 세트가 3번 반복 ("ABABAB")
+if code is "(AB)3" do:
+    print("반복 코드 통과")
+end
+
+note: "숫자2개-문자2개" 묶음이 1개 이상 연결
+if token is "([num]2-[let]2)+" do:
+    print("복합 토큰 일치")
 end
 ```
 
 ---
 
-# 64. 예제 — 반복 그룹
+## 14. 단어 선택 토큰 (`[one:...]`)
+
+제시된 여러 후보 단어나 기호 중 **단 하나**와 일치해야 할 때는 `[one:후보1|후보2|...]` 구조를 사용합니다.
+
+콜론 앞 공백 금지 규격을 준수해야 합니다.
 
 ```cuff
-if code is "(AB-[num]2)+" do:
-    print("코드 통과")
+note: 파일 확장자 검사
+if ext is "[one:jpg|png|gif|webp]" do:
+    print("지원하는 이미지 포맷입니다.")
+end
+
+note: 결제 수단 판정
+if payment is "[one:card|cash|point]" do:
+    print("정상 결제 수단")
 end
 ```
 
 ---
 
-# 65. 예제 — 같은 값 반복
+## 15. 사용자 정의 문자 세트 (`[...]`)
+
+특정 문자 범위나 원하는 글자들의 집합을 직접 지정할 때는 대괄호 안에 문자 목록을 나열합니다.
+
+- `[abc]` : `a`, `b`, `c` 중 문자 1개
+- `[a-z]` : 영문 소문자 범위 중 1개
+- `[0-9]` : 숫자 범위 중 1개 (`[num]`과 동일)
+- `[A-Z]` : 영문 대문자 범위 중 1개
 
 ```cuff
-if value is "([str]+)-\1" do:
-    print("같은 문자열 반복")
+note: 주민등록번호 성별 식별 숫자 (1, 2, 3, 4 중 하나)
+if gender_code is "[1234]" do:
+    print("올바른 성별 식별 번호")
 end
 ```
 
 ---
 
-# 66. 예제 — 대소문자 무시
+## 16. 부정 문자 세트 (`[!...]`)
+
+대괄호 문자 세트의 첫 글자로 느낄표(`!`)를 배치하면, **해당 문자들을 제외한 나머지 문자**와 매칭됩니다.
+
+- `[!0-9]` : 숫자가 아닌 모든 문자 1개
+- `[!a-z]` : 영문 소문자가 아닌 모든 문자 1개
+- `[!sp]` : 공백이 아닌 모든 문자 1개
 
 ```cuff
-if command IS "[one:start|stop|pause]" do:
-    print("명령 확인")
+note: 공백이 전혀 없는 문자열이 1개 이상 지속
+if input_data is "[!sp]+" do:
+    print("공백이 포함되지 않은 유효한 단어")
 end
 ```
 
 ---
 
-# 67. 예제 — 숫자 추출
+## 17. 단어 경계 토큰 (`[edge]`)
+
+JavaScript의 `\b`에 대응하며, 단어와 비단어(공백, 구두점, 문장의 시작과 끝) 사이의 **경계 지점**을 의미합니다.
+
+단어 경계를 사용하면 더 긴 단어 속에 포함된 부분 문자열 오탐지를 차단합니다.
 
 ```cuff
-set match result to find text with "[num]+"
+set str sentence to "The category of catalog is books"
+
+note: 'cat'이라는 독립된 단어만 검색 (category나 catalog는 제외)
+set list result to find "[edge]cat[edge]" from sentence g
+
+print(result) note: 빈 결과 반환 (cat 단독 단어가 없음)
+```
+
+---
+
+## 18. 수치 데이터 프리셋 토큰 (`[int]`, `[float]`, `[hex]`)
+
+자주 사용하는 숫자 형식을 매번 정규식 기호로 조립하지 않고 즉시 사용할 수 있는 고급 단축 토큰을 제공합니다.
+
+| 프리셋 토큰 | 설명                                  | 매칭 예시               |
+| :---------- | :------------------------------------ | :---------------------- |
+| `[int]`     | 부호를 포함할 수 있는 정수            | `100`, `-25`, `+7`      |
+| `[float]`   | 부호를 포함할 수 있는 소수점 실수     | `3.14`, `-0.05`, `10.0` |
+| `[hex]`     | 16진수 문자 1개 (`0-9`, `a-f`, `A-F`) | `A`, `f`, `9`           |
+
+```cuff
+set str coordinate to "-12.54"
+
+if coordinate is "[float]" do:
+    print("유효한 좌표 실수값입니다.")
+end
+```
+
+---
+
+## 19. 실무 포맷 프리셋 토큰 (`[email]`, `[phone]`, `[url]`)
+
+입문자들이 가장 많이 작성하는 정형 데이터 검증을 단축 토큰 하나로 완결할 수 있습니다.
+
+| 프리셋 토큰 | 설명                          | 매칭 규격                           |
+| :---------- | :---------------------------- | :---------------------------------- |
+| `[email]`   | 표준 인터넷 전자우편 주소     | `계정@도메인.최상위도메인`          |
+| `[phone]`   | 대한민국 유무선 전화번호 규격 | `010-XXXX-XXXX`, `02-XXX-XXXX` 등   |
+| `[url]`     | 웹 주소 프로토콜 규격         | `http://` 또는 `https://` 시작 주소 |
+
+```cuff
+set str user_contact to "010-8888-9999"
+
+if user_contact is "[phone]" do:
+    print("올바른 대한민국 전화번호 형식입니다.")
+end
+```
+
+---
+
+## 20. 특수 기호 이스케이프 (`\`)
+
+패턴 내부에서 문법적 의미를 지니는 특수 문자들을 순수한 글자 그 자체로 취급하려면 역슬래시(`\`)를 붙여야 합니다.
+
+- 이스케이프 대상 기호: `[`, `]`, `(`, `)`, `<`, `>`, `+`, `*`, `?`, `~`, `|`, `.`, `\`, `:`
+
+```cuff
+note: 실제 점(.) 기호를 검사할 때는 이스케이프가 필요합니다.
+if filename is "[str]+\.png" do:
+    print("PNG 파일 확장자입니다.")
+end
+
+note: 괄호 기호 자체를 검사할 때
+if math_exp is "\([num]+\)" do:
+    print("괄호로 감싸진 숫자입니다.")
+end
+```
+
+---
+
+## 21. 콜론 공백 엄격 준수 규칙
+
+CuffScript의 언어적 대원칙에 따라, 정규식 내부 토큰(`[one:...]`, `<name:...>`)에서도 **콜론 앞 공백은 절대 금지**됩니다.
+
+이를 위반하면 렉서 단계에서 즉시 정규식 문법 에러(`Regex Syntax Error`)를 발생시킵니다.
+
+- **올바른 예:** `"[one:apple|banana]"`, `"<price:[num]+>"`
+- **잘못된 예:** `"[one :apple|banana]"`, `"<price :[num]+>"`
+
+---
+
+## 22. 1-Based 인덱스 캡처 추출 (`match`)
+
+문자열에서 소괄호 `()`로 감싼 부분의 실제 값을 추출할 때는 `match` 구문을 사용합니다.
+
+언어 철학에 따라 결과 접근 인덱스는 **1번부터 시작**합니다.
+
+매칭에 실패하면 결과 변수에는 `empty`가 대입됩니다.
+
+```cuff
+set str serial to "SN-2026-998"
+set match result to match serial from "SN-([num]4)-([num]+)"
 
 if result is not empty do:
-    print(result[1])
+    print(f"제작연도: {result[1]}") note: "2026"
+    print(f"고유번호: {result[2]}") note: "998"
 end
 ```
 
-`is not`은 별도의 Regex 문법이 아니라 Cuff의 논리 비교 문법으로 처리한다.
-
 ---
 
-# 68. 예제 — Named Capture
+## 23. 이름 지정 캡처 (Named Capture: `<name:...>`)
+
+소괄호 번호 대신 직관적인 이름을 지정하여 데이터를 추출할 수 있습니다. 추출된 결과는 맵(Map) 스타일로 키를 통해 조회합니다.
 
 ```cuff
-set match result to match date with "<year:[num]4>-<month:[num]2>-<day:[num]2>"
+set str date_text to "2026-12-25"
+set match res to match date_text from "<year:[num]4>-<month:[num]2>-<day:[num]2>"
 
-print(result["year"])
-print(result["month"])
-print(result["day"])
+if res is not empty do:
+    print(f"연도: {res['year']}")  note: "2026"
+    print(f"월: {res['month']}")   note: "12"
+    print(f"일: {res['day']}")     note: "25"
+end
 ```
 
 ---
 
-# 69. 예제 — Lookahead
+## 24. 본문 검색 및 전체 수집 (`find` & `g`)
+
+전체 일치가 아닌, 긴 본문 속에서 패턴에 부합하는 조각을 찾아낼 때는 `find` 명령어를 사용합니다.
+
+- 단독 사용: 최초로 발견된 **단 하나의 텍스트를 문자열로 반환**합니다.
+- `g` 플래그 결합: 발견된 **모든 매칭 텍스트를 1-Based 리스트로 반환**합니다.
+- 매칭 없을 시: **`empty` 반환**
 
 ```cuff
-set match result to find text with "[num]+(?=원)"
+set str article to "티켓 번호: T-101, 다음 티켓: T-205, 보조 티켓: T-309"
+
+note: 첫 매칭만 추출 (문자열 반환)
+set str first_ticket to find "T-[num]3" from article
+print(first_ticket) note: "T-101"
+
+note: 모든 매칭 수집 (g 플래그, 1-Based 리스트 반환)
+set list tickets to find "T-[num]3" from article g
+
+print(tickets[1]) note: "T-101"
+print(tickets[2]) note: "T-205"
+print(tickets[3]) note: "T-309"
+
+note: 매칭 없을 시 empty 반환
+set str result to find "T-[num]5" from article
+if result is empty do:
+    print("매칭되는 패턴이 없습니다.")
+end
 ```
-
-`100원`에서:
-
-```text
-100
-```
-
-을 찾는다.
-
-`원` 자체는 매칭 결과에 포함되지 않는다.
 
 ---
 
-# 70. 예제 — Lookbehind
+## 25. 패턴 기반 문자열 치환 (`replace pattern in text to`)
+
+정규식 패턴에 해당하는 구간을 다른 문자열로 갈아 끼울 때는 `replace in to` 자연어 구문을 사용합니다.
 
 ```cuff
-set match result to find text with "(?<=USD)[num]+"
+set str raw_log to "전화번호: 010-1234-5678 개인정보"
+
+note: 중간 번호 4자리를 마스킹(****) 처리
+set str masked_log to replace "010-[num]4-" in raw_log to "010-****-"
+
+print(masked_log) note: "전화번호: 010-****-5678 개인정보"
 ```
 
-`USD100`에서:
-
-```text
-100
-```
-
-을 찾는다.
-
-`USD`는 매칭 결과에 포함되지 않는다.
-
----
-
-# 71. 예제 — 모든 숫자 찾기
+전체 치환을 수행하려면 구문 끝에 `g` 플래그를 붙입니다.
 
 ```cuff
-set match result to find text with "[num]+" g
+set str clean_text to replace "[sp]+" in "Hello   Cuff    World" to " " g
+print(clean_text) note: "Hello Cuff World"
 ```
 
 ---
 
-# 72. 예제 — Unicode
+## 26. 패턴 기반 문자열 분할 (`split text by`)
+
+특정 기호나 패턴을 기준선 삼아 문자열을 여러 조각으로 쪼갈 때는 `split by` 구문을 사용합니다.
 
 ```cuff
-set match result to find text with "\p{L}+" u
-```
+set str tag_data to "사과, 배; 포도: 감귤"
 
-Unicode 문자 단위로 검색한다.
+note: 쉼표, 세미콜론, 콜론 뒤에 공백이 붙은 복합 구분자 기준으로 분할
+set list fruit_list to split tag_data by "[,;:][sp]*"
+
+loop repeat i to 1 ~ 4 do:
+    print(f"과일 {i}: {fruit_list[i]}")
+end
+```
 
 ---
 
-# 73. 예제 — 여러 Flag
+## 27. 패턴 출현 빈도 카운팅 (`count pattern in text`)
+
+본문 텍스트 내에서 특정 패턴이 몇 번 등장하는지 즉시 정수 숫자로 계산할 수 있습니다.
+
+매칭이 없을 시: **`0` 반환**
 
 ```cuff
-set match result to find text with "^cuff" gim
-```
+set str document to "apple, banana, Apple, orange, APPLE"
 
-의미:
+note: 대소문자 무시(i) 상태로 등장 횟수 산출
+set number apple_count to count "apple" in document i
 
-```text
-g = 모든 매칭
-i = 대소문자 무시
-m = 줄 단위 검사
+print(f"사과 단어 등장 횟수: {apple_count}") note: 3
+
+note: 매칭이 없으면 0 반환
+set number grape_count to count "grape" in document
+print(f"포도 단어 등장 횟수: {grape_count}") note: 0
 ```
 
 ---
 
-# 74. JavaScript Regex와의 대응
+## 28. 플래그(Flags) 시스템
 
-Cuff는 JavaScript Regex의 개념을 다음과 같이 대응한다.
+검색 구문(`find`, `match`, `count`, `replace`)의 맨 뒤에는 검색 방식을 튜닝하는 플래그를 덧붙일 수 있습니다.
 
-| JavaScript   | Cuff              |
-| ------------ | ----------------- |
-| `\d`         | `[num]`           |
-| `\w`         | `[str]` 또는 `\w` |
-| `\s`         | `[sp]` 또는 `\s`  |
-| `.`          | `[any]`           |
-| `{4}`        | `4`               |
-| `{2,5}`      | `2~5`             |
-| `{2,}`       | `2~`              |
-| `?`          | `?`               |
-| `+`          | `+`               |
-| `*`          | `*`               |
-| `(abc)`      | `(abc)`           |
-| `(?:abc)`    | `(?:abc)`         |
-| `a\|b`       | `[one:a\|b]`      |
-| `[a-z]`      | `[a-z]`           |
-| `[^a-z]`     | `[!a-z]`          |
-| `(?=x)`      | `(?=x)`           |
-| `(?!x)`      | `(?!x)`           |
-| `(?<=x)`     | `(?<=x)`          |
-| `(?<!x)`     | `(?<!x)`          |
-| `\1`         | `\1`              |
-| `(?<name>x)` | `<name:x>`        |
-| `\k<name>`   | `\k<name>`        |
-| `^`          | `^`               |
-| `$`          | `$`               |
-| `/i`         | `i` 또는 `IS`     |
-| `/g`         | `g`               |
-| `/m`         | `m`               |
-| `/s`         | `s`               |
-| `/u`         | `u`               |
-| `/y`         | `y`               |
+| 플래그 | 명칭        | 기능 설명                                                |
+| :----- | :---------- | :------------------------------------------------------- |
+| `i`    | Ignore Case | 영문 대소문자를 구분하지 않고 검색합니다.                |
+| `g`    | Global      | 첫 일치에서 멈추지 않고 텍스트 전체를 순회합니다.        |
+| `m`    | Multiline   | 줄바꿈 문자를 기준으로 각 행마다 시작과 끝을 적용합니다. |
 
----
-
-# 75. 설계 원칙
-
-Cuff Regex는 다음 우선순위를 가진다.
-
-### 1. 짧은 문법
+여러 플래그는 띄어쓰기 없이 연달아 작성할 수 있습니다: `gim`
 
 ```cuff
-"[num]4"
+set list matches to find "error:[num]+" from server_logs gi
 ```
 
-는:
+---
 
-```regex
-\d{4}
-```
+## 29. 부분 매칭용 앵커 토큰 (`[start]`, `[end]`)
 
-보다 우선한다.
+`find`나 `replace` 등 텍스트 내부 부분 검색 구문을 사용할 때, 문장의 맨 앞이나 맨 뒤 위치를 강제하려면 앵커 토큰을 사용합니다. (전통 정규식의 `^`, `$`에 대응)
 
-### 2. 기존 Regex와의 호환성
-
-고급 사용자는 다음과 같은 기존 Regex 개념을 사용할 수 있어야 한다.
-
-```text
-()
-|
-[]
-{}
-^
-$
-.
-*
-+
-?
-\
-\b
-\d
-\w
-\s
-(?=)
-(?!)
-(?<=)
-(?<!)
-```
-
-### 3. 의미 기반 문법
-
-초보자는 기호를 몰라도 사용할 수 있어야 한다.
+- `[start]` : 텍스트의 맨 처음 위치
+- `[end]` : 텍스트의 맨 끝 위치
 
 ```cuff
-[num]
-[str]
-[one:a|b]
-```
+set str message to "NOTICE: 점검이 시작됩니다."
 
-### 4. 고급 기능은 짧게
-
-복잡한 기능도 가능한 한 JavaScript보다 길어지지 않도록 한다.
-
----
-
-# 76. 예약 문법
-
-다음 문법은 현재 Regex 1.0에서 예약되어 있다.
-
-```text
-(?:
-(?=
-(?!
-(?<=
-(?<!
-<name:
-\k<
-\p{
-\P{
-```
-
-향후 기능 확장을 위해 다른 의미로 재사용해서는 안 된다.
-
----
-
-# 77. 미지원 기능
-
-Regex 1.0에서는 다음 기능을 필수로 제공하지 않는다.
-
-```text
-(?>...)
-++
-*+
-?+
-조건부 Regex
-재귀 Regex
-서브루틴 호출
-```
-
-이들은 향후 버전에서 추가할 수 있다.
-
----
-
-# 78. 엔진 호환성 원칙
-
-Cuff Regex 구현체가 내부적으로 JavaScript의 RegExp 엔진을 사용하더라도 Cuff 문법을 먼저 해석해야 한다.
-
-처리 순서는 다음과 같다.
-
-```text
-Cuff Source
-    ↓
-Cuff String Parser
-    ↓
-Cuff Regex Parser
-    ↓
-Cuff Regex AST
-    ↓
-Runtime Regex Engine
-```
-
-구현체가 JavaScript가 아니더라도 최종 동작은 본 명세와 동일해야 한다.
-
----
-
-# 79. 핵심 문법 요약
-
-```text
-[num]       숫자
-[str]       영문자/숫자
-[let]       영문자
-[up]        대문자
-[low]       소문자
-[sp]        공백
-[any]       임의 문자
-[nl]        줄바꿈
-
-N           정확히 N개
-+           1개 이상
-*           0개 이상
-?           0개 또는 1개
-N~M         N~M개
-N~          N개 이상
-
-[one:a|b]   a 또는 b
-[abc]       a,b,c 중 하나
-[a-z]       범위
-[!a-z]      부정 범위
-
-(...)       캡처 그룹
-(?:...)     비캡처 그룹
-<name:...>  이름 캡처
-
-\1          캡처 참조
-\k<name>    이름 캡처 참조
-
-(?=...)     Lookahead
-(?!...)     Negative Lookahead
-(?<=...)    Lookbehind
-(?<!...)    Negative Lookbehind
-
-.           임의 문자
-^           시작
-$           끝
-\b          단어 경계
-\B          단어 경계 아님
-
-\d          숫자
-\D          숫자 아님
-\w          word 문자
-\W          word 문자 아님
-\s          공백
-\S          공백 아님
-
-\p{...}     Unicode 속성
-\P{...}     Unicode 속성 부정
-
-i           대소문자 무시
-g           전체 매칭
-m           multiline
-s           dotall
-u           Unicode
-y           sticky
+note: 맨 처음에 위치한 공지 사항 헤더만 검색
+set match alert to find "[start]NOTICE:" from message
 ```
 
 ---
 
-# 80. 최종 예제
+## 30. 빈 패턴 및 공백 검사
+
+- `""` (빈 패턴)은 길이가 0인 빈 문자열과만 매칭됩니다.
+- 공백이 누락되거나 문법이 비어 있는 `[one:]` 등의 형태는 컴파일 단계에서 차단됩니다.
 
 ```cuff
-note: Cuff Regex 종합 예제
+set str empty_box to ""
 
-set str phone to "010-1234-5678"
-set str email to "Player_One@CuffLang.com"
-set str code to "CUFF-2026"
+if empty_box is "" do:
+    print("비어있는 텍스트 확인")
+end
+```
 
-if phone is "010-[num]4-[num]4" do:
-    print("전화번호 통과")
+---
+
+## 31. 안전장치 `or_else`와의 결합
+
+정규식을 활용한 매칭이나 파싱 작업이 실패하여 `empty`가 발생하거나 런타임 오류가 예상될 때, CuffScript 고유의 `or_else do:` 블록을 즉시 결합할 수 있습니다.
+
+```cuff
+set match user_info to match input_str from "<name:[str]+>-(<id:[str]+>)" or_else do:
+    print("포맷 해석 실패! 기본 정보로 대체합니다.")
+    change user_info to {"name": "guest", "id": "0000"}
+end
+```
+
+---
+
+## 32. 정규식 문법 에러 (Regex Syntax Error)
+
+패턴 문자열 내부 문법이 올바르지 않으면 조용히 `false`를 내놓지 않고 렉서 및 파서 단계에서 즉시 `Regex Syntax Error`를 일으켜 버그를 신속히 격리합니다.
+
+**문법 에러 발생 사례:**
+
+- 닫히지 않은 괄호: `"(abc"`
+- 닫히지 않은 대괄호: `"[num"`
+- 잘못된 콜론 공백: `"[one :a|b]"`
+- 역순 수량 범위: `"[num]5~2"` (시작값이 끝값보다 큼)
+- 연속된 무의미한 중복 수량자: `"[num]++"`
+
+---
+
+## 33. 실행 한도 및 안전장치 (Regex ReDoS 방어)
+
+엔진은 초보자의 미숙한 수량자 조합(`([any]+)+` 등)으로 인한 무한 루프(Catastrophic Backtracking)를 방지하기 위해 최대 매칭 스텝 수(Step Limit)와 시간 제한(Timeout)을 기본 탑재합니다.
+
+지정된 임계치를 초과하면 시스템 폭주를 막기 위해 `Regex Runtime Error`를 송출하고 엔진을 안전하게 비상 정지시킵니다.
+
+---
+
+## 34. 실전 예제 1 — 회원가입 폼 데이터 유효성 검사
+
+```cuff
+set str user_id to "cuff_master"
+set str user_pw to "pass1234!"
+set str user_name to "Alice"
+
+note: 아이디: 영문/숫자/_ 조합의 6~12자리
+if !(user_id is "[word]6~12") do:
+    print("아이디 형식 오류")
 end
 
-if email IS "[str]+@[str]+\.[str]2~10" do:
-    print("이메일 통과")
+note: 비밀번호: 특수문자 포함 최소 8자리
+if user_pw is "[str!]{8,}" do:
+    print("올바른 비밀번호 형식")
 end
-
-if code is "<name:CUFF>-[year:[num]4]" do:
-    print(f"코드 이름: {name}")
-    print(f"코드 연도: {year}")
-end
-
-set match result to find "price 100원, price 200원" with "[num]+(?=원)" g
-
-print(result[1])
-print(result[2])
 ```
 
 ---
 
-# 81. 최종 철학
-
-Cuff Regex는 정규식을 단순화하기 위해 기능을 제거하는 것이 아니다.
-
-**JavaScript급 Regex의 표현력을 유지하면서, 자주 사용하는 기능을 Cuff의 짧은 타입 문법으로 압축하는 것을 목표로 한다.**
-
-따라서:
-
-```regex
-\d{4}
-```
-
-보다:
+## 35. 실전 예제 2 — 한국형 데이터 검증 (전화번호 및 사업자등록번호)
 
 ```cuff
-[num]4
+set str mobile to "010-7777-8888"
+set str biz_no to "123-45-67890"
+
+note: 휴대전화 번호 검증
+if mobile is "010-[num]4-[num]4" do:
+    print("유효한 휴대폰 번호")
+end
+
+note: 사업자등록번호 3자리-2자리-5자리 검증
+if biz_no is "[num]3-[num]2-[num]5" do:
+    print("유효한 사업자등록번호 구조")
+end
 ```
 
-를 권장하고,
+---
 
-```regex
-[a-zA-Z0-9]+
-```
-
-보다:
+## 36. 실전 예제 3 — 서버 로그 파일 데이터 파싱
 
 ```cuff
-[str]+
+set str log_line to "2026-03-31 [ERROR] 192.168.0.1 - DB Connection Lost"
+
+set match parsed to match log_line from "<date:[num]4-[num]2-[num]2> \[[one:INFO|WARN|ERROR]\] <ip:[num]1~3\.[num]1~3\.[num]1~3\.[num]1~3> - <msg:[any]+>"
+
+if parsed is not empty do:
+    print(f"발생 일자: {parsed['date']}")
+    print(f"클라이언트 IP: {parsed['ip']}")
+    print(f"에러 메시지: {parsed['msg']}")
+end
 ```
 
-를 권장한다.
+---
 
-하지만 고급 사용자는 다음과 같은 표현도 사용할 수 있어야 한다.
+## 37. 실전 예제 4 — 문서 내 개인정보 마스킹 (치환)
 
 ```cuff
-"<id:[str]+>-(?=\d{4})[num]4"
+set str doc to "문의자 전화번호는 010-1111-2222 입니다."
+
+note: 휴대전화 번호 전체를 찾아 안심 번호 라벨로 일괄 치환
+set str secured_doc to replace "010-[num]4-[num]4" in doc to "[전화번호 비공개]"
+
+print(secured_doc) note: "문의자 전화번호는 [전화번호 비공개] 입니다."
 ```
 
-즉 Cuff Regex의 핵심은:
+---
+
+## 38. 실전 예제 5 — 자연어 텍스트 분할 및 단어 추출
+
+```cuff
+set str raw_tags to "python, cuff; javascript / kotlin"
+
+note: 쉼표, 세미콜론, 슬래시 및 주변 공백을 묶어서 분할 기준으로 적용
+set list tags to split raw_tags by "[sp]*[,;/][sp]*"
+
+loop repeat idx to 1 ~ 4 do:
+    print(f"등록 태그 #{idx}: {tags[idx]}")
+end
+```
+
+---
+
+## 39. CuffScript Regex 토큰 퀵 레퍼런스
 
 ```text
-쉬운 입문
-    +
-짧은 문법
-    +
-높은 표현력
-    +
-JavaScript급 기능
-```
+[문자 토큰]
+  [num]       : 숫자 (0-9)
+  [let]       : 영문 알파벳 (a-z, A-Z)
+  [low]       : 영문 소문자 (a-z)
+  [up]        : 영문 대문자 (A-Z)
+  [str]       : 영문자 + 숫자 (a-zA-Z0-9)
+  [word]      : 영문자 + 숫자 + 언더바 (식별자)
+  [sp]        : 공백 문자 (띄어쓰기, 탭)
+  [nl]        : 줄바꿈 문자
+  [any]       : 임의의 문자 1개
 
-이다.
+[프리셋 토큰]
+  [int]       : 부호 포함 정수
+  [float]     : 부호 포함 실수
+  [hex]       : 16진수 문자
+  [email]     : 이메일 표준 포맷
+  [phone]     : 전화번호 표준 포맷
+  [url]       : 웹 주소 포맷
+  [edge]      : 단어 경계 (Word boundary)
+  [start]     : 문자열 시작 앵커
+  [end]       : 문자열 종료 앵커
+
+[수량자 및 선택]
+  N           : 정확히 N개
+  +           : 1개 이상
+  *           : 0개 이상
+  ?           : 0개 또는 1개
+  N~M         : N개 이상 M개 이하
+  N~          : N개 이상
+  ~M          : M개 이하
+  ? (접미)    : Lazy 매칭 모드
+
+[선택 및 세트]
+  [one:a|b]   : 단어 또는 기호 중 하나 선택
+  [abc]       : 문자 세트
+  [!abc]      : 부정 문자 세트
+
+[그룹 및 추출]
+  (...)       : 캡처 그룹 (1-Based 인덱스 접근)
+  <name:...>  : 이름 지정 캡처 (키 값 조회)
+
+[명령어 API]
+  is / IS     : 전체 문자열 일치 판정 (IS는 대소문자 무시)
+  match       : 패턴 캡처 추출 (실패 시 empty)
+  find        : 본문 부분 검색 (g 플래그 지원, 실패 시 empty)
+  replace     : 패턴 기반 텍스트 치환
+  split       : 패턴 기준 텍스트 분할
+  count       : 패턴 출현 횟수 계산 (없을 시 0)
+```
