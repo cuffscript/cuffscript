@@ -290,6 +290,8 @@ namespace cuff
     {
         std::unique_ptr<AwaitExpr> expr;
         SourceLocation loc;
+        AwaitStmt(std::unique_ptr<AwaitExpr> e, SourceLocation l)
+            : expr(std::move(e)), loc(l) {}
     };
 
     struct UseStmt
