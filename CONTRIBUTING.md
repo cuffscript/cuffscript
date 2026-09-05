@@ -48,12 +48,14 @@ If your change affects the language grammar or token system, please also update 
 ```bash
 make
 ./cuffc path/to/program.cuff
+```
 
 ---
 
 # CuffScript 프로젝트에 기여하기 (한국어)
 
 CuffScript에 기여해 주셔서 감사합니다.
+
 ---
 
 ## 시작하기 전에
