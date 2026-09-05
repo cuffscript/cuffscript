@@ -1,0 +1,78 @@
+name: Update CHANGELOG on Release
+
+'on':
+    release:
+        types:
+            - published
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    update-changelog:
+        runs-on: ubuntu-latest
+        steps:
+            -
+                name: Checkout main
+                uses: actions/checkout@v4
+                with:
+                    ref: main
+                    fetch-depth: 0
+            -
+                name: Prepare branch
+                shell: bash
+                run: |
+                    git pull --rebase origin main
+                    BRANCH="chore/update-changelog-${{ github.event.release.tag_name }}"
+                    git checkout -b "$BRANCH"
+            -
+                name: Update changelog
+                shell: bash
+                run: |
+                    mkdir -p docs
+
+                    touch docs/CHANGELOG.md
+
+                    RELEASE_DATE=$(date -d "${{ github.event.release.published_at }}" +"%Y-%m-%d")
+
+                    {
+                        echo "## ${{ github.event.release.tag_name }} - ${RELEASE_DATE}"
+                        echo ""
+                        printf '%s\n' "${{ github.event.release.body }}"
+
+                        echo ""
+                        echo "---"
+                        echo ""
+
+                        cat docs/CHANGELOG.md
+                    } > temp.md
+
+                    mv temp.md docs/CHANGELOG.md
+            -
+                name: Create pull request
+                shell: bash
+                env:
+                    GH_TOKEN: ${{ github.token }}
+                    RELEASE_TAG: ${{ github.event.release.tag_name }}
+                run: |
+                    git config user.name "github-actions[bot]"
+                    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+                    BRANCH="chore/update-changelog-$RELEASE_TAG"
+                    git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH"
+                    git add docs/CHANGELOG.md
+
+                    if git diff --cached --quiet; then
+                        echo "No changes to commit"
+                        exit 0
+                    fi
+
+                    git commit -m "docs(changelog): update for $RELEASE_TAG"
+                    git push origin HEAD:"$BRANCH"
+
+                    gh pr create \
+                        --base main \
+                        --head "$BRANCH" \
+                        --title "docs(changelog): update for $RELEASE_TAG" \
+                        --body "Automatically update CHANGELOG for release $RELEASE_TAG."
