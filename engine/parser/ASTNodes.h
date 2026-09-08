@@ -154,6 +154,71 @@ namespace cuff
     };
 
     // =========================================================================
+    // Pattern-matching command expressions (see docs/REGEX.md).
+    //
+    // `pattern` is filled in when the pattern was written as a literal string
+    // (the common case) — it is compiled once, eagerly, at parse time, so a
+    // malformed literal pattern is reported immediately as a RegexSyntaxError
+    // rather than only when that line of the program happens to execute.
+    // `patternExpr` is filled in instead when the pattern is a dynamic
+    // expression (e.g. a variable) — compiled lazily, once, the first time
+    // that expression is evaluated. Exactly one of the two is non-null/non-empty.
+    // Flags is the raw suffix letters (any subset of "gim"), or empty.
+    // =========================================================================
+
+    struct PatternArg
+    {
+        std::string literalPattern;         // used when isLiteral == true
+        std::unique_ptr<Expr> dynamicExpr;  // used when isLiteral == false
+        bool isLiteral = true;
+    };
+
+    // match <target> from <pattern> [flags]
+    struct MatchFromExpr
+    {
+        std::unique_ptr<Expr> target;
+        PatternArg pattern;
+        std::string flags;
+        SourceLocation loc;
+    };
+
+    // find <pattern> from <target> [flags]
+    struct FindExpr
+    {
+        PatternArg pattern;
+        std::unique_ptr<Expr> target;
+        std::string flags;
+        SourceLocation loc;
+    };
+
+    // replace <pattern> in <target> to <replacement> [flags]
+    struct PatternReplaceExpr
+    {
+        PatternArg pattern;
+        std::unique_ptr<Expr> target;
+        std::unique_ptr<Expr> replacement;
+        std::string flags;
+        SourceLocation loc;
+    };
+
+    // split <target> by <pattern>
+    struct SplitExpr
+    {
+        std::unique_ptr<Expr> target;
+        PatternArg pattern;
+        SourceLocation loc;
+    };
+
+    // count <pattern> in <target> [flags]
+    struct CountExpr
+    {
+        PatternArg pattern;
+        std::unique_ptr<Expr> target;
+        std::string flags;
+        SourceLocation loc;
+    };
+
+    // =========================================================================
     // Expression variant
     // =========================================================================
 
@@ -173,7 +238,12 @@ namespace cuff
         SliceAccess,
         FunctionCall,
         Await,
-        RegexMatch
+        RegexMatch,
+        MatchFrom,
+        Find,
+        PatternReplace,
+        Split,
+        Count
     };
 
     struct Expr
@@ -194,11 +264,31 @@ namespace cuff
             SliceAccess,
             FunctionCall,
             AwaitExpr,
-            RegexMatchExpr>
+            RegexMatchExpr,
+            MatchFromExpr,
+            FindExpr,
+            PatternReplaceExpr,
+            SplitExpr,
+            CountExpr>
             data;
 
         template <typename T>
         Expr(ExprKind k, T &&v) : kind(k), data(std::forward<T>(v)) {}
+
+        // AST nodes own their children through unique_ptr, so the tree as a
+        // whole is move-only. These are declared explicitly (rather than left
+        // to the compiler to figure out) so that an accidental copy — e.g.
+        // `FunctionCall fc = std::get<FunctionCall>(expr->data);` instead of
+        // `std::move(...)` — fails immediately with a clear "deleted function"
+        // error at the call site, instead of a deep, cryptic template error
+        // inside <vector> triggered by std::variant's copy-constructibility
+        // checks (std::vector<unique_ptr<T>> reports itself as copy-
+        // constructible to type traits even though instantiating that copy
+        // constructor is a hard error).
+        Expr(const Expr &) = delete;
+        Expr &operator=(const Expr &) = delete;
+        Expr(Expr &&) = default;
+        Expr &operator=(Expr &&) = default;
     };
 
     // =========================================================================
@@ -218,21 +308,27 @@ namespace cuff
 
     struct ChangeStmt
     {
-        // change [name] to [value]
+        // change [name] to [value]                      -- plain reassignment
+        // change [name][index]...[index] to [value]      -- indexed assignment
+        //   (into a list element, or a map key — auto-vivifies missing map keys)
+        // change [name] to global                        -- declare-global marker
+        //   (must appear alone, in a function body, before mutating a global;
+        //    `value` and `indices` are unused when toGlobal is true)
         std::string name;
+        std::vector<std::unique_ptr<Expr>> indices;
         std::unique_ptr<Expr> value;
+        bool toGlobal = false;
         SourceLocation loc;
     };
 
     struct FunctionDecl
     {
-        enum class FuncKind
-        {
-            Normal,
-            Returnable,
-            Async
-        };
-        FuncKind funcKind;
+        // A function can be async, returnable, both, or neither (e.g.
+        // `set async returnable function fetch() do: ... end`). The two
+        // modifiers are independent, so they're tracked as separate flags
+        // rather than a single enum.
+        bool isAsync = false;
+        bool isReturnable = false;
         std::string name;
         std::vector<std::string> params;
         std::vector<std::unique_ptr<Stmt>> body;
@@ -385,6 +481,12 @@ namespace cuff
 
         template <typename T>
         Stmt(StmtKind k, T &&v) : kind(k), data(std::forward<T>(v)) {}
+
+        // Move-only for the same reason as Expr above.
+        Stmt(const Stmt &) = delete;
+        Stmt &operator=(const Stmt &) = delete;
+        Stmt(Stmt &&) = default;
+        Stmt &operator=(Stmt &&) = default;
     };
 
     // =========================================================================

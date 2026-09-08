@@ -1,0 +1,17 @@
+note: 함수 레벨 스코프 + change ... to global 브리징 예제
+
+set number counter to 0
+
+set function increment() do:
+    change counter to global
+    change counter to counter + 1
+end
+
+increment()
+increment()
+increment()
+print(f"counter = {counter}")
+
+note: 상수는 대문자여야 하고, 이후 change 시도는 런타임 에러
+set constant number MAX_RETRIES to 3
+print(f"MAX_RETRIES = {MAX_RETRIES}")

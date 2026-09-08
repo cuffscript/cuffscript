@@ -1,0 +1,15 @@
+note: returnable / async 함수 조합
+
+set returnable function fib(n) do:
+    if n <= 1 do:
+        return n
+    end
+    return fib(n - 1) + fib(n - 2)
+end
+print(f"fib(10) = {fib(10)}")
+
+set async returnable function fetch_value() do:
+    return 42
+end
+set number v to await fetch_value()
+print(f"async 결과 = {v}")

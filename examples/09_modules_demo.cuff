@@ -1,0 +1,5 @@
+note: Demonstrates `use <name> from <path>` loading another .cuff file.
+use greetings from ./lib
+
+print(greet("CuffScript"))
+print(DEFAULT_GREETING)

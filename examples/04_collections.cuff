@@ -1,0 +1,27 @@
+note: Lists, maps, 1-based indexing/slicing, and or_else error recovery.
+
+set list inventory to ["sword", "shield"]
+add "potion" to inventory
+change inventory[1] to "magic_staff"
+print(inventory)
+
+set map profile to {"name": "Bob"}
+change profile["level"] to 50
+print(profile)
+remove "level" from profile
+print(profile)
+
+set list nums to [10, 20, 30, 40, 50]
+print(nums[2~4])
+print(nums[-1])
+
+set number safe_value to nums[99] or_else do:
+    print("index out of range, falling back to 0")
+    change safe_value to 0
+end
+print(f"safe_value = {safe_value}")
+
+note: 문자열 슬라이싱과 음수 범위
+set str greeting to "Hello World"
+print(greeting[1~5])
+print(greeting[-5~-1])

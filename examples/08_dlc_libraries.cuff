@@ -1,0 +1,15 @@
+note: 내장 DLC 라이브러리 사용 예제
+
+use DLC:math
+use DLC:string
+use DLC:random
+
+print(sqrt(16))
+print(abs(-5))
+print(max(3, 7, 2))
+print(upper("hello"))
+print(trim("  padded  "))
+print(contains("hello world", "world"))
+
+set number roll to random_int(1, 6)
+print(f"주사위: {roll} (1~6 사이여야 함)")

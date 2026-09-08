@@ -49,8 +49,6 @@ namespace cuff
                 if (atLineStart)
                 {
                     // Skip blank lines (whitespace + optional comment + newline)
-                    int lineStartOffset = state_.offset;
-
                     // Count leading whitespace
                     int indent = 0;
                     while (!state_.atEnd() && (state_.peek() == ' ' || state_.peek() == '\t'))
@@ -135,8 +133,9 @@ namespace cuff
                     continue;
                 }
 
-                // Strings and f-strings
-                if (c == '"' || (c == 'f' && state_.peek(1) == '"'))
+                // Strings and f-strings (both " and ' delimit plain strings;
+                // only " may open an f-string)
+                if (c == '"' || c == '\'' || (c == 'f' && state_.peek(1) == '"'))
                 {
                     if (c == 'f' && state_.peek(1) != '"')
                     {

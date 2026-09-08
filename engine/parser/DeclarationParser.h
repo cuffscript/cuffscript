@@ -74,9 +74,16 @@ namespace cuff
                 varType = "empty";
                 p.advance();
             }
+            else if (p.check(TokenType::MATCH))
+            {
+                // `set match result to match serial from "pattern"` — the
+                // capture-result type used by the pattern-matching commands.
+                varType = "match";
+                p.advance();
+            }
             else
             {
-                throw SyntaxError("Expected a type (number, str, list, map, boolean, empty) after 'set'",
+                throw SyntaxError("Expected a type (number, str, list, map, boolean, empty, match) after 'set'",
                                   p.current().location);
             }
 
@@ -107,7 +114,10 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::Declaration, std::move(decl));
         }
 
-        // Parse a change statement
+        // Parse a change statement:
+        //   change [name] to [value]
+        //   change [name][index]...[index] to [value]
+        //   change [name] to global
         static std::unique_ptr<Stmt> parseChange(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
@@ -124,13 +134,37 @@ namespace cuff
                 throw SyntaxError("Expected variable name after 'change'", p.current().location);
             }
 
+            std::vector<std::unique_ptr<Expr>> indices;
+            while (p.check(TokenType::LBRACKET))
+            {
+                p.advance();
+                indices.push_back(ExpressionParser::parse(p));
+                p.consume(TokenType::RBRACKET, "Expected ']' to close index in 'change' statement");
+            }
+
             p.consume(TokenType::TO, "Expected 'to' in 'change' statement");
-            auto value = ExpressionParser::parse(p);
 
             ChangeStmt change;
             change.name = name;
-            change.value = std::move(value);
             change.loc = loc;
+
+            // `change x to global` — declare-global marker. Only recognized
+            // with no indices and when 'global' is the entire right-hand
+            // side (i.e. immediately followed by end-of-statement), so it
+            // never shadows a genuine attempt to assign some other value.
+            if (indices.empty() && p.check(TokenType::GLOBAL) &&
+                (p.peek(1).is(TokenType::NEWLINE) || p.peek(1).is(TokenType::EOF_TOKEN) ||
+                 p.peek(1).is(TokenType::END) || p.peek(1).is(TokenType::DEDENT) ||
+                 p.peek(1).is(TokenType::OR_ELSE)))
+            {
+                p.advance();
+                change.toGlobal = true;
+                return std::make_unique<Stmt>(StmtKind::Change, std::move(change));
+            }
+
+            auto value = ExpressionParser::parse(p);
+            change.indices = std::move(indices);
+            change.value = std::move(value);
 
             return std::make_unique<Stmt>(StmtKind::Change, std::move(change));
         }

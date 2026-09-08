@@ -1,0 +1,3 @@
+note: 범위를 벗어난 인덱스 -> IndexError
+set list items to ["a", "b", "c"]
+print(items[10])

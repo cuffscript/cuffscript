@@ -77,6 +77,13 @@ namespace cuff
         REPLACE,
         TO,
         OR_ELSE,
+        GLOBAL,
+        NOT,
+        FIND,
+        SPLIT,
+        COUNT,
+        BY,
+        IN,
 
         // type keywords
         NUMBER_TYPE,  // number
@@ -209,6 +216,20 @@ namespace cuff
             return "to";
         case TokenType::OR_ELSE:
             return "or_else";
+        case TokenType::GLOBAL:
+            return "global";
+        case TokenType::NOT:
+            return "not";
+        case TokenType::FIND:
+            return "find";
+        case TokenType::SPLIT:
+            return "split";
+        case TokenType::COUNT:
+            return "count";
+        case TokenType::BY:
+            return "by";
+        case TokenType::IN:
+            return "in";
         case TokenType::NUMBER_TYPE:
             return "number";
         case TokenType::STR_TYPE:

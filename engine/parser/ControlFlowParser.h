@@ -80,30 +80,12 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::IfStmt, std::move(ifStmt));
         }
 
-    private:
         // Parse the body of a branch — either:
         //   1. One-line shorthand: single statement on the same line
         //   2. Block form: newline + INDENT + statements + DEDENT
-        static std::vector<std::unique_ptr<Stmt>> parseBranchBody(ParserCore &p)
-        {
-            // If next token is NEWLINE → block form
-            if (p.check(TokenType::NEWLINE))
-            {
-                p.skipNewlines();
-                if (p.check(TokenType::INDENT))
-                {
-                    p.advance(); // consume INDENT
-                }
-                return FunctionParser::parseBlockBody(p);
-            }
-
-            // One-line shorthand: parse a single statement on the same line
-            std::vector<std::unique_ptr<Stmt>> body;
-            auto stmt = StatementParser::parseStatement(p);
-            if (stmt)
-                body.push_back(std::move(stmt));
-            return body;
-        }
+        // (Body deferred to the bottom of StatementParser.h: it calls
+        //  StatementParser::parseStatement, which is only forward-declared here.)
+        static std::vector<std::unique_ptr<Stmt>> parseBranchBody(ParserCore &p);
     };
 
 } // namespace cuff

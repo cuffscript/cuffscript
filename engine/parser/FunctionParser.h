@@ -26,14 +26,25 @@ namespace cuff
             SourceLocation loc = p.current().location;
             p.consume(TokenType::SET, "Expected 'set'");
 
-            FunctionDecl::FuncKind kind = FunctionDecl::FuncKind::Normal;
-            if (p.match(TokenType::RETURNABLE))
+            // `async` and `returnable` are independent modifiers and may
+            // appear together, in either order (e.g. `set async returnable
+            // function ...` or `set returnable async function ...`).
+            bool isAsync = false;
+            bool isReturnable = false;
+            while (true)
             {
-                kind = FunctionDecl::FuncKind::Returnable;
-            }
-            else if (p.match(TokenType::ASYNC))
-            {
-                kind = FunctionDecl::FuncKind::Async;
+                if (p.match(TokenType::RETURNABLE))
+                {
+                    isReturnable = true;
+                }
+                else if (p.match(TokenType::ASYNC))
+                {
+                    isAsync = true;
+                }
+                else
+                {
+                    break;
+                }
             }
 
             p.consume(TokenType::FUNCTION, "Expected 'function' keyword");
@@ -105,7 +116,8 @@ namespace cuff
             p.match(TokenType::DEDENT);
 
             FunctionDecl decl;
-            decl.funcKind = kind;
+            decl.isAsync = isAsync;
+            decl.isReturnable = isReturnable;
             decl.name = name;
             decl.params = std::move(params);
             decl.body = std::move(body);
