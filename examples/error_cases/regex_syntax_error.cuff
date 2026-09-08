@@ -1,0 +1,4 @@
+note: 정규식 패턴 자체의 문법 오류 -> 파싱 단계에서 즉시 RegexSyntaxError
+if "x" is "[num" do:
+    print("never reached")
+end

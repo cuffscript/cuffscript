@@ -1,0 +1,5 @@
+note: returnable이 아닌 함수에서 값 반환 시도 -> UnsupportedOperation
+set function greet() do:
+    return 5
+end
+greet()

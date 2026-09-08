@@ -1,0 +1,3 @@
+note: 상수는 change로 재대입 불가 -> ConstantError
+set constant number MAX to 5
+change MAX to 10

@@ -1,0 +1,15 @@
+note: or_else 에러 복구 패턴
+
+set number a to 10
+set number b to 0
+set number result to a / b or_else do:
+    print("0으로 나누기 실패, 기본값으로 대체합니다")
+    change result to -1
+end
+print(f"result = {result}")
+
+note: 선언이 실패해도 or_else 블록에서 change로 값을 채울 수 있음
+set str config to find "[num]+" from "no digits here" or_else do:
+    change config to "default_mode"
+end
+print(f"config = {config}")

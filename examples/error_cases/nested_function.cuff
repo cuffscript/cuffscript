@@ -1,0 +1,8 @@
+note: 함수 안에 함수 정의는 지원하지 않음 -> NestedFunctionNotSupported
+set function outer() do:
+    set function inner() do:
+        print("hi")
+    end
+    inner()
+end
+outer()

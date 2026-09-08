@@ -1,0 +1,2 @@
+note: 상수 이름은 반드시 전체 대문자여야 함 -> ConstantError
+set constant number bad_name to 5

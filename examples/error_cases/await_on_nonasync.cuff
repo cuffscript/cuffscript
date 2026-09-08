@@ -1,0 +1,5 @@
+note: async가 아닌 함수에 await 사용 -> AwaitOnNonAsync
+set function greet() do:
+    print("hi")
+end
+await greet()

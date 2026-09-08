@@ -1,0 +1,34 @@
+note: Pattern-matching commands from docs/REGEX.md, all wired to a real matcher.
+
+set str log_line to "2026-03-31 [ERROR] 192.168.0.1 - DB Connection Lost"
+set match parsed to match log_line from "<date:[num]4-[num]2-[num]2> \[[one:INFO|WARN|ERROR]\] <ip:[num]1~3\.[num]1~3\.[num]1~3\.[num]1~3> - <msg:[any]+>"
+
+if parsed is not empty do:
+    print(f"date={parsed['date']}")
+    print(f"ip={parsed['ip']}")
+    print(f"msg={parsed['msg']}")
+end
+
+set str article to "Tickets T-101 T-202 T-303 are booked"
+set list codes to find "T-[num]3" from article g
+print(codes)
+
+set str phone_log to "call me at 010-1234-5678 today"
+set str masked to replace "[num]4-[num]4" in phone_log to "****-****"
+print(masked)
+
+set list parts to split "apple, banana,cherry" by ",[sp]*"
+print(parts)
+
+print(count "[num]+" in article)
+
+note: 대소문자 구분 없는 IS
+set str answer to "YES"
+if answer IS "yes" do:
+    print("IS는 대소문자를 구분하지 않습니다")
+end
+
+note: [one:...] 대체 토큰과 이스케이프된 마침표(\.)
+if "photo.jpg" is "[str]+\.[one:jpg|png|gif]" do:
+    print("이미지 파일명 패턴 일치")
+end

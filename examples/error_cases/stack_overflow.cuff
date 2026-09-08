@@ -1,0 +1,5 @@
+note: 무한 재귀 -> StackOverflowError (프로세스가 죽지 않고 깔끔하게 에러로 처리됨)
+set returnable function boom(n) do:
+    return boom(n + 1)
+end
+print(boom(1))

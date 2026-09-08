@@ -1,0 +1,2 @@
+note: Smallest possible CuffScript program.
+print("Hello, CuffScript!")

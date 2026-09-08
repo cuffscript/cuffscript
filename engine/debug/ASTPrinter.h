@@ -1,7 +1,7 @@
 #pragma once
 
-#include "parser/ASTNodes.h"
-#include "common/TokenTypes.h"
+#include "../parser/ASTNodes.h"
+#include "../common/TokenTypes.h"
 #include <string>
 #include <sstream>
 #include <variant>
@@ -68,18 +68,36 @@ namespace cuff
             case StmtKind::Change:
             {
                 const auto &c = std::get<ChangeStmt>(stmt.data);
-                os << "Change " << c.name << " to\n";
-                printExpr(os, *c.value, depth + 1);
+                os << "Change " << c.name;
+                for (size_t i = 0; i < c.indices.size(); ++i)
+                    os << "[...]";
+                if (c.toGlobal)
+                {
+                    os << " to global\n";
+                }
+                else
+                {
+                    os << " to\n";
+                    for (const auto &idxExpr : c.indices)
+                    {
+                        indent(os, depth + 1);
+                        os << "index:\n";
+                        printExpr(os, *idxExpr, depth + 2);
+                    }
+                    printExpr(os, *c.value, depth + 1);
+                }
                 break;
             }
             case StmtKind::FunctionDecl:
             {
                 const auto &f = std::get<FunctionDecl>(stmt.data);
-                const char *kindStr = "normal";
-                if (f.funcKind == FunctionDecl::FuncKind::Returnable)
-                    kindStr = "returnable";
-                else if (f.funcKind == FunctionDecl::FuncKind::Async)
+                std::string kindStr = "normal";
+                if (f.isAsync && f.isReturnable)
+                    kindStr = "async returnable";
+                else if (f.isAsync)
                     kindStr = "async";
+                else if (f.isReturnable)
+                    kindStr = "returnable";
                 os << "FunctionDecl [" << kindStr << "] " << f.name << "(";
                 for (size_t i = 0; i < f.params.size(); ++i)
                 {
@@ -379,6 +397,77 @@ namespace cuff
                 os << "pattern: \"" << rm.pattern << "\"\n";
                 break;
             }
+            case ExprKind::MatchFrom:
+            {
+                const auto &m = std::get<MatchFromExpr>(expr.data);
+                os << "MatchFrom [flags=" << m.flags << "]\n";
+                indent(os, depth + 1);
+                os << "target:\n";
+                printExpr(os, *m.target, depth + 2);
+                indent(os, depth + 1);
+                printPatternArg(os, m.pattern, depth + 1);
+                break;
+            }
+            case ExprKind::Find:
+            {
+                const auto &f = std::get<FindExpr>(expr.data);
+                os << "Find [flags=" << f.flags << "]\n";
+                indent(os, depth + 1);
+                printPatternArg(os, f.pattern, depth + 1);
+                indent(os, depth + 1);
+                os << "target:\n";
+                printExpr(os, *f.target, depth + 2);
+                break;
+            }
+            case ExprKind::PatternReplace:
+            {
+                const auto &r = std::get<PatternReplaceExpr>(expr.data);
+                os << "PatternReplace [flags=" << r.flags << "]\n";
+                indent(os, depth + 1);
+                printPatternArg(os, r.pattern, depth + 1);
+                indent(os, depth + 1);
+                os << "target:\n";
+                printExpr(os, *r.target, depth + 2);
+                indent(os, depth + 1);
+                os << "replacement:\n";
+                printExpr(os, *r.replacement, depth + 2);
+                break;
+            }
+            case ExprKind::Split:
+            {
+                const auto &s = std::get<SplitExpr>(expr.data);
+                os << "Split\n";
+                indent(os, depth + 1);
+                os << "target:\n";
+                printExpr(os, *s.target, depth + 2);
+                indent(os, depth + 1);
+                printPatternArg(os, s.pattern, depth + 1);
+                break;
+            }
+            case ExprKind::Count:
+            {
+                const auto &c = std::get<CountExpr>(expr.data);
+                os << "Count [flags=" << c.flags << "]\n";
+                indent(os, depth + 1);
+                printPatternArg(os, c.pattern, depth + 1);
+                indent(os, depth + 1);
+                os << "target:\n";
+                printExpr(os, *c.target, depth + 2);
+                break;
+            }
+            }
+        }
+
+        static void printPatternArg(std::ostringstream &os, const PatternArg &pat, int depth)
+        {
+            if (pat.isLiteral)
+            {
+                os << "pattern: \"" << pat.literalPattern << "\"\n";
+            }
+            else
+            {
+                os << "pattern (dynamic):\n";
+                printExpr(os, *pat.dynamicExpr, depth + 1);
             }
         }
     };

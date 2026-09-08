@@ -88,7 +88,7 @@ namespace cuff
                 {
                     throw SyntaxError("Expected function call after 'await'", awaitLoc);
                 }
-                FunctionCall fc = std::get<FunctionCall>(expr->data);
+                FunctionCall fc = std::move(std::get<FunctionCall>(expr->data));
                 auto callPtr = std::make_unique<FunctionCall>(std::move(fc));
                 auto awaitExpr = std::make_unique<AwaitExpr>(std::move(callPtr), awaitLoc);
                 stmt = std::make_unique<Stmt>(StmtKind::AwaitStmt,
@@ -109,7 +109,18 @@ namespace cuff
                 break;
 
             case TokenType::REPLACE:
-                stmt = CollectionOpParser::parseReplace(p);
+                if (RegexExprParser::looksLikeCollectionReplace(p))
+                {
+                    stmt = CollectionOpParser::parseReplace(p);
+                }
+                else
+                {
+                    // Pattern-replace used as a bare expression-statement,
+                    // e.g. `replace "[num]+" in log to "***"` on its own line.
+                    auto expr = ExpressionParser::parse(p);
+                    stmt = std::make_unique<Stmt>(StmtKind::ExprStmt,
+                                                  ExprStmt(std::move(expr), tok.location));
+                }
                 break;
 
             default:
@@ -132,7 +143,11 @@ namespace cuff
         }
     };
 
-    // ---- FunctionParser::parseBlockBody implementation (depends on StatementParser) ----
+    // ---- Deferred implementations ----
+    // The following bodies all call StatementParser::parseStatement, so they must
+    // be defined here (after StatementParser is a complete type) even though
+    // they're declared as members of other parser classes in their own headers.
+
     inline std::vector<std::unique_ptr<Stmt>> FunctionParser::parseBlockBody(ParserCore &p)
     {
         std::vector<std::unique_ptr<Stmt>> body;
@@ -159,6 +174,86 @@ namespace cuff
         }
 
         return body;
+    }
+
+    inline std::vector<std::unique_ptr<Stmt>> ControlFlowParser::parseBranchBody(ParserCore &p)
+    {
+        // If next token is NEWLINE → block form
+        if (p.check(TokenType::NEWLINE))
+        {
+            p.skipNewlines();
+            if (p.check(TokenType::INDENT))
+            {
+                p.advance(); // consume INDENT
+            }
+            return FunctionParser::parseBlockBody(p);
+        }
+
+        // One-line shorthand: parse a single statement on the same line
+        std::vector<std::unique_ptr<Stmt>> body;
+        auto stmt = StatementParser::parseStatement(p);
+        if (stmt)
+            body.push_back(std::move(stmt));
+        return body;
+    }
+
+    inline std::vector<std::unique_ptr<Stmt>> LoopParser::parseLoopBody(ParserCore &p)
+    {
+        // One-line shorthand or block form
+        if (p.check(TokenType::NEWLINE))
+        {
+            p.skipNewlines();
+            if (p.check(TokenType::INDENT))
+            {
+                p.advance(); // consume INDENT
+            }
+            return FunctionParser::parseBlockBody(p);
+        }
+
+        // One-line shorthand
+        std::vector<std::unique_ptr<Stmt>> body;
+        auto stmt = StatementParser::parseStatement(p);
+        if (stmt)
+            body.push_back(std::move(stmt));
+        return body;
+    }
+
+    inline std::unique_ptr<Stmt> OrElseParser::wrap(ParserCore &p, std::unique_ptr<Stmt> primaryStmt)
+    {
+        SourceLocation loc = p.current().location;
+        p.consume(TokenType::OR_ELSE, "Expected 'or_else'");
+        p.consume(TokenType::DO, "Expected 'do' after 'or_else'");
+        p.consume(TokenType::COLON, "Expected ':' after 'do'");
+
+        // Parse fallback body — block form (newline + INDENT)
+        std::vector<std::unique_ptr<Stmt>> fallbackBody;
+
+        if (p.check(TokenType::NEWLINE))
+        {
+            p.skipNewlines();
+            if (p.check(TokenType::INDENT))
+            {
+                p.advance(); // consume INDENT
+            }
+            fallbackBody = FunctionParser::parseBlockBody(p);
+        }
+        else
+        {
+            // One-line shorthand: single statement
+            auto stmt = StatementParser::parseStatement(p);
+            if (stmt)
+                fallbackBody.push_back(std::move(stmt));
+        }
+
+        p.consume(TokenType::END, "Expected 'end' to close or_else block");
+        p.match(TokenType::DEDENT);
+
+        OrElseStmt orElse;
+        orElse.primaryStmt = std::move(primaryStmt);
+        orElse.fallbackBody = std::move(fallbackBody);
+        orElse.loc = loc;
+
+        return std::make_unique<Stmt>(StmtKind::OrElse, std::move(orElse));
     }
 
 } // namespace cuff

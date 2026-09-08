@@ -1,0 +1,2 @@
+note: 선언 타입과 값 타입 불일치 -> TypeError
+set number age to "not a number"

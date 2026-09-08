@@ -90,27 +90,9 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::LoopStmt, std::move(loop));
         }
 
-    private:
-        static std::vector<std::unique_ptr<Stmt>> parseLoopBody(ParserCore &p)
-        {
-            // One-line shorthand or block form
-            if (p.check(TokenType::NEWLINE))
-            {
-                p.skipNewlines();
-                if (p.check(TokenType::INDENT))
-                {
-                    p.advance(); // consume INDENT
-                }
-                return FunctionParser::parseBlockBody(p);
-            }
-
-            // One-line shorthand
-            std::vector<std::unique_ptr<Stmt>> body;
-            auto stmt = StatementParser::parseStatement(p);
-            if (stmt)
-                body.push_back(std::move(stmt));
-            return body;
-        }
+        // (Body deferred to the bottom of StatementParser.h — see ControlFlowParser
+        //  for why: it needs StatementParser::parseStatement to be complete.)
+        static std::vector<std::unique_ptr<Stmt>> parseLoopBody(ParserCore &p);
     };
 
 } // namespace cuff
