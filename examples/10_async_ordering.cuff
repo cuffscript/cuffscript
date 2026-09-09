@@ -1,0 +1,29 @@
+note: async 함수를 await 없이 호출하면 즉시 실행되지 않고 큐에 쌓였다가,
+note: 최상위 스크립트의 동기 코드가 전부 끝난 뒤 큐에 쌓인 순서(FIFO)대로 실행됩니다.
+note: await를 붙이면 지금까지와 동일하게 즉시 실행되고 값을 돌려받습니다.
+
+set async function notify_a() do:
+    print("[비동기] A 처리 완료")
+end
+
+set async function notify_b() do:
+    print("[비동기] B 처리 완료")
+end
+
+set async returnable function fetch_score() do:
+    print("[비동기] 점수 조회 중...")
+    return 87
+end
+
+print("[동기] 프로그램 시작")
+
+note: await 없이 호출 -> 지금 실행되지 않고 큐에 들어감
+notify_a()
+notify_b()
+
+note: await를 붙이면 즉시 실행되어 값을 바로 받을 수 있음
+set number score to await fetch_score()
+print(f"[동기] 점수 = {score}")
+
+print("[동기] 프로그램의 동기 부분 끝")
+note: 이 지점 이후에 큐에 쌓여있던 notify_a(), notify_b()가 순서대로 실행됩니다.

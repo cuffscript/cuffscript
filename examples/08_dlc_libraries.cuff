@@ -3,6 +3,8 @@ note: 내장 DLC 라이브러리 사용 예제
 use DLC:math
 use DLC:string
 use DLC:random
+use DLC:list
+use DLC:convert
 
 print(sqrt(16))
 print(abs(-5))
@@ -13,3 +15,22 @@ print(contains("hello world", "world"))
 
 set number roll to random_int(1, 6)
 print(f"주사위: {roll} (1~6 사이여야 함)")
+
+note: DLC:list — 원본을 바꾸지 않고 새 리스트를 반환하는 함수형 스타일
+set list scores to [5, 2, 8, 1, 9, 2]
+print(sort(scores))
+print(reverse(scores))
+print(unique(scores))
+
+note: join()은 문자열 리스트만 받으므로, 숫자 리스트는 to_str()로 먼저 변환
+set list score_strs to []
+loop repeat i to 1 ~ 5 do:
+    add to_str(scores[i]) to score_strs
+end
+print(join(score_strs, ", "))
+
+note: DLC:convert — 명시적 타입 변환
+set number n to to_number("42.5")
+print(n + 1)
+print(to_str(123) + "!")
+print(to_boolean(""))

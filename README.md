@@ -104,7 +104,7 @@ Pattern matching is protected against catastrophic backtracking with a built-in 
 
 ### Functions and Modules
 
-Function declarations combine the modifiers `returnable` and `async` freely (`set function`, `set returnable function`, `set async function`, `set async returnable function`, ...). `await` is required to call an `async` function and executes it synchronously to completion.
+Function declarations combine the modifiers `returnable` and `async` freely (`set function`, `set returnable function`, `set async function`, `set async returnable function`, ...). Calling an `async` function with `await` runs it immediately and returns its value; calling it *without* `await` defers it to a queue that runs after the whole top-level script's synchronous code finishes (see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) section 1).
 
 ```cuff
 set returnable function double(value) do:
@@ -114,7 +114,7 @@ end
 set number result to double(21)
 ```
 
-`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope.
+`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `convert`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope.
 
 The error-handling composition syntax is `or_else do: ... end`, which catches any recoverable runtime error (not syntax errors) raised by the statement it follows:
 

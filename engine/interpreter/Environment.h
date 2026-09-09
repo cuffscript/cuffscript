@@ -75,6 +75,11 @@ namespace cuff
                 constants_.erase(name);
         }
 
+        // Pre-sizes the local variable table — called once per function call
+        // with the parameter count, to avoid rehashing as parameters are
+        // declared one at a time.
+        void reserve(size_t n) { vars_.reserve(n); }
+
         bool isDeclaredHere(const std::string &name) const { return vars_.count(name) > 0; }
 
         // Mark `name` as referring to the global scope for the rest of this

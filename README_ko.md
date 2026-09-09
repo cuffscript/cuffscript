@@ -104,7 +104,7 @@ set number n to count "[num]+" in text
 
 ### 함수와 모듈
 
-함수 선언은 `returnable`과 `async` 수식어를 자유롭게 조합할 수 있습니다 (`set function`, `set returnable function`, `set async function`, `set async returnable function` 등). `async` 함수를 호출하려면 `await`가 필요하며, 이 엔진에서는 완료까지 동기적으로 실행됩니다.
+함수 선언은 `returnable`과 `async` 수식어를 자유롭게 조합할 수 있습니다 (`set function`, `set returnable function`, `set async function`, `set async returnable function` 등). `async` 함수를 `await`로 호출하면 즉시 실행되어 값을 돌려받고, `await` 없이 호출하면 최상위 스크립트의 동기 코드가 전부 끝난 뒤 실행되도록 큐에 쌓입니다 ([docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 1번 항목 참고).
 
 ```cuff
 set returnable function double(value) do:
@@ -114,7 +114,7 @@ end
 set number result to double(21)
 ```
 
-`use DLC:<이름>`은 내장 라이브러리(`math`, `string`, `time`, `random`, `network`)를 불러옵니다 — 전체 함수 목록은 [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 참고. `use <이름> from <경로>`는 실행 중인 스크립트를 기준으로 다른 `.cuff` 파일을 불러와 최상위 함수/변수를 현재 스코프에 합칩니다.
+`use DLC:<이름>`은 내장 라이브러리(`math`, `string`, `time`, `random`, `list`, `convert`, `network`)를 불러옵니다 — 전체 함수 목록은 [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 참고. `use <이름> from <경로>`는 실행 중인 스크립트를 기준으로 다른 `.cuff` 파일을 불러와 최상위 함수/변수를 현재 스코프에 합칩니다.
 
 오류 처리 결합 구문은 `or_else do: ... end`이며, 바로 앞 구문에서 발생한 (문법 오류가 아닌) 복구 가능한 런타임 오류를 잡아냅니다.
 

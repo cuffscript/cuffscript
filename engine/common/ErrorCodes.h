@@ -84,6 +84,8 @@ namespace cuff
         AwaitOnNonAsync = 4019,
         DeclarationTypeMismatch = 4020,
         InvalidGlobalDeclaration = 4021,
+        ReturnOutsideFunction = 4022,
+        StopOutsideLoop = 4023,
 
         // ---- Module (5000s) ----
         ModuleNotFound = 5001,
