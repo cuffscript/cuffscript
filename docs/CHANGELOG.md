@@ -2,36 +2,37 @@
 
 ## Description
 
-- **Performance**: replaced the exception-based / control-flow implementation
-  with an explicit  value threaded through ///
-   (). C++ exceptions are reserved for genuine
-   conditions again. Measured effect: a  recursion benchmark (~635k
+- **Performance**: replaced the exception-based `return`/`stop` control-flow implementation
+  with an explicit `ExecOutcome` value threaded through `execStatement`/`execBlock`/`execIf`/
+  `execLoop` (`engine/interpreter/Signals.h`). C++ exceptions are reserved for genuine
+  `CuffError` conditions again. Measured effect: a `fib(27)` recursion benchmark (~635k
   function calls) went from 2.75s to 0.26s (~10.7x). This also fixed two real bugs the
-  exception-based version had:  used inside a function with no loop of its own used to
+  exception-based version had: `stop` used inside a function with no loop of its own used to
   leak through the function-call boundary and terminate whatever loop was active in the
-  *caller*; and / used at the top level (outside any function/loop) used to
+  *caller*; and `return`/`stop` used at the top level (outside any function/loop) used to
   crash the whole process with an uncaught exception. Both are now clean, catchable
-  s (, ).
+  `CuffRuntimeError`s (`StopOutsideLoop`, `ReturnOutsideFunction`).
 
-- **Async**: calling an  function *without*  no longer runs it immediately —
+- **Async**: calling an `async` function *without* `await` no longer runs it immediately —
   it's queued and runs once the entire top-level script's synchronous code has finished,
-  in the order it was queued (FIFO).  is unchanged (still runs immediately and
+  in the order it was queued (FIFO). `await` is unchanged (still runs immediately and
   returns the value). This is cooperative, single-threaded deferral — not real concurrency —
   chosen for safety (the interpreter's shared state isn't thread-safe). See
-   section 1 and .
+  `docs/IMPLEMENTATION_NOTES.md` section 1 and `examples/10_async_ordering.cuff`.
 
-- **DLC libraries**: added  (, , ,  — all
-  non-mutating) and  (, , ).
+- **DLC libraries**: added `DLC:list` (`sort`, `reverse`, `join`, `unique` — all
+  non-mutating) and `DLC:convert` (`to_number`, `to_str`, `to_boolean`).
 
-- Fixed a parser bug uncovered while adding : / only accepted an  token for the name, so any name colliding with a
-  reserved word (like ) failed to parse at all.  now accepts any
+- Fixed a parser bug uncovered while adding `DLC:list`: `use DLC:<name>`/`use <name> from
+  ...` only accepted an `IDENTIFIER` token for the name, so any name colliding with a
+  reserved word (like `list`) failed to parse at all. `ImportParser` now accepts any
   word-shaped token (identifier or keyword) as a name.
 
-- Minor interpreter micro-optimizations:  pre-sizes its variable table for a
+- Minor interpreter micro-optimizations: `Environment` pre-sizes its variable table for a
   function call's known parameter count, and arguments are moved rather than copied into
   parameter bindings.
 
-- Added  and expanded  to
+- Added `examples/10_async_ordering.cuff` and expanded `examples/08_dlc_libraries.cuff` to
   cover the new libraries.
 
 
