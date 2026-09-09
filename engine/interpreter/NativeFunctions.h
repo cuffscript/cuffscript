@@ -230,6 +230,138 @@ namespace cuff
         };
     }
 
+    // ---- DLC:list ----
+    // Functional-style helpers: all of these return a *new* list/value and
+    // never mutate the argument, so they behave predictably regardless of
+    // list's reference semantics (see Value.h) — no aliasing surprises from
+    // calling a library function.
+    inline void registerListDLC(std::unordered_map<std::string, NativeFn> &reg)
+    {
+        reg["sort"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("sort", args, 1, loc);
+            if (!args[0].isList())
+                throw TypeError("sort() expects a list, got " + valueTypeName(args[0].type()), loc);
+            auto out = std::make_shared<ValueList>();
+            out->items = args[0].asList()->items;
+            bool allNumbers = std::all_of(out->items.begin(), out->items.end(), [](const Value &v)
+                                           { return v.isNumber(); });
+            bool allStrings = std::all_of(out->items.begin(), out->items.end(), [](const Value &v)
+                                           { return v.isStr(); });
+            if (allNumbers)
+            {
+                std::sort(out->items.begin(), out->items.end(), [](const Value &a, const Value &b)
+                          { return a.asNumber() < b.asNumber(); });
+            }
+            else if (allStrings)
+            {
+                std::sort(out->items.begin(), out->items.end(), [](const Value &a, const Value &b)
+                          { return a.asStr() < b.asStr(); });
+            }
+            else
+            {
+                throw TypeError("sort() requires a list of all numbers or all strings (mixed/other types aren't orderable)", loc);
+            }
+            return Value::makeList(out);
+        };
+
+        reg["reverse"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("reverse", args, 1, loc);
+            if (!args[0].isList())
+                throw TypeError("reverse() expects a list, got " + valueTypeName(args[0].type()), loc);
+            auto out = std::make_shared<ValueList>();
+            out->items = args[0].asList()->items;
+            std::reverse(out->items.begin(), out->items.end());
+            return Value::makeList(out);
+        };
+
+        reg["join"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("join", args, 2, loc);
+            if (!args[0].isList())
+                throw TypeError("join() expects a list as its first argument, got " + valueTypeName(args[0].type()), loc);
+            const std::string &sep = expectStr("join", args, 1, loc);
+            std::string out;
+            const auto &items = args[0].asList()->items;
+            for (size_t i = 0; i < items.size(); ++i)
+            {
+                if (!items[i].isStr())
+                    throw TypeError("join() requires every element to be a str (index " + std::to_string(i + 1) +
+                                        " is a " + valueTypeName(items[i].type()) + ") — use convert:to_str() first",
+                                    loc);
+                if (i)
+                    out += sep;
+                out += items[i].asStr();
+            }
+            return Value::makeStr(out);
+        };
+
+        reg["unique"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("unique", args, 1, loc);
+            if (!args[0].isList())
+                throw TypeError("unique() expects a list, got " + valueTypeName(args[0].type()), loc);
+            auto out = std::make_shared<ValueList>();
+            for (const auto &v : args[0].asList()->items)
+            {
+                bool seen = std::any_of(out->items.begin(), out->items.end(), [&](const Value &existing)
+                                        { return existing.strictEquals(v); });
+                if (!seen)
+                    out->items.push_back(v);
+            }
+            return Value::makeList(out);
+        };
+    }
+
+    // ---- DLC:convert ----
+    inline void registerConvertDLC(std::unordered_map<std::string, NativeFn> &reg)
+    {
+        reg["to_number"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("to_number", args, 1, loc);
+            const Value &v = args[0];
+            if (v.isNumber())
+                return v;
+            if (v.isBool())
+                return Value::makeNumber(v.asBool() ? 1.0 : 0.0);
+            if (v.isStr())
+            {
+                const std::string &s = v.asStr();
+                try
+                {
+                    size_t consumed = 0;
+                    double d = std::stod(s, &consumed);
+                    // Reject partial parses like "12abc" — silent truncation
+                    // would hide bugs; require the whole string to be numeric
+                    // (surrounding whitespace is tolerated).
+                    while (consumed < s.size() && std::isspace(static_cast<unsigned char>(s[consumed])))
+                        ++consumed;
+                    if (consumed != s.size())
+                        throw std::invalid_argument("trailing characters");
+                    return Value::makeNumber(d);
+                }
+                catch (const std::exception &)
+                {
+                    throw ArgumentError("to_number() could not parse \"" + s + "\" as a number", loc);
+                }
+            }
+            throw TypeError("to_number() cannot convert a " + valueTypeName(v.type()) + " to a number", loc);
+        };
+
+        reg["to_str"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("to_str", args, 1, loc);
+            return Value::makeStr(args[0].toDisplayString());
+        };
+
+        reg["to_boolean"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("to_boolean", args, 1, loc);
+            return Value::makeBool(args[0].truthy());
+        };
+    }
+
     // ---- DLC:network ----
     // Real network access is out of scope for this interpreter (no sandboxing
     // story for it yet). The module still loads successfully — `use
@@ -262,11 +394,15 @@ namespace cuff
             registerTimeDLC(reg);
         else if (libName == "random")
             registerRandomDLC(reg);
+        else if (libName == "list")
+            registerListDLC(reg);
+        else if (libName == "convert")
+            registerConvertDLC(reg);
         else if (libName == "network")
             registerNetworkDLC(reg);
         else
             throw ModuleError(ErrorCode::UnknownDLC, "unknown DLC library 'DLC:" + libName + "'", loc,
-                               "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:network");
+                               "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:list, DLC:convert, DLC:network");
     }
 
 } // namespace cuff

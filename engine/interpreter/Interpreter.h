@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <deque>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -42,11 +43,24 @@ namespace cuff
     //    Environment.h for the exact scope-walking rules).
     //  - `async`/`await`: the language spec explicitly defers the async
     //    execution model to "a separate implementation spec" that doesn't
-    //    exist yet. This engine's model, chosen for correctness and safety
-    //    over concurrency: `await` (and calling an async function without
-    //    `await`) both execute the function synchronously, to completion,
-    //    immediately. `await` additionally requires its target to actually
-    //    be declared `async`, so it still functions as useful documentation.
+    //    exist yet. This engine's model: calling an async function *with*
+    //    `await` runs it immediately and returns its value, exactly like a
+    //    normal call (and requires the target to actually be declared
+    //    `async`, so `await` still functions as useful documentation).
+    //    Calling an async function *without* `await` does NOT run it
+    //    immediately — it's queued (see taskQueue_) and runs after the
+    //    entire top-level script finishes, which is what actually makes
+    //    it "asynchronous": the rest of the program visibly runs first.
+    //    There is no real concurrency (single-threaded interpreter, no
+    //    thread-safety story for shared state), so this is cooperative
+    //    deferral to "the end", not parallelism — see
+    //    docs/IMPLEMENTATION_NOTES.md for the exact rules.
+    //  - Control flow for `return`/`stop` is NOT implemented with C++
+    //    exceptions — see Signals.h for why (performance) and what bug that
+    //    used to cause (stop leaking through function-call boundaries).
+    //    execStatement/execBlock/execIf/execLoop all return an ExecOutcome
+    //    that must be propagated (or consumed) by every caller; exceptions
+    //    are reserved for genuine CuffError conditions.
     //  - Adding a new expression/statement kind: add the case to evalExpr /
     //    execStatement below (the switch is exhaustive and -Werror=switch
     //    will fail the build if a case is missed, which is intentional).
@@ -75,6 +89,18 @@ namespace cuff
         std::string scriptDir_ = ".";
         regex::RegexEngine regexEngine_;
 
+        // An async function called without `await` doesn't run immediately —
+        // it's appended here and drained (FIFO) after the entire top-level
+        // script finishes (see execProgram/drainTaskQueue). Its result is
+        // discarded either way: without `await` there is no expression to
+        // receive a value.
+        struct QueuedTask
+        {
+            const FunctionDecl *decl;
+            std::vector<Value> args;
+        };
+        std::deque<QueuedTask> taskQueue_;
+
         int callDepth_ = 0;
         bool inFunctionBody_ = false;
         bool currentFunctionReturnable_ = false;
@@ -82,7 +108,7 @@ namespace cuff
 
         // RAII guard for entering/leaving a user function call — keeps the
         // call-depth counter and the two "current frame" flags correct even
-        // when a ReturnSignal or an error unwinds through callUserFunction.
+        // when a Return outcome or an error unwinds through callUserFunction.
         struct FrameGuard
         {
             Interpreter *interp;
@@ -119,14 +145,49 @@ namespace cuff
             {
                 if (s->kind == StmtKind::FunctionDecl)
                     continue; // already registered above
-                execStatement(*s, env);
+
+                ExecOutcome outcome = execStatement(*s, env);
+
+                if (outcome.result == ExecResult::Return)
+                    throw CuffRuntimeError(ErrorCode::ReturnOutsideFunction,
+                                           "'return' cannot be used outside of a function", outcome.loc);
+                if (outcome.result == ExecResult::Stop)
+                    throw CuffRuntimeError(ErrorCode::StopOutsideLoop,
+                                           "'stop' cannot be used outside of a loop", outcome.loc);
+            }
+
+            // All synchronous top-level code has now run. Anything that was
+            // queued along the way (an async function called anywhere,
+            // without await) runs now, in the order it was queued — this is
+            // what makes "called without await" visibly asynchronous: it
+            // always happens after the rest of the script, not inline.
+            drainTaskQueue();
+        }
+
+        // Runs any async calls that were queued (by evalExpr's FunctionCall
+        // case, anywhere in the program) but haven't executed yet, once the
+        // whole top-level script has finished. A task can itself queue more
+        // tasks (by calling another async function without await); those
+        // are processed too, in the order queued, before this returns.
+        void drainTaskQueue()
+        {
+            while (!taskQueue_.empty())
+            {
+                QueuedTask task = std::move(taskQueue_.front());
+                taskQueue_.pop_front();
+                callUserFunction(*task.decl, task.args, task.decl->loc);
             }
         }
 
-        void execBlock(const std::vector<std::unique_ptr<Stmt>> &body, Environment &env)
+        ExecOutcome execBlock(const std::vector<std::unique_ptr<Stmt>> &body, Environment &env)
         {
             for (auto &s : body)
-                execStatement(*s, env);
+            {
+                ExecOutcome outcome = execStatement(*s, env);
+                if (outcome.result != ExecResult::Normal)
+                    return outcome;
+            }
+            return ExecOutcome::normal();
         }
 
         void registerFunction(const FunctionDecl &decl)
@@ -134,16 +195,16 @@ namespace cuff
             userFunctions_[decl.name] = &decl;
         }
 
-        void execStatement(const Stmt &stmt, Environment &env)
+        ExecOutcome execStatement(const Stmt &stmt, Environment &env)
         {
             switch (stmt.kind)
             {
             case StmtKind::Declaration:
                 execDeclaration(std::get<DeclarationStmt>(stmt.data), env);
-                break;
+                return ExecOutcome::normal();
             case StmtKind::Change:
                 execChange(std::get<ChangeStmt>(stmt.data), env);
-                break;
+                return ExecOutcome::normal();
             case StmtKind::FunctionDecl:
             {
                 const auto &decl = std::get<FunctionDecl>(stmt.data);
@@ -154,16 +215,14 @@ namespace cuff
                                            decl.loc, "move '" + decl.name + "' to the top level");
                 }
                 registerFunction(decl); // reached for functions nested in top-level if/loop bodies
-                break;
+                return ExecOutcome::normal();
             }
             case StmtKind::IfStmt:
-                execIf(std::get<IfStmt>(stmt.data), env);
-                break;
+                return execIf(std::get<IfStmt>(stmt.data), env);
             case StmtKind::LoopStmt:
-                execLoop(std::get<LoopStmt>(stmt.data), env);
-                break;
+                return execLoop(std::get<LoopStmt>(stmt.data), env);
             case StmtKind::StopStmt:
-                throw StopSignal{};
+                return ExecOutcome::makeStop(std::get<StopStmt>(stmt.data).loc);
             case StmtKind::ReturnStmt:
             {
                 const auto &r = std::get<ReturnStmt>(stmt.data);
@@ -174,24 +233,24 @@ namespace cuff
                                            "cannot return a value from a non-returnable function",
                                            r.loc, "declare it with 'set returnable function' to allow returning a value");
                 }
-                throw ReturnSignal{std::move(v)};
+                return ExecOutcome::makeReturn(std::move(v), r.loc);
             }
             case StmtKind::AwaitStmt:
                 execAwaitStmt(std::get<AwaitStmt>(stmt.data), env);
-                break;
+                return ExecOutcome::normal();
             case StmtKind::UseStmt:
                 execUse(std::get<UseStmt>(stmt.data), env);
-                break;
+                return ExecOutcome::normal();
             case StmtKind::ExprStmt:
                 evalExpr(*std::get<ExprStmt>(stmt.data).expr, env);
-                break;
+                return ExecOutcome::normal();
             case StmtKind::CollectionOp:
                 execCollectionOp(std::get<CollectionOpStmt>(stmt.data), env);
-                break;
+                return ExecOutcome::normal();
             case StmtKind::OrElse:
-                execOrElse(std::get<OrElseStmt>(stmt.data), env);
-                break;
+                return execOrElse(std::get<OrElseStmt>(stmt.data), env);
             }
+            throw InternalEngineError("unhandled statement kind");
         }
 
         // ---- Declarations & assignment ----
@@ -316,69 +375,75 @@ namespace cuff
 
         // ---- Control flow ----
 
-        void execIf(const IfStmt &ifs, Environment &env)
+        ExecOutcome execIf(const IfStmt &ifs, Environment &env)
         {
             for (auto &branch : ifs.branches)
             {
                 if (!branch.condition || evalExpr(*branch.condition, env).truthy())
                 {
-                    execBlock(branch.body, env);
-                    return;
+                    return execBlock(branch.body, env);
                 }
             }
+            return ExecOutcome::normal();
         }
 
-        void execLoop(const LoopStmt &loop, Environment &env)
+        ExecOutcome execLoop(const LoopStmt &loop, Environment &env)
         {
-            try
+            if (loop.kind == LoopStmt::LoopKind::Repeat)
             {
-                if (loop.kind == LoopStmt::LoopKind::Repeat)
+                Value startV = evalExpr(*loop.repeatStart, env);
+                Value endV = evalExpr(*loop.repeatEnd, env);
+                if (!startV.isNumber() || !endV.isNumber())
+                    throw TypeError("'loop repeat' bounds must be numbers", loop.loc);
+                long long start = static_cast<long long>(std::llround(startV.asNumber()));
+                long long end = static_cast<long long>(std::llround(endV.asNumber()));
+                if (start <= end)
                 {
-                    Value startV = evalExpr(*loop.repeatStart, env);
-                    Value endV = evalExpr(*loop.repeatEnd, env);
-                    if (!startV.isNumber() || !endV.isNumber())
-                        throw TypeError("'loop repeat' bounds must be numbers", loop.loc);
-                    long long start = static_cast<long long>(std::llround(startV.asNumber()));
-                    long long end = static_cast<long long>(std::llround(endV.asNumber()));
-                    if (start <= end)
+                    for (long long i = start; i <= end; ++i)
                     {
-                        for (long long i = start; i <= end; ++i)
-                        {
-                            assignLoopVar(loop.repeatVar, Value::makeNumber(static_cast<double>(i)), env, loop.loc);
-                            execBlock(loop.body, env);
-                        }
-                    }
-                    else
-                    {
-                        for (long long i = start; i >= end; --i)
-                        {
-                            assignLoopVar(loop.repeatVar, Value::makeNumber(static_cast<double>(i)), env, loop.loc);
-                            execBlock(loop.body, env);
-                        }
+                        assignLoopVar(loop.repeatVar, Value::makeNumber(static_cast<double>(i)), env, loop.loc);
+                        ExecOutcome outcome = execBlock(loop.body, env);
+                        if (outcome.result == ExecResult::Stop)
+                            return ExecOutcome::normal(); // consumed here — loop ends normally
+                        if (outcome.result == ExecResult::Return)
+                            return outcome; // propagate up to the enclosing function
                     }
                 }
                 else
                 {
-                    // While and Match both re-check a boolean condition every
-                    // iteration (see LoopParser.h for why the two share this
-                    // implementation).
-                    while (evalExpr(*loop.condition, env).truthy())
+                    for (long long i = start; i >= end; --i)
                     {
-                        execBlock(loop.body, env);
+                        assignLoopVar(loop.repeatVar, Value::makeNumber(static_cast<double>(i)), env, loop.loc);
+                        ExecOutcome outcome = execBlock(loop.body, env);
+                        if (outcome.result == ExecResult::Stop)
+                            return ExecOutcome::normal();
+                        if (outcome.result == ExecResult::Return)
+                            return outcome;
                     }
                 }
             }
-            catch (StopSignal &)
+            else
             {
-                // `stop` just exits the loop.
+                // While and Match both re-check a boolean condition every
+                // iteration (see LoopParser.h for why the two share this
+                // implementation).
+                while (evalExpr(*loop.condition, env).truthy())
+                {
+                    ExecOutcome outcome = execBlock(loop.body, env);
+                    if (outcome.result == ExecResult::Stop)
+                        return ExecOutcome::normal();
+                    if (outcome.result == ExecResult::Return)
+                        return outcome;
+                }
             }
+            return ExecOutcome::normal();
         }
 
-        void execOrElse(const OrElseStmt &oe, Environment &env)
+        ExecOutcome execOrElse(const OrElseStmt &oe, Environment &env)
         {
             try
             {
-                execStatement(*oe.primaryStmt, env);
+                return execStatement(*oe.primaryStmt, env);
             }
             catch (CuffError &e)
             {
@@ -397,7 +462,7 @@ namespace cuff
                 }
 
                 Environment blockEnv(Environment::Kind::BlockScope, env);
-                execBlock(oe.fallbackBody, blockEnv);
+                return execBlock(oe.fallbackBody, blockEnv);
             }
         }
 
@@ -706,7 +771,31 @@ namespace cuff
                 args.reserve(fc.args.size());
                 for (auto &a : fc.args)
                     args.push_back(evalExpr(*a, env));
-                return callFunction(fc.functionName, args, fc.loc);
+
+                // Check user-defined functions first (one hash lookup) since
+                // that's the hot path for any recursive/heavily-called
+                // script function; natives are checked only if it's not a
+                // user function. This also handles the async-deferral check
+                // without a second, separate lookup for the same name.
+                auto userIt = userFunctions_.find(fc.functionName);
+                if (userIt != userFunctions_.end())
+                {
+                    if (userIt->second->isAsync)
+                    {
+                        // Called without await: doesn't run now — see the
+                        // class-level comment on taskQueue_ above.
+                        taskQueue_.push_back(QueuedTask{userIt->second, std::move(args)});
+                        return Value::makeEmpty();
+                    }
+                    return callUserFunction(*userIt->second, args, fc.loc);
+                }
+
+                auto nativeIt = natives_.find(fc.functionName);
+                if (nativeIt != natives_.end())
+                    return nativeIt->second(args, fc.loc);
+
+                throw UndefinedFunctionError("undefined function '" + fc.functionName + "'", fc.loc,
+                                             "check the spelling, or make sure it's declared before this point");
             }
             case ExprKind::Await:
             {
@@ -891,17 +980,16 @@ namespace cuff
             FrameGuard guard(this, decl.isReturnable);
 
             Environment funcEnv(Environment::Kind::FunctionScope, globalEnv_);
+            funcEnv.reserve(decl.params.size());
             for (size_t i = 0; i < decl.params.size(); ++i)
-                funcEnv.declare(decl.params[i], args[i], false);
+                funcEnv.declare(decl.params[i], std::move(args[i]), false);
 
-            try
-            {
-                execBlock(decl.body, funcEnv);
-            }
-            catch (ReturnSignal &r)
-            {
-                return std::move(r.value);
-            }
+            ExecOutcome outcome = execBlock(decl.body, funcEnv);
+            if (outcome.result == ExecResult::Return)
+                return std::move(outcome.returnValue);
+            if (outcome.result == ExecResult::Stop)
+                throw CuffRuntimeError(ErrorCode::StopOutsideLoop,
+                                       "'stop' cannot be used outside of a loop", outcome.loc);
             return Value::makeEmpty();
         }
 
