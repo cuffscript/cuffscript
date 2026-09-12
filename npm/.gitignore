@@ -1,0 +1,4 @@
+dist/cuffscript.mjs
+dist/cuffscript.wasm
+node_modules/
+*.tgz

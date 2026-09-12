@@ -1,0 +1,39 @@
+{
+  "name": "cuffscript-wasm",
+  "version": "1.2.0",
+  "description": "Prebuilt WebAssembly build of the CuffScript language engine.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/cuffscript.mjs",
+  "module": "dist/cuffscript.mjs",
+  "types": "dist/cuffscript.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/cuffscript.d.ts",
+      "default": "./dist/cuffscript.mjs"
+    },
+    "./cuffscript.wasm": "./dist/cuffscript.wasm"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cuffscript/cuffscript.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/cuffscript/cuffscript",
+  "keywords": [
+    "cuffscript",
+    "webassembly",
+    "wasm",
+    "programming-language",
+    "interpreter"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
