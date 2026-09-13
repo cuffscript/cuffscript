@@ -8,7 +8,7 @@ $(TARGET): $(SOURCES) $(wildcard engine/**/*.h engine/*.h)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SOURCES)
 
 clean:
-	@if exist $(TARGET) del /f /q $(TARGET)
+	rm -f $(TARGET)
 
 EMCC = em++
 WASM_ENTRY = wasm/bindings.cpp
@@ -29,10 +29,10 @@ EMFLAGS = -std=c++17 -O3 -fexceptions --bind \
 	-s NO_EXIT_RUNTIME=1
 
 wasm: $(WASM_ENTRY) $(wildcard engine/**/*.h engine/*.h)
-	@if not exist "npm\dist" mkdir "npm\dist"
+	mkdir -p $(WASM_OUT_DIR)
 	$(EMCC) $(EMFLAGS) $(WASM_ENTRY) -o $(WASM_OUT)
 
 wasm-clean:
-	@if exist "npm\dist" rmdir /s /q "npm\dist"
+	rm -f $(WASM_OUT_DIR)/cuffscript.mjs $(WASM_OUT_DIR)/cuffscript.wasm
 
 .PHONY: clean wasm wasm-clean
