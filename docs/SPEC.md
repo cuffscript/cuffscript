@@ -1,4 +1,4 @@
-# CuffScript (Cuff) 공식 명세서 — 중간 명세
+# CuffScript (Cuff) 공식 명세서
 
 ### 1\. 선언 및 변경 (set & change)
 
