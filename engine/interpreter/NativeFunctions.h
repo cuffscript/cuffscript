@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Value.h"
+#include "Utf8.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
 #include <functional>
@@ -47,6 +48,8 @@ namespace cuff
 
     // ---- Always-available builtins ----
 
+    inline void registerConvertDLC(std::unordered_map<std::string, NativeFn> &reg);
+
     inline void registerBuiltins(std::unordered_map<std::string, NativeFn> &reg)
     {
         reg["print"] = [](std::vector<Value> &args, const SourceLocation &) -> Value
@@ -71,6 +74,11 @@ namespace cuff
                 return Value::makeStr("");
             return Value::makeStr(line);
         };
+
+        // to_number/to_str/to_boolean are common enough to be core builtins
+        // rather than requiring `use DLC:convert` first. `use DLC:convert`
+        // still works — it just re-registers the same functions.
+        registerConvertDLC(reg);
     }
 
     // ---- DLC:math ----
@@ -162,7 +170,7 @@ namespace cuff
         {
             expectArgCount("length", args, 1, loc);
             if (args[0].isStr())
-                return Value::makeNumber(static_cast<double>(args[0].asStr().size()));
+                return Value::makeNumber(static_cast<double>(utf8::length(args[0].asStr())));
             if (args[0].isList())
                 return Value::makeNumber(static_cast<double>(args[0].asList()->items.size()));
             if (args[0].isMap())

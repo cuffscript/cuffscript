@@ -1,0 +1,11 @@
+use DLC:string
+
+set str greeting to "안녕하세요"
+print(f"1번째 글자: {greeting[1]}")
+print(f"2~3번째 글자: {greeting[2~3]}")
+print(f"마지막 글자: {greeting[-1]}")
+print(f"글자 수: {length(greeting)}")
+
+set str mixed to "Hi안녕!"
+print(f"섞인 문자열의 3번째 글자: {mixed[3]}")
+print(f"섞인 문자열 글자 수: {length(mixed)}")

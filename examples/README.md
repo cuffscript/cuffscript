@@ -15,6 +15,7 @@
 | `08_dlc_libraries.cuff` | `DLC:math`/`DLC:string`/`DLC:random`/`DLC:list`/`DLC:convert` |
 | `09_modules_demo.cuff` + `lib/greetings.cuff` | `use <이름> from <경로>`로 다른 `.cuff` 파일 불러오기 |
 | `10_async_ordering.cuff` | `await` 없이 부른 `async` 함수가 동기 코드가 끝난 뒤 큐 순서대로(FIFO) 실행되는 것 확인 |
+| `11_utf8_strings.cuff` | 한글 등 멀티바이트 문자열의 UTF-8 코드포인트 기준 인덱싱/슬라이싱/`length()` |
 | `02_comprehensive_demo.cuff`가 참조하는 `maps/core_engine/stage_data.cuff` | 위와 같은 커스텀 모듈 로딩의 두 번째 예시 |
 
 ## error_cases/

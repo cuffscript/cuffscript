@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Value.h"
+#include "Utf8.h"
 #include "Environment.h"
 #include "Signals.h"
 #include "NativeFunctions.h"
@@ -601,8 +602,10 @@ namespace cuff
                 if (!indexVal.isNumber())
                     throw TypeError("str index must be a number (1-based)", loc);
                 const std::string &s = target.asStr();
-                size_t real = resolveIndex1Based(static_cast<long long>(std::llround(indexVal.asNumber())), s.size(), loc);
-                return Value::makeStr(std::string(1, s[real]));
+                auto bounds = utf8::boundaries(s);
+                size_t n = bounds.size() - 1;
+                size_t cp = resolveIndex1Based(static_cast<long long>(std::llround(indexVal.asNumber())), n, loc);
+                return Value::makeStr(s.substr(bounds[cp], bounds[cp + 1] - bounds[cp]));
             }
             if (target.isMap())
             {
@@ -654,12 +657,13 @@ namespace cuff
             if (target.isStr())
             {
                 const std::string &str = target.asStr();
-                size_t n = str.size();
+                auto bounds = utf8::boundaries(str);
+                size_t n = bounds.size() - 1;
                 size_t rs = resolveIndex1Based(s, n, loc);
                 size_t re = resolveIndex1Based(e, n, loc);
                 if (rs > re)
                     return Value::makeStr("");
-                return Value::makeStr(str.substr(rs, re - rs + 1));
+                return Value::makeStr(str.substr(bounds[rs], bounds[re + 1] - bounds[rs]));
             }
             throw TypeError("cannot slice a " + valueTypeName(target.type()) + " value", loc);
         }
