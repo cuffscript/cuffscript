@@ -1,3 +1,4 @@
 .env
 cuffc
 *.o
+*.exe
