@@ -25,7 +25,7 @@
     "url": "git+https://github.com/cuffscript/cuffscript.git",
     "directory": "npm"
   },
-  "homepage": "https://github.com/cuffscript/cuffscript",
+  "homepage": "https://cuffscript.pages.dev/",
   "keywords": [
     "cuffscript",
     "webassembly",
