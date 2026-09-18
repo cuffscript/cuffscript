@@ -1,3 +1,13 @@
+## v1.2.1 - 2026-09-18
+
+# Description
+
+- Add npm package for web IDE
+
+
+
+---
+
 ## v1.2.0 - 2026-09-18
 
 # Description
