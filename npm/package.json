@@ -1,6 +1,6 @@
 {
   "name": "cuffscript-wasm",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Prebuilt WebAssembly build of the CuffScript language engine.",
   "license": "Apache-2.0",
   "type": "module",
