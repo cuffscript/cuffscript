@@ -86,6 +86,8 @@ namespace cuff
         InvalidGlobalDeclaration = 4021,
         ReturnOutsideFunction = 4022,
         StopOutsideLoop = 4023,
+        FractionalIndex = 4024,
+        InvalidArgumentValue = 4025,
 
         // ---- Module (5000s) ----
         ModuleNotFound = 5001,

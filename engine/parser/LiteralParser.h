@@ -90,7 +90,7 @@ namespace cuff
                         ++j;
                     }
                     if (depth != 0)
-                        throw SyntaxError("Unterminated '{' in f-string", tok.location);
+                        throw SyntaxError("unterminated '{' in f-string", tok.location);
 
                     std::string exprSource = raw.substr(i + 1, j - i - 1);
                     auto innerExpr = parseEmbeddedExpression(exprSource, tok.location);

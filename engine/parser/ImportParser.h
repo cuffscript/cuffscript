@@ -45,13 +45,13 @@ namespace cuff
         static std::unique_ptr<Stmt> parse(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::USE, "Expected 'use'");
+            p.consume(TokenType::USE, "expected 'use'");
 
             // Pattern 1: use DLC:name  (DLC is a word, then COLON, then name)
             if (isWordLikeToken(p.current()) && p.current().value == "DLC" && p.peek(1).is(TokenType::COLON))
             {
                 p.advance(); // DLC
-                p.consume(TokenType::COLON, "Expected ':' after DLC");
+                p.consume(TokenType::COLON, "expected ':' after DLC");
 
                 std::string libName;
                 if (isWordLikeToken(p.current()))
@@ -61,7 +61,7 @@ namespace cuff
                 }
                 else
                 {
-                    throw SyntaxError("Expected library name after 'DLC:'", p.current().location);
+                    throw SyntaxError("expected library name after 'DLC:'", p.current().location);
                 }
 
                 UseStmt use;
@@ -81,10 +81,10 @@ namespace cuff
             }
             else
             {
-                throw SyntaxError("Expected module name after 'use'", p.current().location);
+                throw SyntaxError("expected module name after 'use'", p.current().location);
             }
 
-            p.consume(TokenType::FROM, "Expected 'from' in custom import");
+            p.consume(TokenType::FROM, "expected 'from' in custom import");
 
             // Path: reconstruct from tokens (./maps/core_engine -> DOT, WORD, SLASH, WORD, SLASH, WORD)
             std::string path;
@@ -120,7 +120,7 @@ namespace cuff
 
             if (path.empty())
             {
-                throw SyntaxError("Expected path after 'from'", loc);
+                throw SyntaxError("expected path after 'from'", loc);
             }
 
             UseStmt use;

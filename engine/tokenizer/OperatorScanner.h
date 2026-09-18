@@ -83,7 +83,7 @@ namespace cuff
         case '=':
             // '=' is not used as assignment in CuffScript (uses 'to'),
             // but >= and <= are handled above. A standalone '=' is an error.
-            throw SyntaxError("Unexpected '=' — CuffScript uses 'to' for assignment, not '='", start);
+            throw SyntaxError("unexpected '=' — CuffScript uses 'to' for assignment, not '='", start);
         default:
             throw SyntaxError(std::string("Unexpected character '") + static_cast<char>(c) + "'", start);
         }

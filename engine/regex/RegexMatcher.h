@@ -3,6 +3,7 @@
 #include "RegexAst.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
+#include "../common/Utf8.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -68,12 +69,21 @@ namespace cuff::regex
 
         // Leftmost match starting at or after `fromPos` (used by
         // match/find/replace/split/count).
+        //
+        // Start positions are advanced one *codepoint* at a time, not one
+        // byte: starting mid-sequence in a multi-byte UTF-8 character could
+        // otherwise produce a match whose start offset splits a character,
+        // and substr()ing that range would yield mojibake.
         bool search(const std::string &text, size_t fromPos, MatchOutcome &out)
         {
-            for (size_t p = fromPos; p <= text.size(); ++p)
+            size_t p = fromPos;
+            while (p <= text.size())
             {
                 if (tryMatchAt(text, p, out, /*requireFullConsumption=*/false))
                     return true;
+                if (p == text.size())
+                    break;
+                p += cuff::utf8::seqLen(static_cast<unsigned char>(text[p]));
             }
             return false;
         }
@@ -229,20 +239,87 @@ namespace cuff::regex
             return false;
         }
 
+        // Matches exactly one codepoint (1-4 bytes). Three cases:
+        //   - isAnyCodepoint ([any]): any single codepoint except newline
+        //   - multiByteLiteral: a literal non-ASCII character from the pattern
+        //   - charTest: an ASCII-range predicate ([num], [a-z], a literal 'x', ...)
+        //
+        // For charTest, a multi-byte codepoint in the *text* is never fed to
+        // the predicate byte-by-byte — the predicates are all ASCII-range, so
+        // a non-ASCII character simply can't satisfy a positive one. A negated
+        // set ([!num], [!a-z]) is the interesting case: it *should* match a
+        // Korean character, and does, because negation is checked against the
+        // whole codepoint rather than each byte.
         bool matchCharTest(RNode &node, size_t pos, const Cont &k)
         {
             if (pos >= text_->size())
                 return false;
-            unsigned char c = static_cast<unsigned char>((*text_)[pos]);
-            if (!charEquals(c, node.charTest))
+
+            unsigned char lead = static_cast<unsigned char>((*text_)[pos]);
+            size_t len = cuff::utf8::seqLen(lead);
+            if (pos + len > text_->size())
+                len = 1; // truncated/invalid sequence — treat the byte as one unit
+
+            if (node.isAnyCodepoint)
+            {
+                if (len == 1 && lead == '\n')
+                    return false;
+                return k(pos + len);
+            }
+
+            if (!node.multiByteLiteral.empty())
+            {
+                const std::string &lit = node.multiByteLiteral;
+                if (pos + lit.size() > text_->size())
+                    return false;
+                if (text_->compare(pos, lit.size(), lit) != 0)
+                    return false;
+                return k(pos + lit.size());
+            }
+
+            if (len > 1)
+            {
+                // A multi-byte codepoint can only satisfy a negated set — no
+                // positive ASCII-range predicate will accept it.
+                if (!node.negated)
+                    return false;
+                return k(pos + len);
+            }
+
+            if (!charEquals(lead, node.charTest))
                 return false;
             return k(pos + 1);
         }
 
+        // [edge]: a word/non-word transition. A multi-byte codepoint counts as
+        // a word character — a Korean or accented letter is a letter, so
+        // "안녕 hello" has an edge between the space and each word, not inside
+        // "안녕" itself.
+        bool isWordCharAt(size_t pos) const
+        {
+            if (pos >= text_->size())
+                return false;
+            unsigned char c = static_cast<unsigned char>((*text_)[pos]);
+            if (c >= 0x80)
+                return true;
+            return isWordChar(c);
+        }
+
+        // Start of the codepoint containing (or immediately preceding) `pos`.
+        size_t prevCodepointStart(size_t pos) const
+        {
+            if (pos == 0)
+                return 0;
+            size_t i = pos - 1;
+            while (i > 0 && (static_cast<unsigned char>((*text_)[i]) & 0xC0) == 0x80)
+                --i;
+            return i;
+        }
+
         bool matchWordBoundary(size_t pos)
         {
-            bool before = pos > 0 && isWordChar(static_cast<unsigned char>((*text_)[pos - 1]));
-            bool after = pos < text_->size() && isWordChar(static_cast<unsigned char>((*text_)[pos]));
+            bool before = pos > 0 && isWordCharAt(prevCodepointStart(pos));
+            bool after = isWordCharAt(pos);
             return before != after;
         }
 
@@ -310,14 +387,31 @@ namespace cuff::regex
                     unsigned char pc = static_cast<unsigned char>(alt[i]);
                     if (tc == pc)
                         continue;
-                    if (ci_ && toggleAsciiCase(tc) == pc)
+                    // Case folding is ASCII-only, so it must never be applied
+                    // to a continuation/lead byte of a multi-byte sequence —
+                    // toggleAsciiCase leaves those alone anyway, but comparing
+                    // them only byte-for-byte keeps multi-byte alternatives
+                    // ([one:사과|배]) matching exactly.
+                    if (ci_ && tc < 0x80 && pc < 0x80 && toggleAsciiCase(tc) == pc)
                         continue;
                     ok = false;
                 }
+                // An alternative must also end on a codepoint boundary in the
+                // text; otherwise "가" could match the first byte(s) of a
+                // different character that happens to share a prefix.
+                if (ok && !endsOnCodepointBoundary(pos + alt.size()))
+                    ok = false;
                 if (ok && k(pos + alt.size()))
                     return true;
             }
             return false;
+        }
+
+        bool endsOnCodepointBoundary(size_t pos) const
+        {
+            if (pos >= text_->size())
+                return true;
+            return (static_cast<unsigned char>((*text_)[pos]) & 0xC0) != 0x80;
         }
 
         // Returns candidate match lengths at `pos`, longest first (greedy).

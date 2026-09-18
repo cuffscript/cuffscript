@@ -101,7 +101,7 @@ namespace cuff
                         }
                         if (indent != indentStack.top())
                         {
-                            throw SyntaxError("Inconsistent indentation", state_.here());
+                            throw SyntaxError("inconsistent indentation", state_.here());
                         }
                     }
 

@@ -24,7 +24,7 @@ namespace cuff
         static std::unique_ptr<Stmt> parse(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::LOOP, "Expected 'loop'");
+            p.consume(TokenType::LOOP, "expected 'loop'");
 
             LoopStmt loop;
             loop.loc = loc;
@@ -37,22 +37,23 @@ namespace cuff
                 if (p.check(TokenType::IDENTIFIER))
                 {
                     loop.repeatVar = p.current().value;
+                    loop.repeatVarId = internName(loop.repeatVar);
                     p.advance();
                 }
                 else
                 {
-                    throw SyntaxError("Expected variable name after 'repeat'", p.current().location);
+                    throw SyntaxError("expected variable name after 'repeat'", p.current().location);
                 }
 
                 // 'to' keyword (not '=' in CuffScript)
-                p.consume(TokenType::TO, "Expected 'to' in repeat loop");
+                p.consume(TokenType::TO, "expected 'to' in repeat loop");
 
                 loop.repeatStart = ExpressionParser::parse(p);
-                p.consume(TokenType::TILDE, "Expected '~' for repeat range");
+                p.consume(TokenType::TILDE, "expected '~' for repeat range");
                 loop.repeatEnd = ExpressionParser::parse(p);
 
-                p.consume(TokenType::DO, "Expected 'do' for repeat loop");
-                p.consume(TokenType::COLON, "Expected ':' after 'do'");
+                p.consume(TokenType::DO, "expected 'do' for repeat loop");
+                p.consume(TokenType::COLON, "expected ':' after 'do'");
 
                 loop.body = parseLoopBody(p);
             }
@@ -61,8 +62,8 @@ namespace cuff
                 loop.kind = LoopStmt::LoopKind::While;
                 loop.condition = ExpressionParser::parse(p);
 
-                p.consume(TokenType::DO, "Expected 'do' for while loop");
-                p.consume(TokenType::COLON, "Expected ':' after 'do'");
+                p.consume(TokenType::DO, "expected 'do' for while loop");
+                p.consume(TokenType::COLON, "expected ':' after 'do'");
 
                 loop.body = parseLoopBody(p);
             }
@@ -73,18 +74,18 @@ namespace cuff
                 // The condition is a comparison expression
                 loop.condition = ExpressionParser::parse(p);
 
-                p.consume(TokenType::DO, "Expected 'do' for match loop");
-                p.consume(TokenType::COLON, "Expected ':' after 'do'");
+                p.consume(TokenType::DO, "expected 'do' for match loop");
+                p.consume(TokenType::COLON, "expected ':' after 'do'");
 
                 loop.body = parseLoopBody(p);
             }
             else
             {
-                throw SyntaxError("Expected 'repeat', 'while', or 'match' after 'loop'",
+                throw SyntaxError("expected 'repeat', 'while', or 'match' after 'loop'",
                                   p.current().location);
             }
 
-            p.consume(TokenType::END, "Expected 'end' to close loop");
+            p.consume(TokenType::END, "expected 'end' to close loop");
             p.match(TokenType::DEDENT);
 
             return std::make_unique<Stmt>(StmtKind::LoopStmt, std::move(loop));

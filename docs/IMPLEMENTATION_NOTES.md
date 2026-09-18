@@ -106,6 +106,7 @@ f-string은 바깥쪽 큰따옴표(`"`)로 감싸입니다. `{...}` 표현식 �
 | `DLC:random` | `random`, `random_int` |
 | `DLC:list` | `sort`, `reverse`, `join`, `unique` — 전부 원본을 바꾸지 않고 새 값을 반환 |
 | `DLC:convert` | `to_number`, `to_str`, `to_boolean` — 명시적 타입 변환 |
+| `DLC:json` | `to_json`, `from_json` — 아래 19번 항목 참고 |
 | `DLC:network` | `fetch`, `get`, `post` — **불러오기는 항상 성공**하지만, 실제로 호출하면 이 실행 환경에 네트워크 샌드박싱이 없다는 명확한 `ModuleError`를 던집니다. |
 
 `DLC:list`/`DLC:convert`를 추가하며 발견한 것: 라이브러리 이름이 `list`, `count`,
@@ -177,12 +178,7 @@ v0.1.x에서는 `return`/`stop`을 C++ 예외(`ReturnSignal`/`StopSignal`)로 �
 바이트 단위 그대로 두었습니다 — UTF-8은 자기동기화 인코딩이라 바이트 단위 검색/결합이
 코드포인트 경계를 침범하지 않아 이미 안전하게 동작합니다.
 
-**정규식 엔진은 그대로 바이트 단위입니다.** `[any]`, `[str]` 같은 토큰은 한 바이트 단위로
-검사합니다 — `[num]`/`[let]`/`[hex]` 등은 전부 ASCII 범위라 한글 바이트(항상 0x80 이상)와
-절대 매치되지 않으므로 영향이 없지만, `[any]5`처럼 **개수 지정과 결합한 `[any]`는 "글자
-5개"가 아니라 "바이트 5개"**를 의미합니다 (한글은 글자당 3바이트). 정규식 매처를 코드포인트
-단위로 다시 만드는 건 이번 범위 밖입니다 — `RegexAst`/`RegexMatcher`가 `unsigned char`
-하나씩 비교하는 구조 전체를 바꿔야 해서, 문자열 인덱싱보다 훨씬 큰 작업입니다.
+정규식 엔진도 코드포인트 단위로 동작합니다 — 아래 17번 항목 참고.
 
 ## 15. 타입 변환 (`to_number`/`to_str`/`to_boolean`)은 기본 내장
 
@@ -219,3 +215,127 @@ build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
 `DeclarationParser`/`FunctionParser` 등 이름을 선언하는 모든 지점에 퍼져있어서 범위가 더
 큽니다. 아직 고치지 않았습니다 — `tests/errors/argument_count_mismatch.cuff`가 원래
 `add`라는 함수명을 쓰려다 이 문제에 걸려서 `combine`으로 우회했습니다.
+
+## 17. Regex matching is codepoint-based (not byte-based)
+
+*(Notes from here on are written in English.)*
+
+The matcher walks the subject string one **UTF-8 codepoint** at a time, not one byte.
+Positions are still stored as byte offsets internally — that keeps `substr()` on captures
+free and avoids building an index table per match — but every place that *advances* a
+position now consumes a whole codepoint (`engine/common/Utf8.h`).
+
+What this changes, concretely:
+
+- `[any]` matches one codepoint. `"안녕하세요" is "[any]5"` is now true (it was false
+  before, because the string is 15 bytes).
+- A literal non-ASCII character written directly in a pattern (`"안녕"`) is compiled into a
+  single multi-byte literal node and compared as one unit, instead of byte-by-byte.
+- Negated sets (`[!num]`, `[!a-z]`) match a non-ASCII codepoint. This is the one case where
+  a named class *can* apply to multi-byte text, and it's handled by testing the whole
+  codepoint rather than each byte.
+- `search()` only ever starts an attempt at a codepoint boundary, and `[one:...]`
+  alternatives must also *end* on one — otherwise a match could span a partial character
+  and `substr()` would produce mojibake.
+- `[edge]` treats any non-ASCII codepoint as a word character, so `[edge]안녕[edge]` works.
+  This follows the spec's own definition (REGEX.md section 17: the boundary between a word
+  and whitespace/punctuation/string-start/end).
+
+What deliberately stays ASCII-only, per the spec's explicit wording:
+
+- `[let]` (영문 알파벳 / English alphabet), `[low]`, `[up]`, `[str]` (영문자 + 숫자),
+  `[word]` (영문자 + 숫자 + 언더바 — an *identifier* class), `[num]`, `[hex]`, and the
+  `[int]`/`[float]`/`[email]`/`[phone]`/`[url]` presets. `"안녕" is "[let]+"` is false.
+- `[any]` is the token for "any character in any language" — REGEX.md describes it as
+  "줄바꿈을 제외한 세상의 모든 글자 및 기호".
+
+So `[word]` excluding Korean while `[edge]` includes it is not an inconsistency: `[word]` is
+documented as an identifier class, `[edge]` as text segmentation. They serve different jobs.
+
+Case-insensitive matching (`IS`, flag `i`) remains ASCII-only folding — correct Unicode case
+folding needs a real Unicode table, and it is a no-op for scripts without case (Hangul, CJK,
+Thai, ...), which is the common case here. Grapheme clusters (combining jamo, emoji ZWJ
+sequences) are likewise out of scope, same reasoning as section 14.
+
+## 18. Indices and range bounds must be whole numbers
+
+`list[i]`, `str[i]`, `x[i~j]`, and `loop repeat i to A ~ B` all reject a fractional value
+with `FractionalIndex` (E4024) instead of silently rounding it, which is what the engine
+used to do. A computed index that lands on `2.5` almost always means the *calculation* is
+wrong; rounding it hides the bug and produces a plausible-looking wrong answer.
+
+Whole-valued doubles still work, since CuffScript has a single `number` type and `6 / 2`
+legitimately produces `3.0` — only genuinely fractional values are rejected. Round
+explicitly (`round`/`floor`/`ceil` from `DLC:math`) when that's what you mean.
+
+## 19. `DLC:json`
+
+JSON maps onto the value model almost exactly, so the mapping is the obvious one:
+object ↔ `map`, array ↔ `list`, string ↔ `str`, number ↔ `number`, `true`/`false` ↔
+`boolean`, `null` ↔ `empty`. `to_json(value)` produces compact output;
+`to_json(value, indent)` pretty-prints with `indent` spaces (0-10).
+
+Parsing is deliberately **strict** (RFC 8259): trailing commas, single-quoted strings,
+unquoted keys, leading zeros, `NaN`/`Infinity`, and trailing content after the value are all
+rejected. Being lenient here is how malformed data gets into a system unnoticed — a parse
+error at the boundary is much cheaper than a wrong value deep inside a program. `\uXXXX`
+escapes are decoded, including surrogate pairs, so `"\ud83d\ude00"` round-trips to a real
+emoji rather than two broken halves. Output leaves UTF-8 bytes unescaped, keeping Korean and
+emoji readable instead of `\uXXXX` soup.
+
+Serializing a `match` result, `NaN`, or `Infinity` fails rather than inventing a
+representation JSON doesn't have. Nesting is capped at 200 levels so a hostile input can't
+overflow the stack during parsing.
+
+## 20. Error-code hygiene
+
+Two conventions, both checked during a full audit of every throw site:
+
+- **Message capitalization is uniform**: every error message starts lowercase, because it's
+  always rendered after a `...at line N, column M: ` prefix. (Parser messages used to start
+  uppercase while runtime messages started lowercase.)
+- **`ArgumentError` means the wrong *number* of arguments; `ValueError`
+  (`InvalidArgumentValue`, E4025) means the right number but a value the function can't
+  use** — `sqrt(-1)`, `to_number("abc")`, malformed `from_json` input, `random_int(5, 1)`.
+  These previously all reported as E4010 `ArgumentCountMismatch`, which was simply the wrong
+  code for them.
+
+When adding a builtin, pick the code by what actually went wrong, and keep the message
+lowercase. Add a hint only when there's a concrete next action for the reader — a hint that
+just restates the message is noise.
+
+## 21. Interpreter performance work
+
+Two structural changes, both driven by `gprof` profiles of a recursion-heavy benchmark
+rather than guesswork. The lesson from both: the bottleneck was not where it seemed.
+
+**Operators are enums, not strings.** `BinaryOp`/`UnaryOp` used to store the operator as a
+`std::string` (`"+"`, `"is"`, ...) and `evalBinaryOp` dispatched with an
+`if (op == "is") ... else if (op == "+")` chain. The profile showed **16.2 million string
+comparisons** for a 635k-call benchmark — roughly 25 per call, by far the single largest
+cost in the engine. The chain is now a `switch` over `BinOp`/`UnOp` enums assigned at parse
+time. Measured on `fib(27)`: 0.241s → 0.149s (38% faster).
+
+**Variable and function names are interned to integer IDs** (`engine/common/NameInterner.h`).
+The parser assigns each identifier a dense `uint32_t`; `Environment` stores and compares
+those instead of strings, so a scope lookup is an int compare over a contiguous vector. A
+benchmark with 400 globals went from 0.059s to 0.027s. Names are still kept alongside the
+IDs for error messages, and a string-taking `declare` overload remains for the cold module-
+merge path.
+
+Where it stands now, versus before any of this session's work:
+
+| benchmark | before | after |
+| :--- | ---: | ---: |
+| `fib(27)` (635k calls) | 0.241s | 0.140s |
+| 2M-iteration loop with `change` | 0.287s | 0.173s |
+| 400 globals, 200k lookups | 0.059s | 0.027s |
+| 3-argument call overhead | 252ns | ~145ns |
+
+**What would come next, and why it hasn't been done.** The profile is now dominated by
+`evalExpr` itself — AST node dispatch and `Value` copies — which is the intrinsic cost of a
+tree-walking interpreter. Getting substantially past this means compiling to bytecode and
+running a stack VM, which is a rewrite of the execution core rather than a refactor of it.
+That is a reasonable next step if a real workload demands it; it is not worth the risk on
+speculation, and the current engine is in the same performance range as CPython on
+call-heavy code.

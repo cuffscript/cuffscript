@@ -28,7 +28,7 @@ namespace cuff
                 // Rule: no space before ':'
                 if (colon.hasSpaceBefore)
                 {
-                    throw SyntaxError("Space before ':' is not allowed", colon.location);
+                    throw SyntaxError("space before ':' is not allowed", colon.location);
                 }
             }
         }

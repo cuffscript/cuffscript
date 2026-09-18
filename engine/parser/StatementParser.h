@@ -86,7 +86,7 @@ namespace cuff
                 auto expr = ExpressionParser::parse(p);
                 if (expr->kind != ExprKind::FunctionCall)
                 {
-                    throw SyntaxError("Expected function call after 'await'", awaitLoc);
+                    throw SyntaxError("expected function call after 'await'", awaitLoc);
                 }
                 FunctionCall fc = std::move(std::get<FunctionCall>(expr->data));
                 auto callPtr = std::make_unique<FunctionCall>(std::move(fc));
@@ -222,8 +222,8 @@ namespace cuff
     {
         SourceLocation loc = p.current().location;
         p.consume(TokenType::OR_ELSE, "Expected 'or_else'");
-        p.consume(TokenType::DO, "Expected 'do' after 'or_else'");
-        p.consume(TokenType::COLON, "Expected ':' after 'do'");
+        p.consume(TokenType::DO, "expected 'do' after 'or_else'");
+        p.consume(TokenType::COLON, "expected ':' after 'do'");
 
         // Parse fallback body — block form (newline + INDENT)
         std::vector<std::unique_ptr<Stmt>> fallbackBody;
@@ -245,7 +245,7 @@ namespace cuff
                 fallbackBody.push_back(std::move(stmt));
         }
 
-        p.consume(TokenType::END, "Expected 'end' to close or_else block");
+        p.consume(TokenType::END, "expected 'end' to close or_else block");
         p.match(TokenType::DEDENT);
 
         OrElseStmt orElse;

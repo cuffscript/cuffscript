@@ -33,7 +33,7 @@ namespace cuff
 
         if (value.empty())
         {
-            throw SyntaxError("Invalid number literal", start);
+            throw SyntaxError("invalid number literal", start);
         }
 
         return Token(TokenType::NUMBER, value, start, s.pendingSpaceBefore);

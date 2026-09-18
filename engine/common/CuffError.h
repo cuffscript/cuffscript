@@ -196,11 +196,23 @@ namespace cuff
             : CuffRuntimeError(ErrorCode::DivisionByZero, msg, loc) {}
     };
 
+    // Wrong *number* of arguments.
     class ArgumentError : public CuffRuntimeError
     {
     public:
         ArgumentError(const std::string &msg, const SourceLocation &loc, const std::string &hint = "")
             : CuffRuntimeError(ErrorCode::ArgumentCountMismatch, msg, loc, hint) {}
+    };
+
+    // Right number of arguments, but one of them holds a value the function
+    // can't work with (a negative square root, malformed JSON text, a reversed
+    // range). Distinct from ArgumentError so "you passed the wrong count" and
+    // "you passed a bad value" don't share one error code.
+    class ValueError : public CuffRuntimeError
+    {
+    public:
+        ValueError(const std::string &msg, const SourceLocation &loc, const std::string &hint = "")
+            : CuffRuntimeError(ErrorCode::InvalidArgumentValue, msg, loc, hint) {}
     };
 
     class ElementNotFoundError : public CuffRuntimeError

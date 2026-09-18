@@ -23,11 +23,11 @@ namespace cuff
         static std::unique_ptr<Stmt> parseAdd(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::ADD, "Expected 'add'");
+            p.consume(TokenType::ADD, "expected 'add'");
 
             auto value = ExpressionParser::parse(p);
 
-            p.consume(TokenType::TO, "Expected 'to' in 'add' statement");
+            p.consume(TokenType::TO, "expected 'to' in 'add' statement");
 
             std::string collectionName;
             if (p.check(TokenType::IDENTIFIER))
@@ -37,13 +37,14 @@ namespace cuff
             }
             else
             {
-                throw SyntaxError("Expected collection name after 'to' in 'add'", p.current().location);
+                throw SyntaxError("expected collection name after 'to' in 'add'", p.current().location);
             }
 
             CollectionOpStmt stmt;
             stmt.opKind = CollectionOpStmt::OpKind::Add;
             stmt.addValue = std::move(value);
             stmt.collectionName = collectionName;
+            stmt.collectionNameId = internName(collectionName);
             stmt.loc = loc;
 
             return std::make_unique<Stmt>(StmtKind::CollectionOp, std::move(stmt));
@@ -53,7 +54,7 @@ namespace cuff
         static std::unique_ptr<Stmt> parseReplace(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::REPLACE, "Expected 'replace'");
+            p.consume(TokenType::REPLACE, "expected 'replace'");
 
             // Parse the target: collectionName[index] or collectionName["key"]
             std::string collectionName;
@@ -64,21 +65,22 @@ namespace cuff
             }
             else
             {
-                throw SyntaxError("Expected collection name after 'replace'", p.current().location);
+                throw SyntaxError("expected collection name after 'replace'", p.current().location);
             }
 
             // Parse [index] or ["key"]
-            p.consume(TokenType::LBRACKET, "Expected '[' for index/key in 'replace'");
+            p.consume(TokenType::LBRACKET, "expected '[' for index/key in 'replace'");
             auto indexOrKey = ExpressionParser::parse(p);
-            p.consume(TokenType::RBRACKET, "Expected ']' to close index/key");
+            p.consume(TokenType::RBRACKET, "expected ']' to close index/key");
 
-            p.consume(TokenType::TO, "Expected 'to' in 'replace' statement");
+            p.consume(TokenType::TO, "expected 'to' in 'replace' statement");
 
             auto newValue = ExpressionParser::parse(p);
 
             CollectionOpStmt stmt;
             stmt.opKind = CollectionOpStmt::OpKind::Replace;
             stmt.collectionName = collectionName;
+            stmt.collectionNameId = internName(collectionName);
             stmt.indexOrKey = std::move(indexOrKey);
             stmt.newValue = std::move(newValue);
             stmt.loc = loc;
@@ -90,11 +92,11 @@ namespace cuff
         static std::unique_ptr<Stmt> parseRemove(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::REMOVE, "Expected 'remove'");
+            p.consume(TokenType::REMOVE, "expected 'remove'");
 
             auto removeValue = ExpressionParser::parse(p);
 
-            p.consume(TokenType::FROM, "Expected 'from' in 'remove' statement");
+            p.consume(TokenType::FROM, "expected 'from' in 'remove' statement");
 
             std::string collectionName;
             if (p.check(TokenType::IDENTIFIER))
@@ -104,13 +106,14 @@ namespace cuff
             }
             else
             {
-                throw SyntaxError("Expected collection name after 'from' in 'remove'", p.current().location);
+                throw SyntaxError("expected collection name after 'from' in 'remove'", p.current().location);
             }
 
             CollectionOpStmt stmt;
             stmt.opKind = CollectionOpStmt::OpKind::Remove;
             stmt.removeValue = std::move(removeValue);
             stmt.collectionName = collectionName;
+            stmt.collectionNameId = internName(collectionName);
             stmt.loc = loc;
 
             return std::make_unique<Stmt>(StmtKind::CollectionOp, std::move(stmt));

@@ -65,6 +65,25 @@ run_error_case() {
 
 check_bin
 
+echo "== tests/unit (C++ unit tests) =="
+for src in tests/unit/*.cpp; do
+    bin="/tmp/cuff_unit_$(basename "${src%.cpp}")"
+    if ! g++ -std=c++17 -Wall -Wextra -O2 -I. "$src" -o "$bin" 2>/tmp/cuff_unit_build.log; then
+        echo "FAIL (build): $src"
+        cat /tmp/cuff_unit_build.log
+        FAIL=$((FAIL + 1))
+        continue
+    fi
+    if out=$(timeout 60 "$bin" 2>&1); then
+        echo "  $(basename "$src"): $(echo "$out" | tail -1)"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL: $src"
+        echo "$out"
+        FAIL=$((FAIL + 1))
+    fi
+done
+
 echo "== tests/cases (output diff) =="
 for f in tests/cases/*.cuff; do
     run_success_case "$f"
