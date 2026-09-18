@@ -1,3 +1,28 @@
+## v1.3.0 - 2026-09-18
+
+# Description
+
+- **String indexing/slicing/ are now UTF-8 codepoint-based**, not byte-based.
+  Previously  sliced into the middle of a multi-byte UTF-8 sequence and
+  produced corrupted output — any non-ASCII string indexing was broken. Fixed via a small
+  UTF-8 boundary scanner (); ///
+   were already byte-safe (UTF-8 is self-synchronizing) and needed no change. The regex
+  engine remains byte-oriented by design/scope — see  sections
+  14-15 for the exact boundaries and reasoning.
+
+- // are now core builtins — no  needed.
+   still works (harmlessly re-registers the same functions).
+
+- Fixed the Makefile using Windows-only batch syntax () for /,
+  which failed with a shell syntax error on Linux/macOS (and in CI). Restored portable
+  /. Also fixed  deleting the whole  directory,
+  including the hand-written , instead of just the compiled outputs.
+
+- Restored , which the changelog referenced but was missing from the repo.
+
+
+---
+
 ## v1.2.1 - 2026-09-18
 
 # Description
