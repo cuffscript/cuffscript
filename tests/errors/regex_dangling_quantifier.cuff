@@ -1,0 +1,4 @@
+note: E3009
+if "x" is "[num]~" do:
+    print("unreachable")
+end

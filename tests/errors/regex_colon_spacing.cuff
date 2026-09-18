@@ -1,0 +1,4 @@
+note: E3003
+if "x" is "[one :a|b]" do:
+    print("unreachable")
+end

@@ -1,0 +1,7 @@
+print(!0)
+print(!1)
+print(!"")
+print(!"x")
+print(![])
+print(![1])
+print(!empty)

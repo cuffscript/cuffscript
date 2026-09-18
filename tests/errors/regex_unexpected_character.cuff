@@ -1,0 +1,4 @@
+note: E3010
+if "x" is "abc)" do:
+    print("unreachable")
+end

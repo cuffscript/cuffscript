@@ -1,0 +1,2 @@
+note: E5002
+use broken_module from ./fixtures

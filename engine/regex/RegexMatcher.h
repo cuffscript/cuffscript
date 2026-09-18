@@ -37,7 +37,16 @@ namespace cuff::regex
     struct RegexLimits
     {
         size_t stepLimit = 200000;
-        size_t depthLimit = 20000;
+        // The matcher recurses via continuation-passing (one atom match can
+        // be several nested C++ calls deep before returning), so this needs
+        // a much bigger safety margin below the real stack limit than a
+        // naive "8MB stack / call frame size" estimate suggests — measured
+        // empirically: on an 8MB stack, real crashes started around ~19,500
+        // (not the previous default of 20,000, which crashed the process
+        // with a real SIGSEGV instead of throwing this guard's exception).
+        // 3000 leaves a large margin for smaller stacks (some platforms
+        // default worker/secondary threads to as little as 512KB-1MB).
+        size_t depthLimit = 3000;
         std::chrono::milliseconds timeLimit{500};
     };
 

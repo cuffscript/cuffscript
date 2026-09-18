@@ -1,0 +1,3 @@
+note: E4005 -- `is`/`IS` against a literal string is always pattern matching,
+note: so a non-str left-hand side is a type error, not a false comparison.
+print(5 is "5")

@@ -1,0 +1,3 @@
+note: E5005
+use DLC:network
+fetch("http://example.com")

@@ -1,0 +1,9 @@
+["magic_staff", "shield", "potion"]
+{"name": "Bob", "level": 50}
+{"name": "Bob"}
+[20, 30, 40]
+50
+index out of range, falling back to 0
+safe_value = 0
+Hello
+World

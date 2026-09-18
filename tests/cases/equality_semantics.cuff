@@ -1,0 +1,8 @@
+print(5 is 5)
+print("Hi" is "Hi")
+print("Hi" is "hi")
+print("Hi" IS "hi")
+print("Hi" is not "hi")
+print(empty is empty)
+print([1, 2] is [1, 2])
+print({"a": 1} is {"a": 1})

@@ -1,0 +1,2 @@
+note: E4005
+set number x to "a" - 1

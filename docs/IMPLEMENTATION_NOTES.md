@@ -192,3 +192,30 @@ v0.1.x에서는 `return`/`stop`을 C++ 예외(`ReturnSignal`/`StopSignal`)로 �
 여전히 `use`가 필요합니다 — `input()`으로 받은 문자열을 숫자로 바꾸는 건 매우 흔한 패턴이라
 기본 제공으로 옮겼지만, 나머지까지 전부 기본 내장으로 만들면 `use` 자체의 의미가 없어지므로
 그렇게 하지 않았습니다.
+
+## 16. 회귀 테스트 (`tests/`)
+
+`bash tests/run.sh` — `tests/cases/`(성공 케이스, 출력 diff), `tests/errors/`(실패 케이스,
+에러 코드 확인), `examples/`, `examples/error_cases/`를 전부 돌립니다. 새 기능/버그 수정
+시 관련 케이스를 `tests/`에 같이 추가하세요 (`tests/README.md` 참고). `.github/workflows/
+build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
+
+이 테스트를 만드는 과정에서 실제 버그 2개를 발견/수정했습니다:
+
+**정규식 재귀 깊이 제한이 너무 높아서 진짜 스택 오버플로우(SIGSEGV)가 났음.** `[any]+`처럼
+선형으로 깊게 재귀하는 패턴을 25,000자 문자열에 매칭하면 프로세스가 죽었습니다 —
+`depthLimit`을 20,000으로 잡아뒀는데, 실측해보니 8MB 스택 기준 실제 크래시는 ~19,500
+근처에서 이미 발생해서 제가 만든 안전장치(예외 던지기)가 발동하기도 전에 진짜 스택이
+터진 것입니다. `depthLimit`을 3000으로 낮췄고(관측된 크래시 지점 대비 6배 이상 여유),
+100자부터 100만자까지 전 구간에서 크래시 없이 정상 종료 또는 `RegexRecursionLimitExceeded`
+(E3103)를 깔끔하게 던지는 것을 확인했습니다. 교훈: "충분히 보수적"이라고 생각한 숫자도
+실측 없이는 믿으면 안 됩니다.
+
+**식별자로 예약어를 쓸 수 없는 범위가 생각보다 넓음 (미해결, 기록만 해둠).**
+`set number add to 5`, `set returnable function add(...) do:` 둘 다 파싱 에러가 납니다 —
+`add`/`count`/`find`/`split`/`replace`/`match`/`in`/`by`/`not`/`global` 등, 문법 키워드로
+쓰이는 흔한 단어들을 변수명/함수명으로 전혀 쓸 수 없습니다. `ImportParser`에서 DLC 이름이
+같은 문제였던 것과 동일한 원인(`TokenType::IDENTIFIER`만 엄격히 검사)인데, 이번엔
+`DeclarationParser`/`FunctionParser` 등 이름을 선언하는 모든 지점에 퍼져있어서 범위가 더
+큽니다. 아직 고치지 않았습니다 — `tests/errors/argument_count_mismatch.cuff`가 원래
+`add`라는 함수명을 쓰려다 이 문제에 걸려서 `combine`으로 우회했습니다.

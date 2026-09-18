@@ -1,0 +1,2 @@
+note: E4001
+print(never_declared)

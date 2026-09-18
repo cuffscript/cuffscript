@@ -1,0 +1,4 @@
+0으로 나누기 실패, 기본값으로 대체합니다
+result = -1
+config = default_mode
+safe_item = (없음)

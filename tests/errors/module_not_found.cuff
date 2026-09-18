@@ -1,0 +1,2 @@
+note: E5001
+use nonexistent_module from ./does_not_exist

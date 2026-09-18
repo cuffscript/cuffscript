@@ -1,0 +1,8 @@
+set list items to [10, 20, 30]
+print(items[1])
+print(items[3])
+print(items[-1])
+print(items[-3])
+set str s to "abc"
+print(s[1])
+print(s[-1])

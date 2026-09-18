@@ -1,0 +1,4 @@
+note: E3006
+if "x" is "[]" do:
+    print("unreachable")
+end
