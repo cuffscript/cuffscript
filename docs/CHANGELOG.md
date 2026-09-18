@@ -1,3 +1,12 @@
+## v1.1.0 - 2026-09-18
+
+# Description
+
+- Make  for language growth.
+
+
+---
+
 ## v1.0.0 - 2026-09-18
 
 # Description
