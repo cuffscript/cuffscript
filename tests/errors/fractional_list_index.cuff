@@ -1,0 +1,3 @@
+note: E4024
+set list items to [10, 20, 30]
+print(items[1.5])

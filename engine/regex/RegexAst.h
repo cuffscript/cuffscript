@@ -74,8 +74,10 @@ namespace cuff::regex
         RNodeKind kind;
 
         // CharTest
-        std::function<bool(unsigned char)> charTest; // case-sensitive predicate
-        bool negated = false;                        // informational only (already folded into charTest)
+        std::function<bool(unsigned char)> charTest; // ASCII-range predicate (only ever tested against single-byte codepoints)
+        bool negated = false;                        // matters again for multi-byte codepoints — see RegexMatcher::matchCharTest
+        bool isAnyCodepoint = false;                  // [any]: matches one whole UTF-8 codepoint (1-4 bytes), not one byte
+        std::string multiByteLiteral;                 // non-empty for a literal multi-byte UTF-8 character from the pattern text
 
         // Preset
         PresetKind presetKind = PresetKind::Int;
@@ -105,7 +107,12 @@ namespace cuff::regex
     }
 
     // ---- Character-class predicate builders (case-sensitive; the matcher
-    // layers case-insensitivity on top uniformly via toggleAsciiCase) ----
+    // layers case-insensitivity on top uniformly via toggleAsciiCase). These
+    // are ASCII-range tests by design (matching REGEX.md's own definitions
+    // for [num]/[let]/etc.) — the matcher is responsible for never applying
+    // them to anything but a single-byte codepoint. [any] is handled
+    // separately via RNode::isAnyCodepoint, not a predicate here, since it
+    // must match a whole (possibly multi-byte) codepoint.
 
     inline bool classNum(unsigned char c) { return c >= '0' && c <= '9'; }
     inline bool classLow(unsigned char c) { return c >= 'a' && c <= 'z'; }
@@ -116,6 +123,5 @@ namespace cuff::regex
     inline bool classSp(unsigned char c) { return c == ' ' || c == '\t'; }
     inline bool classNl(unsigned char c) { return c == '\n' || c == '\r'; }
     inline bool classHex(unsigned char c) { return classNum(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
-    inline bool classAny(unsigned char c) { return c != '\n'; }
 
 } // namespace cuff::regex

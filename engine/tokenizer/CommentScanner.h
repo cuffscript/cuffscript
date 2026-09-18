@@ -27,7 +27,7 @@ namespace cuff
         // Expect ':' immediately after "note" (colon rule: no space before)
         if (s.peek() != ':')
         {
-            throw SyntaxError("Expected ':' after 'note'", s.here());
+            throw SyntaxError("expected ':' after 'note'", s.here());
         }
         s.advance(); // consume ':'
 
@@ -55,7 +55,7 @@ namespace cuff
                 }
                 s.advance();
             }
-            throw SyntaxError("Unterminated multi-line comment — missing 'endnote'", s.here());
+            throw SyntaxError("unterminated multi-line comment — missing 'endnote'", s.here());
         }
 
         // Single-line comment: read until newline (or EOF)

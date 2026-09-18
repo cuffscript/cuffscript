@@ -1,0 +1,9 @@
+note: whole-valued doubles are still fine — only genuinely fractional values fail
+set list items to [10, 20, 30]
+print(items[2.0])
+print(items[6 / 2])
+set str s to "abc"
+print(s[1.0])
+loop repeat i to 1 ~ 3.0 do:
+    print(i)
+end

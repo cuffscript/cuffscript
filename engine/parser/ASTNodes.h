@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../common/SourceLocation.h"
+#include "../common/NameInterner.h"
 #include "../common/TokenTypes.h"
 #include <string>
 #include <vector>
@@ -48,8 +49,9 @@ namespace cuff
     struct IdentifierExpr
     {
         std::string name;
+        uint32_t nameId;
         SourceLocation loc;
-        IdentifierExpr(std::string n, SourceLocation l) : name(std::move(n)), loc(l) {}
+        IdentifierExpr(std::string n, SourceLocation l) : name(std::move(n)), nameId(internName(name)), loc(l) {}
     };
 
     struct ListLiteral
@@ -88,23 +90,74 @@ namespace cuff
             : segments(std::move(s)), loc(l) {}
     };
 
+    // Operators are stored as enums, not strings. The interpreter dispatches
+    // on them in a hot loop, and a string-compare chain there cost ~10 string
+    // comparisons per operation (measured: 16M comparisons for a 635k-call
+    // fib benchmark, the single largest cost in the profile).
+    enum class BinOp
+    {
+        Add,        // +
+        Sub,        // -
+        Mul,        // *
+        Div,        // /
+        Is,         // is      (exact equality)
+        IsCase,     // IS      (case-insensitive equality)
+        IsNot,      // is not
+        IsNotCase,  // IS not
+        Greater,    // >
+        Less,       // <
+        GreaterEq,  // >=
+        LessEq      // <=
+    };
+
+    enum class UnOp
+    {
+        Not,    // !
+        Negate  // -
+    };
+
+    inline const char *binOpName(BinOp op)
+    {
+        switch (op)
+        {
+        case BinOp::Add: return "+";
+        case BinOp::Sub: return "-";
+        case BinOp::Mul: return "*";
+        case BinOp::Div: return "/";
+        case BinOp::Is: return "is";
+        case BinOp::IsCase: return "IS";
+        case BinOp::IsNot: return "is not";
+        case BinOp::IsNotCase: return "IS not";
+        case BinOp::Greater: return ">";
+        case BinOp::Less: return "<";
+        case BinOp::GreaterEq: return ">=";
+        case BinOp::LessEq: return "<=";
+        }
+        return "?";
+    }
+
+    inline const char *unOpName(UnOp op)
+    {
+        return op == UnOp::Not ? "!" : "-";
+    }
+
     struct BinaryOp
     {
-        std::string op; // "+", "-", "*", "/", "is", "IS", ">=", "<=", ">", "<"
+        BinOp op;
         std::unique_ptr<Expr> left;
         std::unique_ptr<Expr> right;
         SourceLocation loc;
-        BinaryOp(std::string o, std::unique_ptr<Expr> l, std::unique_ptr<Expr> r, SourceLocation lc)
-            : op(std::move(o)), left(std::move(l)), right(std::move(r)), loc(lc) {}
+        BinaryOp(BinOp o, std::unique_ptr<Expr> l, std::unique_ptr<Expr> r, SourceLocation lc)
+            : op(o), left(std::move(l)), right(std::move(r)), loc(lc) {}
     };
 
     struct UnaryOp
     {
-        std::string op; // "!" (NOT) or "-" (negation)
+        UnOp op;
         std::unique_ptr<Expr> operand;
         SourceLocation loc;
-        UnaryOp(std::string o, std::unique_ptr<Expr> e, SourceLocation l)
-            : op(std::move(o)), operand(std::move(e)), loc(l) {}
+        UnaryOp(UnOp o, std::unique_ptr<Expr> e, SourceLocation l)
+            : op(o), operand(std::move(e)), loc(l) {}
     };
 
     struct IndexAccess
@@ -129,10 +182,11 @@ namespace cuff
     struct FunctionCall
     {
         std::string functionName;
+        uint32_t functionNameId;
         std::vector<std::unique_ptr<Expr>> args;
         SourceLocation loc;
         FunctionCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
-            : functionName(std::move(n)), args(std::move(a)), loc(l) {}
+            : functionName(std::move(n)), functionNameId(internName(functionName)), args(std::move(a)), loc(l) {}
     };
 
     struct AwaitExpr
@@ -301,6 +355,7 @@ namespace cuff
         // set constant [type] [name] to [value]
         std::string varType; // "number", "str", "list", "map", "boolean", "empty"
         std::string name;
+        uint32_t nameId = 0; // interned `name`, set by the parser
         bool isConstant = false;
         std::unique_ptr<Expr> value;
         SourceLocation loc;
@@ -315,6 +370,7 @@ namespace cuff
         //   (must appear alone, in a function body, before mutating a global;
         //    `value` and `indices` are unused when toGlobal is true)
         std::string name;
+        uint32_t nameId = 0; // interned `name`, set by the parser
         std::vector<std::unique_ptr<Expr>> indices;
         std::unique_ptr<Expr> value;
         bool toGlobal = false;
@@ -330,7 +386,9 @@ namespace cuff
         bool isAsync = false;
         bool isReturnable = false;
         std::string name;
+        uint32_t nameId = 0; // interned `name`, set by the parser
         std::vector<std::string> params;
+        std::vector<uint32_t> paramIds; // interned `params`, set by the parser
         std::vector<std::unique_ptr<Stmt>> body;
         SourceLocation loc;
     };
@@ -358,6 +416,7 @@ namespace cuff
 
         // repeat: variable name, start expr, end expr
         std::string repeatVar;
+        uint32_t repeatVarId = 0; // interned `repeatVar`, set by the parser
         std::unique_ptr<Expr> repeatStart;
         std::unique_ptr<Expr> repeatEnd;
 
@@ -420,6 +479,7 @@ namespace cuff
         // add [value] to [collectionName]
         std::unique_ptr<Expr> addValue;
         std::string collectionName;
+        uint32_t collectionNameId = 0; // interned, set by the parser
 
         // replace [collection][index/key] to [newValue]
         // or replace [collection]["key"] to [newValue]

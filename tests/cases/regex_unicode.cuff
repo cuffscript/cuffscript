@@ -1,0 +1,33 @@
+note: [any] counts codepoints, not bytes
+print("안녕하세요" is "[any]5")
+print("안녕하세요" is "[any]15")
+
+note: literal multi-byte characters in a pattern
+print("안녕" is "안녕")
+
+note: a negated set matches a non-ASCII codepoint
+print("안" is "[!num]")
+
+note: [one:...] with multi-byte alternatives
+print("사과" is "[one:사과|배]")
+
+note: mixed ASCII + multi-byte
+print("Hi안녕" is "[let]2[any]2")
+
+note: named capture spanning multi-byte text
+set match m to match "이름: 홍길동" from "이름: <name:[any]+>"
+print(m["name"])
+
+note: per spec, [let]/[str]/[word] are English-only (영문자)
+print("안녕" is "[let]+")
+
+note: [edge] treats non-ASCII letters as word characters (spec 17)
+print(find "[edge]안녕[edge]" from "안녕 하세요" g)
+print(find "[edge]cat[edge]" from "the cat sat, category" g)
+
+note: find/replace/split/count over multi-byte text
+print(count "[any]" in "가나다라마")
+print(find "[any]" from "가나다" g)
+print(replace "나" in "가나다" to "X")
+print(split "사과,배,포도" by ",")
+print(replace "[any]" in "비밀" to "*" g)

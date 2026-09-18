@@ -1,0 +1,23 @@
+{"name":"홍길동","age":30,"tags":["a","b"],"active":true,"note":null}
+{
+  "name": "홍길동",
+  "age": 30,
+  "tags": [
+    "a",
+    "b"
+  ],
+  "active": true,
+  "note": null
+}
+1
+3
+true
+{"msg":"줄1\n줄2\t끝","q":"say \"hi\""}
+줄1
+줄2	끝
+say "hi"
+한글
+😀
+[1, -2.5, 300, 0]
+[]
+{}

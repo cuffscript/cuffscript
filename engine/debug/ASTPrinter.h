@@ -331,7 +331,7 @@ namespace cuff
             case ExprKind::BinaryOp:
             {
                 const auto &b = std::get<BinaryOp>(expr.data);
-                os << "BinaryOp(" << b.op << ")\n";
+                os << "BinaryOp(" << binOpName(b.op) << ")\n";
                 printExpr(os, *b.left, depth + 1);
                 printExpr(os, *b.right, depth + 1);
                 break;
@@ -339,7 +339,7 @@ namespace cuff
             case ExprKind::UnaryOp:
             {
                 const auto &u = std::get<UnaryOp>(expr.data);
-                os << "UnaryOp(" << u.op << ")\n";
+                os << "UnaryOp(" << unOpName(u.op) << ")\n";
                 printExpr(os, *u.operand, depth + 1);
                 break;
             }

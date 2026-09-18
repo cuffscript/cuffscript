@@ -5,10 +5,18 @@ make
 bash tests/run.sh
 ```
 
-Runs, in order: `tests/cases/` (exact output diff), `tests/errors/` (must fail with a
-specific error code), `examples/` (exact output diff where a `.expected` exists, otherwise
-just checks exit 0 — used for the one example with genuinely random output), and
+Runs, in order: `tests/unit/` (standalone C++ unit tests, compiled and run directly —
+currently the regex engine's own test suite, which can exercise it without going through
+the whole language pipeline), `tests/cases/` (exact output diff), `tests/errors/` (must fail
+with a specific error code), `examples/` (exact output diff where a `.expected` exists,
+otherwise just checks exit 0 — used for the one example with genuinely random output), and
 `examples/error_cases/` (must fail with a specific error code).
+
+## Adding a C++ unit test
+
+Drop a `.cpp` file with a `main()` in `tests/unit/`. It's compiled with `-I.` from the repo
+root, so include engine headers by path (`#include "engine/regex/RegexEngine.h"`). Exit
+non-zero to signal failure; the runner prints your last line of output either way.
 
 ## Adding a success case
 

@@ -34,3 +34,12 @@ set number n to to_number("42.5")
 print(n + 1)
 print(to_str(123) + "!")
 print(to_boolean(""))
+
+note: DLC:json — 맵/리스트를 JSON 문자열로, 또는 그 반대로
+use DLC:json
+set map config to {"name": "홍길동", "level": 42, "tags": ["a", "b"]}
+print(to_json(config))
+print(to_json(config, 2))
+
+set map loaded to from_json("{\"x\": 1, \"items\": [10, 20]}")
+print(loaded["items"][2])

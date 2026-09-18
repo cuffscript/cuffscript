@@ -1,0 +1,26 @@
+use DLC:json
+
+set map person to {"name": "홍길동", "age": 30, "tags": ["a", "b"], "active": true, "note": empty}
+print(to_json(person))
+print(to_json(person, 2))
+
+set map parsed to from_json("{\"x\": 1, \"y\": [2, 3], \"z\": {\"deep\": true}}")
+print(parsed["x"])
+print(parsed["y"][2])
+print(parsed["z"]["deep"])
+
+note: round-trip preserves escapes and multi-byte text
+set str j to to_json({"msg": "줄1\n줄2\t끝", "q": "say \"hi\""})
+print(j)
+set map back to from_json(j)
+print(back["msg"])
+print(back["q"])
+
+note: \u escapes, including a surrogate pair
+set map u to from_json("{\"k\": \"\\ud55c\\uae00\", \"e\": \"\\ud83d\\ude00\"}")
+print(u["k"])
+print(u["e"])
+
+print(from_json("[1, -2.5, 3e2, 0]"))
+print(to_json([]))
+print(to_json({}))

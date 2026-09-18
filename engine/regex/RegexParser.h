@@ -3,6 +3,7 @@
 #include "RegexAst.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
+#include "../common/Utf8.h"
 #include <string>
 #include <vector>
 #include <cctype>
@@ -173,8 +174,25 @@ namespace cuff::regex
             // dots (extremely common in emails/filenames/version strings)
             // compare exactly like every other character. `\.` is still
             // accepted (see escape handling above) and produces the same node.
-            advance();
-            return literalNode(static_cast<unsigned char>(c));
+            //
+            // A non-ASCII byte here starts a multi-byte UTF-8 character (e.g.
+            // a literal Korean character written directly in the pattern) —
+            // consume the whole sequence and match it as one codepoint, not
+            // byte-by-byte (which would require the *text* to also happen to
+            // split at the same byte offsets to match).
+            {
+                unsigned char uc = static_cast<unsigned char>(c);
+                size_t seqLen = cuff::utf8::seqLen(uc);
+                if (seqLen == 1)
+                {
+                    advance();
+                    return literalNode(uc);
+                }
+                std::string seq;
+                for (size_t i = 0; i < seqLen && !atEnd(); ++i)
+                    seq += advance();
+                return literalCodepointNode(seq);
+            }
         }
 
         static std::string trimTrailingSpace(std::string s)
@@ -189,6 +207,13 @@ namespace cuff::regex
             RNodePtr n = makeNode(RNodeKind::CharTest);
             n->charTest = [c](unsigned char x)
             { return x == c; };
+            return n;
+        }
+
+        RNodePtr literalCodepointNode(const std::string &seq)
+        {
+            RNodePtr n = makeNode(RNodeKind::CharTest);
+            n->multiByteLiteral = seq;
             return n;
         }
 
@@ -229,7 +254,7 @@ namespace cuff::regex
             if (body == "nl")
                 return classNode(classNl);
             if (body == "any")
-                return classNode(classAny);
+                return anyCodepointNode();
             if (body == "hex")
                 return classNode(classHex);
             if (body == "edge")
@@ -347,6 +372,13 @@ namespace cuff::regex
         {
             RNodePtr n = makeNode(RNodeKind::CharTest);
             n->charTest = pred;
+            return n;
+        }
+
+        RNodePtr anyCodepointNode()
+        {
+            RNodePtr n = makeNode(RNodeKind::CharTest);
+            n->isAnyCodepoint = true;
             return n;
         }
 

@@ -113,7 +113,7 @@ namespace cuff
             s.advance();
         }
 
-        throw SyntaxError("Unterminated string literal", start);
+        throw SyntaxError("unterminated string literal", start);
     }
 
 } // namespace cuff

@@ -1,0 +1,3 @@
+note: E4025
+use DLC:json
+print(from_json("{a:1}"))

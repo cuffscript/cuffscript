@@ -55,7 +55,7 @@ namespace cuff
                 p.advance();
                 auto operand = parseLogicalNot(p);
                 return std::make_unique<Expr>(ExprKind::UnaryOp,
-                                              UnaryOp("!", std::move(operand), loc));
+                                              UnaryOp(UnOp::Not, std::move(operand), loc));
             }
             return parseComparison(p);
         }
@@ -68,12 +68,17 @@ namespace cuff
                                TokenType::GE, TokenType::LE, TokenType::GT, TokenType::LT}))
             {
                 const Token &opTok = p.current();
-                std::string opStr = opTok.value;
+                BinOp binOp;
+                switch (opTok.type)
+                {
+                case TokenType::IS_STRICT: binOp = BinOp::Is; break;
+                case TokenType::IS_CASEINSENSITIVE: binOp = BinOp::IsCase; break;
+                case TokenType::GE: binOp = BinOp::GreaterEq; break;
+                case TokenType::LE: binOp = BinOp::LessEq; break;
+                case TokenType::GT: binOp = BinOp::Greater; break;
+                default: binOp = BinOp::Less; break;
+                }
                 bool negated = false;
-                if (opTok.is(TokenType::IS_STRICT))
-                    opStr = "is";
-                else if (opTok.is(TokenType::IS_CASEINSENSITIVE))
-                    opStr = "IS";
                 SourceLocation loc = opTok.location;
                 p.advance();
 
@@ -85,7 +90,7 @@ namespace cuff
                 {
                     p.advance();
                     negated = true;
-                    opStr += " not";
+                    binOp = (binOp == BinOp::IsCase) ? BinOp::IsNotCase : BinOp::IsNot;
                 }
 
                 auto right = parseAdditive(p);
@@ -100,7 +105,7 @@ namespace cuff
                                                             RegexMatchExpr(std::move(left), caseInsensitive, std::move(pattern), loc));
                     if (negated)
                     {
-                        left = std::make_unique<Expr>(ExprKind::UnaryOp, UnaryOp("!", std::move(matchExpr), loc));
+                        left = std::make_unique<Expr>(ExprKind::UnaryOp, UnaryOp(UnOp::Not, std::move(matchExpr), loc));
                     }
                     else
                     {
@@ -110,7 +115,7 @@ namespace cuff
                 else
                 {
                     left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                                  BinaryOp(std::move(opStr), std::move(left), std::move(right), loc));
+                                                  BinaryOp(binOp, std::move(left), std::move(right), loc));
                 }
             }
 
@@ -123,12 +128,12 @@ namespace cuff
 
             while (p.checkAny({TokenType::PLUS, TokenType::MINUS}))
             {
-                std::string op = p.current().value;
+                BinOp op = p.check(TokenType::PLUS) ? BinOp::Add : BinOp::Sub;
                 SourceLocation loc = p.current().location;
                 p.advance();
                 auto right = parseMultiplicative(p);
                 left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                              BinaryOp(std::move(op), std::move(left), std::move(right), loc));
+                                              BinaryOp(op, std::move(left), std::move(right), loc));
             }
 
             return left;
@@ -140,12 +145,12 @@ namespace cuff
 
             while (p.checkAny({TokenType::STAR, TokenType::SLASH}))
             {
-                std::string op = p.current().value;
+                BinOp op = p.check(TokenType::STAR) ? BinOp::Mul : BinOp::Div;
                 SourceLocation loc = p.current().location;
                 p.advance();
                 auto right = parseUnary(p);
                 left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                              BinaryOp(std::move(op), std::move(left), std::move(right), loc));
+                                              BinaryOp(op, std::move(left), std::move(right), loc));
             }
 
             return left;
@@ -159,7 +164,7 @@ namespace cuff
                 p.advance();
                 auto operand = parseUnary(p);
                 return std::make_unique<Expr>(ExprKind::UnaryOp,
-                                              UnaryOp("-", std::move(operand), loc));
+                                              UnaryOp(UnOp::Negate, std::move(operand), loc));
             }
             return parsePostfixExpr(p);
         }
@@ -187,13 +192,13 @@ namespace cuff
                 if (p.match(TokenType::TILDE))
                 {
                     auto end = ExpressionParser::parse(p);
-                    p.consume(TokenType::RBRACKET, "Expected ']' to close slice");
+                    p.consume(TokenType::RBRACKET, "expected ']' to close slice");
                     base = std::make_unique<Expr>(ExprKind::SliceAccess,
                                                   SliceAccess(std::move(base), std::move(first), std::move(end), loc));
                 }
                 else
                 {
-                    p.consume(TokenType::RBRACKET, "Expected ']' to close index");
+                    p.consume(TokenType::RBRACKET, "expected ']' to close index");
                     base = std::make_unique<Expr>(ExprKind::IndexAccess,
                                                   IndexAccess(std::move(base), std::move(first), loc));
                 }
@@ -217,7 +222,7 @@ namespace cuff
                 }
 
                 p.skipNewlines();
-                p.consume(TokenType::RPAREN, "Expected ')' to close function call");
+                p.consume(TokenType::RPAREN, "expected ')' to close function call");
 
                 std::string funcName;
                 if (base->kind == ExprKind::Identifier)
@@ -226,7 +231,7 @@ namespace cuff
                 }
                 else
                 {
-                    throw SyntaxError("Cannot call non-identifier as function", loc);
+                    throw SyntaxError("cannot call non-identifier as function", loc);
                 }
 
                 base = std::make_unique<Expr>(ExprKind::FunctionCall,
@@ -249,7 +254,7 @@ namespace cuff
     inline std::unique_ptr<Expr> LiteralParser::parseList(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::LBRACKET, "Expected '[' for list literal");
+        p.consume(TokenType::LBRACKET, "expected '[' for list literal");
 
         std::vector<std::unique_ptr<Expr>> elements;
         p.skipNewlines();
@@ -279,14 +284,14 @@ namespace cuff
         }
 
         p.skipNewlines();
-        p.consume(TokenType::RBRACKET, "Expected ']' to close list literal");
+        p.consume(TokenType::RBRACKET, "expected ']' to close list literal");
         return std::make_unique<Expr>(ExprKind::List, ListLiteral(std::move(elements), loc));
     }
 
     inline std::unique_ptr<Expr> LiteralParser::parseMap(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::LBRACE, "Expected '{' for map literal");
+        p.consume(TokenType::LBRACE, "expected '{' for map literal");
 
         std::vector<MapLiteral::Pair> pairs;
         p.skipNewlines();
@@ -301,7 +306,7 @@ namespace cuff
         while (true)
         {
             auto key = ExpressionParser::parse(p);
-            p.consume(TokenType::COLON, "Expected ':' after map key");
+            p.consume(TokenType::COLON, "expected ':' after map key");
             p.skipNewlines();
             auto value = ExpressionParser::parse(p);
 
@@ -319,7 +324,7 @@ namespace cuff
         }
 
         p.skipNewlines();
-        p.consume(TokenType::RBRACE, "Expected '}' to close map literal");
+        p.consume(TokenType::RBRACE, "expected '}' to close map literal");
         return std::make_unique<Expr>(ExprKind::Map, MapLiteral(std::move(pairs), loc));
     }
 
@@ -372,7 +377,7 @@ namespace cuff
         {
             p.advance();
             auto expr = ExpressionParser::parse(p);
-            p.consume(TokenType::RPAREN, "Expected ')' to close grouped expression");
+            p.consume(TokenType::RPAREN, "expected ')' to close grouped expression");
             return expr;
         }
         case TokenType::AWAIT:
@@ -384,7 +389,7 @@ namespace cuff
             p.advance();
             auto inner = ExpressionParser::parse(p);
             if (inner->kind != ExprKind::FunctionCall)
-                throw SyntaxError("Expected a function call after 'await'", tok.location);
+                throw SyntaxError("expected a function call after 'await'", tok.location);
             FunctionCall fc = std::move(std::get<FunctionCall>(inner->data));
             auto callPtr = std::make_unique<FunctionCall>(std::move(fc));
             return std::make_unique<Expr>(ExprKind::Await, AwaitExpr(std::move(callPtr), tok.location));
@@ -400,7 +405,7 @@ namespace cuff
         case TokenType::COUNT:
             return RegexExprParser::parseCount(p);
         default:
-            throw SyntaxError("Unexpected token '" + tok.value + "' in expression", tok.location);
+            throw SyntaxError("unexpected token '" + tok.value + "' in expression", tok.location);
         }
     }
 
@@ -468,9 +473,9 @@ namespace cuff
     inline std::unique_ptr<Expr> RegexExprParser::parseMatchFrom(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::MATCH, "Expected 'match'");
+        p.consume(TokenType::MATCH, "expected 'match'");
         auto target = ExpressionParser::parseAdditive(p);
-        p.consume(TokenType::FROM, "Expected 'from' after match target");
+        p.consume(TokenType::FROM, "expected 'from' after match target");
         PatternArg pattern = parsePatternArg(p);
         std::string flags = parseOptionalFlags(p);
 
@@ -485,9 +490,9 @@ namespace cuff
     inline std::unique_ptr<Expr> RegexExprParser::parseFind(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::FIND, "Expected 'find'");
+        p.consume(TokenType::FIND, "expected 'find'");
         PatternArg pattern = parsePatternArg(p);
-        p.consume(TokenType::FROM, "Expected 'from' after find pattern");
+        p.consume(TokenType::FROM, "expected 'from' after find pattern");
         auto target = ExpressionParser::parseAdditive(p);
         std::string flags = parseOptionalFlags(p);
 
@@ -502,11 +507,11 @@ namespace cuff
     inline std::unique_ptr<Expr> RegexExprParser::parseReplace(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::REPLACE, "Expected 'replace'");
+        p.consume(TokenType::REPLACE, "expected 'replace'");
         PatternArg pattern = parsePatternArg(p);
-        p.consume(TokenType::IN, "Expected 'in' after replace pattern");
+        p.consume(TokenType::IN, "expected 'in' after replace pattern");
         auto target = ExpressionParser::parseAdditive(p);
-        p.consume(TokenType::TO, "Expected 'to' after replace target");
+        p.consume(TokenType::TO, "expected 'to' after replace target");
         auto replacement = ExpressionParser::parseAdditive(p);
         std::string flags = parseOptionalFlags(p);
 
@@ -522,9 +527,9 @@ namespace cuff
     inline std::unique_ptr<Expr> RegexExprParser::parseSplit(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::SPLIT, "Expected 'split'");
+        p.consume(TokenType::SPLIT, "expected 'split'");
         auto target = ExpressionParser::parseAdditive(p);
-        p.consume(TokenType::BY, "Expected 'by' after split target");
+        p.consume(TokenType::BY, "expected 'by' after split target");
         PatternArg pattern = parsePatternArg(p);
 
         SplitExpr s;
@@ -537,9 +542,9 @@ namespace cuff
     inline std::unique_ptr<Expr> RegexExprParser::parseCount(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
-        p.consume(TokenType::COUNT, "Expected 'count'");
+        p.consume(TokenType::COUNT, "expected 'count'");
         PatternArg pattern = parsePatternArg(p);
-        p.consume(TokenType::IN, "Expected 'in' after count pattern");
+        p.consume(TokenType::IN, "expected 'in' after count pattern");
         auto target = ExpressionParser::parseAdditive(p);
         std::string flags = parseOptionalFlags(p);
 

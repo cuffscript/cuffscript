@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Value.h"
-#include "Utf8.h"
+#include "../common/Utf8.h"
 #include "Environment.h"
 #include "Signals.h"
 #include "NativeFunctions.h"
@@ -84,7 +84,7 @@ namespace cuff
     private:
         Environment globalEnv_;
         std::unordered_map<std::string, NativeFn> natives_;
-        std::unordered_map<std::string, const FunctionDecl *> userFunctions_;
+        std::unordered_map<uint32_t, const FunctionDecl *> userFunctions_;
         std::vector<std::unique_ptr<Program>> loadedModules_; // keeps imported-module ASTs alive
         std::unordered_set<std::string> importedPaths_;
         std::string scriptDir_ = ".";
@@ -193,7 +193,7 @@ namespace cuff
 
         void registerFunction(const FunctionDecl &decl)
         {
-            userFunctions_[decl.name] = &decl;
+            userFunctions_[decl.nameId] = &decl;
         }
 
         ExecOutcome execStatement(const Stmt &stmt, Environment &env)
@@ -321,7 +321,7 @@ namespace cuff
             }
 
             checkDeclaredType(decl.varType, v, decl.name, decl.loc);
-            env.declare(decl.name, std::move(v), decl.isConstant);
+            env.declare(decl.nameId, std::move(v), decl.isConstant);
         }
 
         void execChange(const ChangeStmt &c, Environment &env)
@@ -334,17 +334,17 @@ namespace cuff
                                            "'change " + c.name + " to global' can only be used inside a function body",
                                            c.loc, "at the top level, every variable is already global");
                 }
-                env.declareGlobal(c.name);
+                env.declareGlobal(c.nameId);
                 return;
             }
 
-            auto look = env.resolve(c.name);
+            auto look = env.resolve(c.nameId);
             if (!look.value)
             {
                 throw UndefinedVariableError("cannot change undefined variable '" + c.name + "'", c.loc,
                                              "declare it first with 'set', or bridge a global with 'change " + c.name + " to global'");
             }
-            if (env.isConstantIn(look.owner, c.name))
+            if (env.isConstantIn(look.owner, c.nameId))
             {
                 throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + c.name + "'", c.loc);
             }
@@ -365,13 +365,14 @@ namespace cuff
             slot.write(std::move(newVal));
         }
 
-        void assignLoopVar(const std::string &name, Value v, Environment &env, const SourceLocation &loc)
+        void assignLoopVar(const LoopStmt &loop, Value v, Environment &env)
         {
-            if (env.isDeclaredHere(name) && env.isConstantIn(&env, name))
+            if (env.isDeclaredHere(loop.repeatVarId) && env.isConstantIn(&env, loop.repeatVarId))
             {
-                throw ConstantError(ErrorCode::ConstantReassignment, "cannot use constant '" + name + "' as a loop variable", loc);
+                throw ConstantError(ErrorCode::ConstantReassignment,
+                                    "cannot use constant '" + loop.repeatVar + "' as a loop variable", loop.loc);
             }
-            env.declare(name, std::move(v), false);
+            env.declare(loop.repeatVarId, std::move(v), false);
         }
 
         // ---- Control flow ----
@@ -396,13 +397,13 @@ namespace cuff
                 Value endV = evalExpr(*loop.repeatEnd, env);
                 if (!startV.isNumber() || !endV.isNumber())
                     throw TypeError("'loop repeat' bounds must be numbers", loop.loc);
-                long long start = static_cast<long long>(std::llround(startV.asNumber()));
-                long long end = static_cast<long long>(std::llround(endV.asNumber()));
+                long long start = expectWholeNumber(startV.asNumber(), "'loop repeat' start bound", loop.loc);
+                long long end = expectWholeNumber(endV.asNumber(), "'loop repeat' end bound", loop.loc);
                 if (start <= end)
                 {
                     for (long long i = start; i <= end; ++i)
                     {
-                        assignLoopVar(loop.repeatVar, Value::makeNumber(static_cast<double>(i)), env, loop.loc);
+                        assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
                         ExecOutcome outcome = execBlock(loop.body, env);
                         if (outcome.result == ExecResult::Stop)
                             return ExecOutcome::normal(); // consumed here — loop ends normally
@@ -414,7 +415,7 @@ namespace cuff
                 {
                     for (long long i = start; i >= end; --i)
                     {
-                        assignLoopVar(loop.repeatVar, Value::makeNumber(static_cast<double>(i)), env, loop.loc);
+                        assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
                         ExecOutcome outcome = execBlock(loop.body, env);
                         if (outcome.result == ExecResult::Stop)
                             return ExecOutcome::normal();
@@ -458,8 +459,8 @@ namespace cuff
                 if (oe.primaryStmt->kind == StmtKind::Declaration)
                 {
                     const auto &decl = std::get<DeclarationStmt>(oe.primaryStmt->data);
-                    if (!env.isDeclaredHere(decl.name))
-                        env.declare(decl.name, Value::makeEmpty(), false);
+                    if (!env.isDeclaredHere(decl.nameId))
+                        env.declare(decl.nameId, Value::makeEmpty(), false);
                 }
 
                 Environment blockEnv(Environment::Kind::BlockScope, env);
@@ -471,10 +472,10 @@ namespace cuff
 
         void execCollectionOp(const CollectionOpStmt &co, Environment &env)
         {
-            auto look = env.resolve(co.collectionName);
+            auto look = env.resolve(co.collectionNameId);
             if (!look.value)
                 throw UndefinedVariableError("undefined collection '" + co.collectionName + "'", co.loc);
-            if (env.isConstantIn(look.owner, co.collectionName))
+            if (env.isConstantIn(look.owner, co.collectionNameId))
                 throw ConstantError(ErrorCode::ConstantReassignment, "cannot modify constant collection '" + co.collectionName + "'", co.loc);
 
             Value &target = *look.value;
@@ -506,7 +507,7 @@ namespace cuff
                     auto &items = target.asList()->items;
                     if (rv.isNumber())
                     {
-                        size_t real = resolveIndex1Based(static_cast<long long>(std::llround(rv.asNumber())), items.size(), co.loc);
+                        size_t real = resolveIndex1Based(expectWholeNumber(rv.asNumber(), "list index", co.loc), items.size(), co.loc);
                         items.erase(items.begin() + static_cast<long>(real));
                     }
                     else
@@ -573,6 +574,22 @@ namespace cuff
             }
         };
 
+        // Indices and range bounds must be whole numbers. Silently rounding a
+        // fractional value (the previous behavior) hides real bugs — a
+        // computed index like `total / 2` landing on 2.5 almost always means
+        // the calculation is wrong, not that element 2 or 3 was intended.
+        static long long expectWholeNumber(double d, const char *what, const SourceLocation &loc)
+        {
+            if (d != std::floor(d) || std::isnan(d) || std::isinf(d))
+            {
+                throw CuffRuntimeError(ErrorCode::FractionalIndex,
+                                       std::string(what) + " must be a whole number, got " + formatCuffNumber(d),
+                                       loc,
+                                       "round it explicitly first (DLC:math's round/floor/ceil)");
+            }
+            return static_cast<long long>(d);
+        }
+
         static size_t resolveIndex1Based(long long idx, size_t length, const SourceLocation &loc)
         {
             if (idx == 0)
@@ -594,7 +611,7 @@ namespace cuff
             {
                 if (!indexVal.isNumber())
                     throw TypeError("list index must be a number (1-based)", loc);
-                size_t real = resolveIndex1Based(static_cast<long long>(std::llround(indexVal.asNumber())), target.asList()->items.size(), loc);
+                size_t real = resolveIndex1Based(expectWholeNumber(indexVal.asNumber(), "list index", loc), target.asList()->items.size(), loc);
                 return target.asList()->items[real];
             }
             if (target.isStr())
@@ -604,7 +621,7 @@ namespace cuff
                 const std::string &s = target.asStr();
                 auto bounds = utf8::boundaries(s);
                 size_t n = bounds.size() - 1;
-                size_t cp = resolveIndex1Based(static_cast<long long>(std::llround(indexVal.asNumber())), n, loc);
+                size_t cp = resolveIndex1Based(expectWholeNumber(indexVal.asNumber(), "str index", loc), n, loc);
                 return Value::makeStr(s.substr(bounds[cp], bounds[cp + 1] - bounds[cp]));
             }
             if (target.isMap())
@@ -621,7 +638,7 @@ namespace cuff
                 const auto &m = target.asMatch();
                 if (indexVal.isNumber())
                 {
-                    size_t real = resolveIndex1Based(static_cast<long long>(std::llround(indexVal.asNumber())), m->positional.size(), loc);
+                    size_t real = resolveIndex1Based(expectWholeNumber(indexVal.asNumber(), "capture index", loc), m->positional.size(), loc);
                     return Value::makeStr(m->positional[real]);
                 }
                 if (indexVal.isStr())
@@ -640,8 +657,8 @@ namespace cuff
         {
             if (!startVal.isNumber() || !endVal.isNumber())
                 throw TypeError("slice bounds must be numbers", loc);
-            long long s = static_cast<long long>(std::llround(startVal.asNumber()));
-            long long e = static_cast<long long>(std::llround(endVal.asNumber()));
+            long long s = expectWholeNumber(startVal.asNumber(), "slice start", loc);
+            long long e = expectWholeNumber(endVal.asNumber(), "slice end", loc);
 
             if (target.isList())
             {
@@ -679,7 +696,7 @@ namespace cuff
             {
                 if (!finalIdx.isNumber())
                     throw TypeError("list index must be a number (1-based)", loc);
-                size_t real = resolveIndex1Based(static_cast<long long>(std::llround(finalIdx.asNumber())), current.asList()->items.size(), loc);
+                size_t real = resolveIndex1Based(expectWholeNumber(finalIdx.asNumber(), "list index", loc), current.asList()->items.size(), loc);
                 return ContainerSlot::forList(current.asList().get(), real);
             }
             if (current.isMap())
@@ -708,7 +725,7 @@ namespace cuff
             case ExprKind::Identifier:
             {
                 const auto &id = std::get<IdentifierExpr>(expr.data);
-                auto look = env.resolve(id.name);
+                auto look = env.resolve(id.nameId);
                 if (!look.value)
                     throw UndefinedVariableError("undefined variable '" + id.name + "'", id.loc);
                 return *look.value;
@@ -781,7 +798,7 @@ namespace cuff
                 // script function; natives are checked only if it's not a
                 // user function. This also handles the async-deferral check
                 // without a second, separate lookup for the same name.
-                auto userIt = userFunctions_.find(fc.functionName);
+                auto userIt = userFunctions_.find(fc.functionNameId);
                 if (userIt != userFunctions_.end())
                 {
                     if (userIt->second->isAsync)
@@ -830,15 +847,11 @@ namespace cuff
         Value evalUnaryOp(const UnaryOp &u, Environment &env)
         {
             Value operand = evalExpr(*u.operand, env);
-            if (u.op == "!")
+            if (u.op == UnOp::Not)
                 return Value::makeBool(!operand.truthy());
-            if (u.op == "-")
-            {
-                if (!operand.isNumber())
-                    throw TypeError("unary '-' requires a number, got " + valueTypeName(operand.type()), u.loc);
-                return Value::makeNumber(-operand.asNumber());
-            }
-            throw InternalEngineError("unknown unary operator '" + u.op + "'");
+            if (!operand.isNumber())
+                throw TypeError("unary '-' requires a number, got " + valueTypeName(operand.type()), u.loc);
+            return Value::makeNumber(-operand.asNumber());
         }
 
         static std::string lowerAscii(const std::string &s)
@@ -851,56 +864,14 @@ namespace cuff
 
         Value evalBinaryOp(const BinaryOp &b, Environment &env)
         {
-            if (b.op == "is" || b.op == "IS" || b.op == "is not" || b.op == "IS not")
-            {
-                Value l = evalExpr(*b.left, env);
-                Value r = evalExpr(*b.right, env);
-                bool ci = !b.op.empty() && b.op[0] == 'I';
-                bool eq;
-                if (ci && l.isStr() && r.isStr())
-                    eq = lowerAscii(l.asStr()) == lowerAscii(r.asStr());
-                else
-                    eq = l.strictEquals(r);
-                bool negated = (b.op == "is not" || b.op == "IS not");
-                return Value::makeBool(negated ? !eq : eq);
-            }
-
-            if (b.op == ">" || b.op == "<" || b.op == ">=" || b.op == "<=")
-            {
-                Value l = evalExpr(*b.left, env);
-                Value r = evalExpr(*b.right, env);
-                if (l.isNumber() && r.isNumber())
-                {
-                    double a = l.asNumber(), c = r.asNumber();
-                    if (b.op == ">")
-                        return Value::makeBool(a > c);
-                    if (b.op == "<")
-                        return Value::makeBool(a < c);
-                    if (b.op == ">=")
-                        return Value::makeBool(a >= c);
-                    return Value::makeBool(a <= c);
-                }
-                if (l.isStr() && r.isStr())
-                {
-                    const std::string &a = l.asStr();
-                    const std::string &c = r.asStr();
-                    if (b.op == ">")
-                        return Value::makeBool(a > c);
-                    if (b.op == "<")
-                        return Value::makeBool(a < c);
-                    if (b.op == ">=")
-                        return Value::makeBool(a >= c);
-                    return Value::makeBool(a <= c);
-                }
-                throw TypeError("cannot compare " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()) + " with '" + b.op + "'", b.loc,
-                                "comparisons work on two numbers or two strings");
-            }
-
             Value l = evalExpr(*b.left, env);
             Value r = evalExpr(*b.right, env);
 
-            if (b.op == "+")
+            switch (b.op)
             {
+            // Fast path: both operands numeric, which is the overwhelmingly
+            // common case for arithmetic and ordering.
+            case BinOp::Add:
                 if (l.isNumber() && r.isNumber())
                     return Value::makeNumber(l.asNumber() + r.asNumber());
                 if (l.isStr() && r.isStr())
@@ -914,21 +885,18 @@ namespace cuff
                 }
                 throw TypeError("cannot add " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc,
                                 "'+' works on number+number, str+str, or list+list");
-            }
-            if (b.op == "-")
-            {
+
+            case BinOp::Sub:
                 if (l.isNumber() && r.isNumber())
                     return Value::makeNumber(l.asNumber() - r.asNumber());
                 throw TypeError("'-' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
-            }
-            if (b.op == "*")
-            {
+
+            case BinOp::Mul:
                 if (l.isNumber() && r.isNumber())
                     return Value::makeNumber(l.asNumber() * r.asNumber());
                 throw TypeError("'*' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
-            }
-            if (b.op == "/")
-            {
+
+            case BinOp::Div:
                 if (l.isNumber() && r.isNumber())
                 {
                     if (r.asNumber() == 0.0)
@@ -936,15 +904,67 @@ namespace cuff
                     return Value::makeNumber(l.asNumber() / r.asNumber());
                 }
                 throw TypeError("'/' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
+
+            case BinOp::Is:
+                return Value::makeBool(l.strictEquals(r));
+            case BinOp::IsNot:
+                return Value::makeBool(!l.strictEquals(r));
+            case BinOp::IsCase:
+                return Value::makeBool(caseInsensitiveEquals(l, r));
+            case BinOp::IsNotCase:
+                return Value::makeBool(!caseInsensitiveEquals(l, r));
+
+            case BinOp::Greater:
+            case BinOp::Less:
+            case BinOp::GreaterEq:
+            case BinOp::LessEq:
+                return compareOrdered(b.op, l, r, b.loc);
             }
-            throw InternalEngineError("unknown binary operator '" + b.op + "'");
+            throw InternalEngineError("unknown binary operator");
+        }
+
+        static bool caseInsensitiveEquals(const Value &l, const Value &r)
+        {
+            if (l.isStr() && r.isStr())
+                return lowerAscii(l.asStr()) == lowerAscii(r.asStr());
+            return l.strictEquals(r);
+        }
+
+        static Value compareOrdered(BinOp op, const Value &l, const Value &r, const SourceLocation &loc)
+        {
+            if (l.isNumber() && r.isNumber())
+            {
+                double a = l.asNumber(), c = r.asNumber();
+                switch (op)
+                {
+                case BinOp::Greater: return Value::makeBool(a > c);
+                case BinOp::Less: return Value::makeBool(a < c);
+                case BinOp::GreaterEq: return Value::makeBool(a >= c);
+                default: return Value::makeBool(a <= c);
+                }
+            }
+            if (l.isStr() && r.isStr())
+            {
+                const std::string &a = l.asStr();
+                const std::string &c = r.asStr();
+                switch (op)
+                {
+                case BinOp::Greater: return Value::makeBool(a > c);
+                case BinOp::Less: return Value::makeBool(a < c);
+                case BinOp::GreaterEq: return Value::makeBool(a >= c);
+                default: return Value::makeBool(a <= c);
+                }
+            }
+            throw TypeError(std::string("cannot compare ") + valueTypeName(l.type()) + " and " +
+                                valueTypeName(r.type()) + " with '" + binOpName(op) + "'",
+                            loc, "comparisons work on two numbers or two strings");
         }
 
         // ---- Function calls ----
 
         void checkAsyncTarget(const std::string &name, const SourceLocation &loc)
         {
-            auto it = userFunctions_.find(name);
+            auto it = userFunctions_.find(internName(name));
             if (it != userFunctions_.end() && !it->second->isAsync)
             {
                 throw CuffRuntimeError(ErrorCode::AwaitOnNonAsync,
@@ -961,7 +981,7 @@ namespace cuff
             if (nativeIt != natives_.end())
                 return nativeIt->second(args, loc);
 
-            auto userIt = userFunctions_.find(name);
+            auto userIt = userFunctions_.find(internName(name));
             if (userIt == userFunctions_.end())
                 throw UndefinedFunctionError("undefined function '" + name + "'", loc,
                                              "check the spelling, or make sure it's declared before this point");
@@ -985,8 +1005,8 @@ namespace cuff
 
             Environment funcEnv(Environment::Kind::FunctionScope, globalEnv_);
             funcEnv.reserve(decl.params.size());
-            for (size_t i = 0; i < decl.params.size(); ++i)
-                funcEnv.declare(decl.params[i], std::move(args[i]), false);
+            for (size_t i = 0; i < decl.paramIds.size(); ++i)
+                funcEnv.declare(decl.paramIds[i], std::move(args[i]), false);
 
             ExecOutcome outcome = execBlock(decl.body, funcEnv);
             if (outcome.result == ExecResult::Return)

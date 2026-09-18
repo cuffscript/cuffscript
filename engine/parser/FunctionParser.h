@@ -24,7 +24,7 @@ namespace cuff
         static std::unique_ptr<Stmt> parse(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::SET, "Expected 'set'");
+            p.consume(TokenType::SET, "expected 'set'");
 
             // `async` and `returnable` are independent modifiers and may
             // appear together, in either order (e.g. `set async returnable
@@ -47,7 +47,7 @@ namespace cuff
                 }
             }
 
-            p.consume(TokenType::FUNCTION, "Expected 'function' keyword");
+            p.consume(TokenType::FUNCTION, "expected 'function' keyword");
 
             std::string name;
             if (p.check(TokenType::IDENTIFIER))
@@ -57,11 +57,11 @@ namespace cuff
             }
             else
             {
-                throw SyntaxError("Expected function name after 'function'", p.current().location);
+                throw SyntaxError("expected function name after 'function'", p.current().location);
             }
 
             // Parse parameter list
-            p.consume(TokenType::LPAREN, "Expected '(' for function parameters");
+            p.consume(TokenType::LPAREN, "expected '(' for function parameters");
 
             std::vector<std::string> params;
             if (!p.check(TokenType::RPAREN))
@@ -73,7 +73,7 @@ namespace cuff
                 }
                 else
                 {
-                    throw SyntaxError("Expected parameter name", p.current().location);
+                    throw SyntaxError("expected parameter name", p.current().location);
                 }
                 while (p.match(TokenType::COMMA))
                 {
@@ -84,20 +84,20 @@ namespace cuff
                     }
                     else
                     {
-                        throw SyntaxError("Expected parameter name after ','", p.current().location);
+                        throw SyntaxError("expected parameter name after ','", p.current().location);
                     }
                 }
             }
-            p.consume(TokenType::RPAREN, "Expected ')' to close parameter list");
+            p.consume(TokenType::RPAREN, "expected ')' to close parameter list");
 
             // Parse do: — must be followed by newline (one-line shorthand forbidden for functions)
-            p.consume(TokenType::DO, "Expected 'do' keyword for function body");
-            p.consume(TokenType::COLON, "Expected ':' after 'do'");
+            p.consume(TokenType::DO, "expected 'do' keyword for function body");
+            p.consume(TokenType::COLON, "expected ':' after 'do'");
 
             // Enforce: function body must start on a new line
             if (!p.check(TokenType::NEWLINE) && !p.check(TokenType::EOF_TOKEN))
             {
-                throw SyntaxError("Function body must start on a new line — one-line shorthand is forbidden for functions",
+                throw SyntaxError("function body must start on a new line — one-line shorthand is forbidden for functions",
                                   p.current().location);
             }
 
@@ -111,7 +111,7 @@ namespace cuff
 
             auto body = parseBlockBody(p);
 
-            p.consume(TokenType::END, "Expected 'end' to close function");
+            p.consume(TokenType::END, "expected 'end' to close function");
             // Skip DEDENT after end
             p.match(TokenType::DEDENT);
 
@@ -119,7 +119,10 @@ namespace cuff
             decl.isAsync = isAsync;
             decl.isReturnable = isReturnable;
             decl.name = name;
+            decl.nameId = internName(name);
             decl.params = std::move(params);
+            for (const auto &pn : decl.params)
+                decl.paramIds.push_back(internName(pn));
             decl.body = std::move(body);
             decl.loc = loc;
 

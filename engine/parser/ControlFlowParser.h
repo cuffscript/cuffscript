@@ -24,12 +24,12 @@ namespace cuff
         static std::unique_ptr<Stmt> parse(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::IF, "Expected 'if'");
+            p.consume(TokenType::IF, "expected 'if'");
 
             auto condition = ExpressionParser::parse(p);
 
-            p.consume(TokenType::DO, "Expected 'do' after if condition");
-            p.consume(TokenType::COLON, "Expected ':' after 'do'");
+            p.consume(TokenType::DO, "expected 'do' after if condition");
+            p.consume(TokenType::COLON, "expected ':' after 'do'");
 
             IfStmt ifStmt;
             ifStmt.loc = loc;
@@ -52,8 +52,8 @@ namespace cuff
                     // else if
                     p.advance(); // consume 'if'
                     auto elseCond = ExpressionParser::parse(p);
-                    p.consume(TokenType::DO, "Expected 'do' after else-if condition");
-                    p.consume(TokenType::COLON, "Expected ':' after 'do'");
+                    p.consume(TokenType::DO, "expected 'do' after else-if condition");
+                    p.consume(TokenType::COLON, "expected ':' after 'do'");
 
                     IfStmt::Branch elseIfBranch;
                     elseIfBranch.condition = std::move(elseCond);
@@ -63,8 +63,8 @@ namespace cuff
                 else
                 {
                     // plain else
-                    p.consume(TokenType::DO, "Expected 'do' after else");
-                    p.consume(TokenType::COLON, "Expected ':' after 'do'");
+                    p.consume(TokenType::DO, "expected 'do' after else");
+                    p.consume(TokenType::COLON, "expected ':' after 'do'");
 
                     IfStmt::Branch elseBranch;
                     elseBranch.condition = nullptr;
@@ -74,7 +74,7 @@ namespace cuff
                 }
             }
 
-            p.consume(TokenType::END, "Expected 'end' to close if statement");
+            p.consume(TokenType::END, "expected 'end' to close if statement");
             p.match(TokenType::DEDENT);
 
             return std::make_unique<Stmt>(StmtKind::IfStmt, std::move(ifStmt));

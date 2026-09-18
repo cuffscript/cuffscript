@@ -1,0 +1,7 @@
+note: E4025 -- JSON has no Infinity, so serializing one must fail loudly
+use DLC:json
+set number big to 1
+loop repeat i to 1 ~ 400 do:
+    change big to big * 10
+end
+print(to_json(big))
