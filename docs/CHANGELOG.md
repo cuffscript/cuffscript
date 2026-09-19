@@ -1,3 +1,23 @@
+## v1.5.0 - 2026-09-19
+
+## Description
+
+- **Operators are now enums instead of strings.** / stored the operator as a  and the interpreter dispatched through an  chain. Profiling showed this cost **16.2 million string comparisons** on a 635k-call benchmark — about 25 per call, the largest single cost in the engine. Now a  over / assigned at parse time. : 0.241s → 0.149s.
+- **Variable and function names are interned to integer IDs** (), so scope lookups compare s over a contiguous vector instead of strings. A 400-global lookup benchmark went 0.059s → 0.027s. Names are still stored alongside for error messages.
+- **Interpreter scope-storage optimization.** Profiling showed parameter binding dominated call cost (~60ns per parameter, 72% of a 3-argument call) because each one was an  insert: a hash plus a node allocation. Scopes are small in practice, so  now stores variables in a contiguous vector with linear lookup — one allocation per scope instead of one per variable — falling back to a lazily-built index once a scope exceeds 16 entries, which keeps large global scopes fast. Measured: 0-argument call overhead 72ns → 32ns, 3-argument 252ns → 164ns.
+- Decided _against_ the larger slot-resolution refactor (pre-resolving every variable to an array index at parse time) and a bytecode VM for now. The measurements above captured most of the available win for a fraction of the risk, and the engine is now in the same performance range as CPython on call-heavy code. See  section 21 for details.
+- Net effect of optimizations this release:  0.32s → 0.140s (~56% faster), a 2M-iteration loop 0.287s → 0.173s, 3-argument call overhead 252ns → ~145ns.
+- Added  (, ). Object/array/string/number/true/false/null map onto map/list/str/number/boolean/empty.  pretty-prints. The parser is strict per RFC 8259 — trailing commas, single quotes, unquoted keys, leading zeros, /, and trailing content are rejected — and decodes  escapes including surrogate pairs. See  section 19.
+- **Error-code audit and normalization.**  (E4010 ) was being used both for wrong argument _counts_ and for bad argument _values_ (, , malformed JSON). Added  /  (E4025) and rerouted the six value-problem sites to it. Also normalized message capitalization across every throw site: all messages now start lowercase, since they're always printed after a  prefix.
+- **The regex matcher is now codepoint-based instead of byte-based.**  matches one character rather than one byte ( is now true, previously false); literal non-ASCII characters in a pattern compile to a single multi-byte literal node; negated sets () match non-ASCII codepoints;  only starts attempts on codepoint boundaries and  alternatives must end on one.  treats non-ASCII letters as word characters, per REGEX.md section 17. //// stay ASCII-only per spec. See  section 17.
+- **Fractional indices and range bounds are now a runtime error** (, E4024) instead of being silently rounded. Applies to , , slices, and  bounds. Whole-valued doubles (, ) still work.
+- Moved  from  to , since the regex engine now uses it too.
+- Added  for standalone C++ unit tests, and moved the regex engine's own test suite there (78 cases, including new Unicode ones).  now builds and runs it first.
+- Expanded integration tests: added  (plus 7 error cases), , , and 3 fractional-index error cases. All 66 script tests and 78 regex unit tests pass unchanged.
+
+
+---
+
 ## v1.4.0 - 2026-09-18
 
 ## Description
