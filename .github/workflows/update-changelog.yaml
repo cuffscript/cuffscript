@@ -29,6 +29,8 @@ jobs:
             -
                 name: Update changelog
                 shell: bash
+                env:
+                    RELEASE_BODY: ${{ github.event.release.body }}
                 run: |
                     mkdir -p docs
 
@@ -39,7 +41,7 @@ jobs:
                     {
                         echo "## ${{ github.event.release.tag_name }} - ${RELEASE_DATE}"
                         echo ""
-                        printf '%s\n' "${{ github.event.release.body }}"
+                        printf '%s\n' "$RELEASE_BODY"
 
                         echo ""
                         echo "---"
