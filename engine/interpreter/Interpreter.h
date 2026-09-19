@@ -367,12 +367,11 @@ namespace cuff
 
         void assignLoopVar(const LoopStmt &loop, Value v, Environment &env)
         {
-            if (env.isDeclaredHere(loop.repeatVarId) && env.isConstantIn(&env, loop.repeatVarId))
+            if (!env.declareLoopVar(loop.repeatVarId, std::move(v)))
             {
                 throw ConstantError(ErrorCode::ConstantReassignment,
                                     "cannot use constant '" + loop.repeatVar + "' as a loop variable", loop.loc);
             }
-            env.declare(loop.repeatVarId, std::move(v), false);
         }
 
         // ---- Control flow ----

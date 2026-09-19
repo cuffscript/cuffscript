@@ -82,6 +82,20 @@ namespace cuff
                 constants_.push_back(nameId);
         }
 
+        bool declareLoopVar(uint32_t nameId, Value value)
+        {
+            if (Value *existing = findLocal(nameId))
+            {
+                if (!constants_.empty() &&
+                    std::find(constants_.begin(), constants_.end(), nameId) != constants_.end())
+                    return false;
+                *existing = std::move(value);
+                return true;
+            }
+            vars_.emplace_back(nameId, std::move(value));
+            return true;
+        }
+
         // Convenience overload for the few paths that only have a name string
         // (module merging). Interning is a hash lookup, so it stays off the
         // hot path where the parser already supplied an id.
