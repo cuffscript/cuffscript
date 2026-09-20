@@ -15,7 +15,8 @@ WASM_ENTRY = wasm/bindings.cpp
 WASM_OUT_DIR = npm/dist
 WASM_OUT = $(WASM_OUT_DIR)/cuffscript.mjs
 
-EMFLAGS = -std=c++17 -O3 -fexceptions --bind \
+EMFLAGS = -std=c++17 -O3 -flto -fexceptions --bind -DNDEBUG \
+	--no-entry \
 	-s MODULARIZE=1 \
 	-s EXPORT_ES6=1 \
 	-s EXPORT_NAME=createCuffScriptModule \
