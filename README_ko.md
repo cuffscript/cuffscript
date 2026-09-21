@@ -22,6 +22,8 @@ CuffScript source
 
 기본적으로 `./cuffc program.cuff`는 프로그램을 **실행**합니다. `--ast`를 넘기면 실행 대신 토크나이저/렉서/파서 단계 결과만 출력합니다 (엔진 자체를 개발/디버깅할 때 유용).
 
+기타 옵션: `--root <dir>`(`use ... from`이 모듈을 읽을 수 있는 범위, 기본값은 스크립트 폴더), `--max-steps <n>`(반복문 횟수 + 함수 호출이 n번이면 중단), `--timeout <ms>`(실행 시간이 ms를 넘으면 중단). 뒤의 둘은 기본적으로 꺼져 있습니다.
+
 모든 단계(어휘, 문법, 패턴, 런타임, 모듈)의 오류는 하나의 체계적으로 코드화된 예외 계층을 통해 발생합니다 — 아래 [오류 처리](#오류-처리) 참고 — 그래서 실패 상황이 일관되고, 새 오류 종류를 추가하기도 쉽습니다.
 
 ## 문법 개요
@@ -114,7 +116,7 @@ end
 set number result to double(21)
 ```
 
-`use DLC:<이름>`은 내장 라이브러리(`math`, `string`, `time`, `random`, `list`, `convert`, `network`)를 불러옵니다 — 전체 함수 목록은 [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 참고. `use <이름> from <경로>`는 실행 중인 스크립트를 기준으로 다른 `.cuff` 파일을 불러와 최상위 함수/변수를 현재 스코프에 합칩니다.
+`use DLC:<이름>`은 내장 라이브러리(`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network`)를 불러옵니다 — 전체 함수 목록은 [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 참고. `use <이름> from <경로>`는 실행 중인 스크립트를 기준으로 다른 `.cuff` 파일을 불러와 최상위 함수/변수를 현재 스코프에 합칩니다. 모듈은 스크립트가 있는 폴더 안에 있어야 하며, `--root <dir>`로 범위를 넓힐 수 있습니다.
 
 오류 처리 결합 구문은 `or_else do: ... end`이며, 바로 앞 구문에서 발생한 (문법 오류가 아닌) 복구 가능한 런타임 오류를 잡아냅니다.
 

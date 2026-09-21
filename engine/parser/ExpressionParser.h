@@ -8,6 +8,8 @@
 #include "../common/CuffError.h"
 #include "../tokenizer/Tokenizer.h"
 #include "../lexer/Lexer.h"
+#include <cerrno>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <cstdlib>
@@ -52,6 +54,7 @@ namespace cuff
             if (p.check(TokenType::BANG))
             {
                 SourceLocation loc = p.current().location;
+                ParseDepthScope depth(loc);
                 p.advance();
                 auto operand = parseLogicalNot(p);
                 return std::make_unique<Expr>(ExprKind::UnaryOp,
@@ -161,6 +164,7 @@ namespace cuff
             if (p.check(TokenType::MINUS))
             {
                 SourceLocation loc = p.current().location;
+                ParseDepthScope depth(loc);
                 p.advance();
                 auto operand = parseUnary(p);
                 return std::make_unique<Expr>(ExprKind::UnaryOp,
@@ -331,20 +335,25 @@ namespace cuff
     inline std::unique_ptr<Expr> LiteralParser::parsePrimary(ParserCore &p)
     {
         const Token &tok = p.current();
+        ParseDepthScope depth(tok.location);
 
         switch (tok.type)
         {
         case TokenType::NUMBER:
         {
-            double val = std::stod(tok.value);
+            errno = 0;
+            double val = std::strtod(tok.value.c_str(), nullptr);
+            if (errno == ERANGE && std::isinf(val))
+                throw SyntaxError(ErrorCode::InvalidNumberLiteral, "number literal is too large", tok.location);
             p.advance();
             return std::make_unique<Expr>(ExprKind::Number, NumberLiteral(val, tok.location));
         }
         case TokenType::STRING:
         {
+            SourceLocation loc = tok.location;
             std::string val = tok.value;
             p.advance();
-            return std::make_unique<Expr>(ExprKind::String, StringLiteral(std::move(val), tok.location));
+            return std::make_unique<Expr>(ExprKind::String, StringLiteral(std::move(val), loc));
         }
         case TokenType::FSTRING:
             return parseFString(p);

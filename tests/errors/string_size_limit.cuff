@@ -1,0 +1,3 @@
+note: E4026
+use DLC:string
+print(repeat_str("abcdefgh", 100000000))

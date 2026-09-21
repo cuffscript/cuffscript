@@ -3,6 +3,11 @@
 #include "../common/SourceLocation.h"
 #include "../common/NameInterner.h"
 #include "../common/TokenTypes.h"
+#include "../common/CuffError.h"
+#include "../common/Limits.h"
+#include "../common/StrData.h"
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>
@@ -29,8 +34,10 @@ namespace cuff
     struct StringLiteral
     {
         std::string value;
+        std::shared_ptr<const StrData> shared;
         SourceLocation loc;
-        StringLiteral(std::string v, SourceLocation l) : value(std::move(v)), loc(l) {}
+        StringLiteral(std::string v, SourceLocation l)
+            : value(std::move(v)), shared(std::make_shared<const StrData>(value)), loc(l) {}
     };
 
     struct BoolLiteral
@@ -303,6 +310,7 @@ namespace cuff
     struct Expr
     {
         ExprKind kind;
+        uint32_t height = 1;
         std::variant<
             NumberLiteral,
             StringLiteral,
@@ -326,23 +334,100 @@ namespace cuff
             CountExpr>
             data;
 
+        // `height` is the length of the longest path down to a leaf. Bounding it
+        // keeps evaluation, printing and destruction of the tree (all recursive)
+        // safe even for left-associative chains like `1+1+1+...`, which the
+        // parser builds iteratively.
         template <typename T>
-        Expr(ExprKind k, T &&v) : kind(k), data(std::forward<T>(v)) {}
+        Expr(ExprKind k, T &&v) : kind(k), data(std::forward<T>(v))
+        {
+            height = 1 + std::visit(ChildHeight{}, data);
+            if (height > limits::kMaxExprHeight)
+            {
+                throw SyntaxError(ErrorCode::NestingTooDeep,
+                                  "expression is too long or too deeply nested (maximum depth is " +
+                                      std::to_string(limits::kMaxExprHeight) + ")",
+                                  std::visit([](const auto &n) { return n.loc; }, data));
+            }
+        }
 
         // AST nodes own their children through unique_ptr, so the tree as a
-        // whole is move-only. These are declared explicitly (rather than left
-        // to the compiler to figure out) so that an accidental copy — e.g.
-        // `FunctionCall fc = std::get<FunctionCall>(expr->data);` instead of
-        // `std::move(...)` — fails immediately with a clear "deleted function"
-        // error at the call site, instead of a deep, cryptic template error
-        // inside <vector> triggered by std::variant's copy-constructibility
-        // checks (std::vector<unique_ptr<T>> reports itself as copy-
-        // constructible to type traits even though instantiating that copy
-        // constructor is a hard error).
+        // whole is move-only. Declared explicitly so an accidental copy fails
+        // at the call site with a clear "deleted function" error.
         Expr(const Expr &) = delete;
         Expr &operator=(const Expr &) = delete;
         Expr(Expr &&) = default;
         Expr &operator=(Expr &&) = default;
+
+    private:
+        struct ChildHeight
+        {
+            static uint32_t h(const std::unique_ptr<Expr> &e) { return e ? e->height : 0; }
+
+            template <typename T>
+            uint32_t operator()(const T &) const { return 0; }
+
+            uint32_t operator()(const ListLiteral &n) const
+            {
+                uint32_t m = 0;
+                for (const auto &e : n.elements)
+                    m = std::max(m, h(e));
+                return m;
+            }
+            uint32_t operator()(const MapLiteral &n) const
+            {
+                uint32_t m = 0;
+                for (const auto &p : n.pairs)
+                    m = std::max({m, h(p.key), h(p.value)});
+                return m;
+            }
+            uint32_t operator()(const FStringExpr &n) const
+            {
+                uint32_t m = 0;
+                for (const auto &s : n.segments)
+                    if (s.isExpression)
+                        m = std::max(m, h(s.expr));
+                return m;
+            }
+            uint32_t operator()(const BinaryOp &n) const { return std::max(h(n.left), h(n.right)); }
+            uint32_t operator()(const UnaryOp &n) const { return h(n.operand); }
+            uint32_t operator()(const IndexAccess &n) const { return std::max(h(n.target), h(n.index)); }
+            uint32_t operator()(const SliceAccess &n) const
+            {
+                return std::max({h(n.target), h(n.start), h(n.end)});
+            }
+            uint32_t operator()(const FunctionCall &n) const { return args(n.args); }
+            uint32_t operator()(const AwaitExpr &n) const { return n.call ? args(n.call->args) : 0; }
+            uint32_t operator()(const RegexMatchExpr &n) const { return h(n.target); }
+            uint32_t operator()(const MatchFromExpr &n) const
+            {
+                return std::max(h(n.target), h(n.pattern.dynamicExpr));
+            }
+            uint32_t operator()(const FindExpr &n) const
+            {
+                return std::max(h(n.target), h(n.pattern.dynamicExpr));
+            }
+            uint32_t operator()(const PatternReplaceExpr &n) const
+            {
+                return std::max({h(n.target), h(n.replacement), h(n.pattern.dynamicExpr)});
+            }
+            uint32_t operator()(const SplitExpr &n) const
+            {
+                return std::max(h(n.target), h(n.pattern.dynamicExpr));
+            }
+            uint32_t operator()(const CountExpr &n) const
+            {
+                return std::max(h(n.target), h(n.pattern.dynamicExpr));
+            }
+
+            static uint32_t args(const std::vector<std::unique_ptr<Expr>> &v)
+            {
+                uint32_t m = 0;
+                for (const auto &e : v)
+                    m = std::max(m, h(e));
+                return m;
+            }
+        };
     };
 
     // =========================================================================

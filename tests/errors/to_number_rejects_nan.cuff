@@ -1,0 +1,2 @@
+note: E4025
+print(to_number("nan"))

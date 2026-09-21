@@ -1,0 +1,38 @@
+use DLC:string
+
+print(upper("hello World"))
+print(lower("HELLO World"))
+
+note: case mapping covers Latin, Greek and Cyrillic; other scripts pass through
+print(upper("café ÿ straße"))
+print(lower("ÀÉÎ ΑΒΓ ДЖЯ"))
+print(upper("안녕 abc"))
+
+print(trim_start("  hi  ") + "|")
+print(trim_end("  hi  ") + "|")
+print(trim("  hi  ") + "|")
+
+print(index_of("hello world", "o"))
+print(index_of("안녕하세요", "하"))
+print(index_of("abc", "z"))
+
+print(repeat_str("ab", 3))
+print(repeat_str("x", 0) + "|")
+print(pad_left("7", 3, "0"))
+print(pad_right("ab", 5, "*") + "|")
+print(pad_left("abc", 2))
+print(pad_left("한", 3, "-"))
+
+print(char_code("A"))
+print(char_code("한"))
+print(from_char_code(72) + from_char_code(105))
+print(from_char_code(54620))
+
+print(contains("hello", "ell"))
+print(contains([1, 2, 3], 2))
+print(contains([1, 2, 3], 9))
+print(contains({"a": 1}, "a"))
+print(contains({"a": 1}, "b"))
+print(index_of([10, 20, 30], 20))
+print(length("한글abc"))
+print(length([1, 2, 3]))

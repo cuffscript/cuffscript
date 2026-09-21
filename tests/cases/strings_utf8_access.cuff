@@ -1,0 +1,22 @@
+use DLC:string
+
+set str s to "a한b🙂c"
+print(length(s))
+
+note: forward, backward and negative access must agree (cursor caching)
+loop repeat i to 1 ~ 5 do:
+    print(s[i])
+end
+loop repeat i to 5 ~ 1 do:
+    print(s[i])
+end
+print(s[-1])
+print(s[-2])
+print(s[2~4])
+print(s[4~4])
+print(s[1~5])
+
+set str plain to "hello"
+print(plain[2])
+print(plain[2~4])
+print(plain[-3~-1])

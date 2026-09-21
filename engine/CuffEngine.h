@@ -8,6 +8,9 @@
 #include "parser/ASTNodes.h"
 #include "debug/ASTPrinter.h"
 #include "interpreter/Interpreter.h"
+#include "common/Limits.h"
+#include <cstdint>
+#include <new>
 #include <string>
 #include <vector>
 #include <memory>
@@ -30,22 +33,53 @@ namespace cuff
             std::unique_ptr<Program> ast;
         };
 
-        static Result run(const std::string &source)
+        // Sandbox and resource settings for execute(). All limits default to
+        // "off"; the structural limits in common/Limits.h always apply.
+        struct Options
+        {
+            std::string rootDir;    // modules must stay inside this directory (default: the script's directory)
+            uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
+            uint32_t timeoutMs = 0; // wall-clock budget; 0 = unlimited
+            size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
+        };
+
+        // `keepTokens` retains the raw/lexed token streams in the result (only
+        // the --ast debug dump needs them); without it the tokens are moved
+        // through the pipeline instead of copied.
+        static Result run(const std::string &source, bool keepTokens = true)
         {
             Result result;
 
             try
             {
+                if (source.size() > limits::kMaxSourceBytes)
+                {
+                    throw SyntaxError(ErrorCode::SourceTooLarge,
+                                      "source is larger than the " + std::to_string(limits::kMaxSourceBytes / 1024) + " KiB limit",
+                                      SourceLocation());
+                }
+
                 // Stage 1: Tokenize
                 Tokenizer tokenizer(source);
-                result.rawTokens = tokenizer.tokenize();
+                std::vector<Token> raw = tokenizer.tokenize();
 
                 // Stage 2: Lex (classify + validate)
-                Lexer lexer(result.rawTokens);
-                result.lexedTokens = lexer.lex();
+                std::vector<Token> lexed;
+                if (keepTokens)
+                {
+                    result.rawTokens = raw;
+                    Lexer lexer(std::move(raw));
+                    lexed = lexer.lex();
+                    result.lexedTokens = lexed;
+                }
+                else
+                {
+                    Lexer lexer(std::move(raw));
+                    lexed = lexer.lex();
+                }
 
                 // Stage 3: Parse
-                Parser parser(result.lexedTokens);
+                Parser parser(std::move(lexed));
                 result.ast = parser.parse();
 
                 result.success = true;
@@ -53,6 +87,10 @@ namespace cuff
             catch (const CuffError &e)
             {
                 result.error = e.what();
+            }
+            catch (const std::bad_alloc &)
+            {
+                result.error = outOfMemoryMessage();
             }
             catch (const std::exception &e)
             {
@@ -68,19 +106,34 @@ namespace cuff
         // CuffError hierarchy — see engine/common/CuffError.h) is in `error`.
         static Result execute(const std::string &source, const std::string &scriptDir)
         {
-            Result result = run(source);
+            return execute(source, scriptDir, Options());
+        }
+
+        static Result execute(const std::string &source, const std::string &scriptDir, const Options &options)
+        {
+            Result result = run(source, false);
             if (!result.success)
                 return result;
 
             try
             {
-                Interpreter interp;
+                Interpreter::Config config;
+                config.rootDir = options.rootDir;
+                config.maxSteps = options.maxSteps;
+                config.timeoutMs = options.timeoutMs;
+                config.stackBudgetBytes = options.stackBudgetBytes;
+                Interpreter interp(std::move(config));
                 interp.run(*result.ast, scriptDir);
             }
             catch (const CuffError &e)
             {
                 result.success = false;
                 result.error = e.what();
+            }
+            catch (const std::bad_alloc &)
+            {
+                result.success = false;
+                result.error = outOfMemoryMessage();
             }
             catch (const std::exception &e)
             {
@@ -111,6 +164,13 @@ namespace cuff
                 std::cout << ASTPrinter::print(*result.ast);
             }
             std::cout << "\n===== PARSE SUCCESS =====\n";
+        }
+
+    private:
+        static std::string outOfMemoryMessage()
+        {
+            return "[" + errorCodeTag(ErrorCode::OutOfMemory) + "] " + errorCategoryName(ErrorCode::OutOfMemory) +
+                   ": the program ran out of memory";
         }
     };
 

@@ -1,0 +1,5 @@
+note: E4025
+use DLC:json
+set list a to []
+add a to a
+print(to_json(a))

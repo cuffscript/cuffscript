@@ -22,6 +22,8 @@ CuffScript source
 
 By default, `./cuffc program.cuff` **runs** the program. Pass `--ast` to instead dump the tokenizer/lexer/parser stages without executing anything (useful when working on the engine itself).
 
+Other options: `--root <dir>` (where `use ... from` may load modules; default is the script's directory), `--max-steps <n>` (stop after n loop iterations + function calls) and `--timeout <ms>` (stop after that much run time). The last two are off by default.
+
 Errors at every stage (lexical, syntax, pattern, runtime, module) are raised through a single, systematically-coded exception hierarchy — see [Error handling](#error-handling) below — so failures are consistent and easy to add to.
 
 ## Syntax Overview
@@ -114,7 +116,7 @@ end
 set number result to double(21)
 ```
 
-`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `convert`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope.
+`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope. Modules must live inside the script's directory unless you widen the sandbox with `--root <dir>`.
 
 The error-handling composition syntax is `or_else do: ... end`, which catches any recoverable runtime error (not syntax errors) raised by the statement it follows:
 

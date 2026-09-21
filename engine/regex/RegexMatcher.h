@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RegexAst.h"
+#include "../common/Attributes.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
 #include "../common/Utf8.h"
@@ -49,6 +50,10 @@ namespace cuff::regex
         // default worker/secondary threads to as little as 512KB-1MB).
         size_t depthLimit = 3000;
         std::chrono::milliseconds timeLimit{500};
+        // Wall-clock cutoff for a whole operation (many start positions, or
+        // many matches for global find/replace/split/count); the per-attempt
+        // limits above never accumulate across attempts. Epoch = no cutoff.
+        std::chrono::steady_clock::time_point operationDeadline{};
     };
 
     class RegexMatcher
@@ -98,6 +103,7 @@ namespace cuff::regex
 
         // Per-attempt mutable state.
         size_t steps_ = 0;
+        size_t totalSteps_ = 0;
         size_t depth_ = 0;
         std::chrono::steady_clock::time_point deadline_;
         std::vector<std::pair<size_t, size_t>> groupSpans_;                     // 1-based; index 0 unused
@@ -157,9 +163,11 @@ namespace cuff::regex
                                                loc_,
                                                "simplify the pattern — avoid nested unbounded quantifiers like ([any]+)+");
             }
-            if ((steps_ & 0xFFF) == 0)
+            if ((++totalSteps_ & 0xFFF) == 0)
             {
-                if (std::chrono::steady_clock::now() > deadline_)
+                const auto now = std::chrono::steady_clock::now();
+                if (now > deadline_ ||
+                    (limits_.operationDeadline != std::chrono::steady_clock::time_point{} && now > limits_.operationDeadline))
                 {
                     throw cuff::RegexRuntimeError(cuff::ErrorCode::RegexTimeout,
                                                    "pattern matching exceeded its time limit",
@@ -174,7 +182,7 @@ namespace cuff::regex
             RegexMatcher *m;
             explicit DepthGuard(RegexMatcher *matcher) : m(matcher)
             {
-                if (++m->depth_ > m->limits_.depthLimit)
+                if (++m->depth_ > m->limits_.depthLimit || stackPointer() < stackFloor())
                 {
                     throw cuff::RegexRuntimeError(cuff::ErrorCode::RegexRecursionLimitExceeded,
                                                    "pattern matching recursed too deeply for this input",
@@ -194,8 +202,8 @@ namespace cuff::regex
         {
             if (idx == nodes.size())
                 return k(pos);
-            RNodePtr node = nodes[idx];
-            return matchNode(*node, pos, [this, &nodes, idx, &k](size_t newPos)
+            RNode &node = *nodes[idx];
+            return matchNode(node, pos, [this, &nodes, idx, &k](size_t newPos)
                               { return matchSeqAt(nodes, idx + 1, newPos, k); });
         }
 

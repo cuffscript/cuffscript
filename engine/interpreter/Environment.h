@@ -2,6 +2,7 @@
 
 #include "Value.h"
 #include "../common/NameInterner.h"
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -77,7 +78,7 @@ namespace cuff
                 setConstantFlag(nameId, isConstant);
                 return;
             }
-            vars_.emplace_back(nameId, std::move(value));
+            append(nameId, std::move(value));
             if (isConstant)
                 constants_.push_back(nameId);
         }
@@ -92,7 +93,7 @@ namespace cuff
                 *existing = std::move(value);
                 return true;
             }
-            vars_.emplace_back(nameId, std::move(value));
+            append(nameId, std::move(value));
             return true;
         }
 
@@ -194,24 +195,34 @@ namespace cuff
         std::vector<std::pair<uint32_t, Value>> vars_;
         std::vector<uint32_t> constants_;
         std::vector<uint32_t> globalDeclared_;
-        mutable std::unordered_map<uint32_t, size_t> index_;
-        mutable bool indexValid_ = false;
+        std::unique_ptr<std::unordered_map<uint32_t, size_t>> index_;
         static constexpr size_t kIndexThreshold = 16;
+
+        // vars_ is append-only, so an existing index never goes stale: new
+        // entries are added to it as they arrive, and it is built once when
+        // the scope first crosses kIndexThreshold.
+        void append(uint32_t nameId, Value value)
+        {
+            vars_.emplace_back(nameId, std::move(value));
+            if (index_)
+            {
+                index_->emplace(nameId, vars_.size() - 1);
+            }
+            else if (vars_.size() >= kIndexThreshold)
+            {
+                index_ = std::make_unique<std::unordered_map<uint32_t, size_t>>();
+                index_->reserve(vars_.size() * 2);
+                for (size_t i = 0; i < vars_.size(); ++i)
+                    (*index_)[vars_[i].first] = i;
+            }
+        }
 
         Value *findLocal(uint32_t nameId)
         {
-            if (vars_.size() >= kIndexThreshold)
+            if (index_)
             {
-                if (!indexValid_ || index_.size() != vars_.size())
-                {
-                    index_.clear();
-                    index_.reserve(vars_.size());
-                    for (size_t i = 0; i < vars_.size(); ++i)
-                        index_[vars_[i].first] = i;
-                    indexValid_ = true;
-                }
-                auto it = index_.find(nameId);
-                return it == index_.end() ? nullptr : &vars_[it->second].second;
+                auto it = index_->find(nameId);
+                return it == index_->end() ? nullptr : &vars_[it->second].second;
             }
             for (auto &kv : vars_)
                 if (kv.first == nameId)

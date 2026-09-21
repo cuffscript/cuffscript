@@ -1,0 +1,3 @@
+note: E4026
+use DLC:list
+print(range(1, 1000000000))

@@ -4,7 +4,10 @@
 #include "RegexParser.h"
 #include "RegexMatcher.h"
 #include "../common/CuffError.h"
+#include "../common/Limits.h"
 #include "../common/SourceLocation.h"
+#include <algorithm>
+#include <chrono>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -57,6 +60,10 @@ namespace cuff::regex
             if (it != cache_.end())
                 return it->second;
 
+            if (pattern.size() > limits::kMaxRegexPatternBytes)
+                throw cuff::RegexSyntaxError(cuff::ErrorCode::RegexPatternTooComplex,
+                                             "pattern is longer than the " + std::to_string(limits::kMaxRegexPatternBytes / 1024) + " KiB limit", loc);
+
             RegexParser parser(pattern, loc);
             int groupCount = 0;
             RNodePtr root = parser.parse(groupCount);
@@ -65,6 +72,11 @@ namespace cuff::regex
             compiled->root = root;
             compiled->groupCount = groupCount;
             compiled->source = pattern;
+
+            // Patterns built at run time can be unbounded in number; callers
+            // keep their own shared_ptr, so dropping the cache is always safe.
+            if (cache_.size() >= limits::kMaxRegexCacheEntries)
+                cache_.clear();
             cache_[pattern] = compiled;
             return compiled;
         }
@@ -72,27 +84,50 @@ namespace cuff::regex
         bool fullMatch(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                         bool caseInsensitive, const cuff::SourceLocation &loc, MatchOutcome &out)
         {
-            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive, /*multiline=*/false, loc);
+            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive, /*multiline=*/false, loc, limitsUntil(deadlineFor(text)));
             return matcher.fullMatch(text, out);
         }
 
         bool search(const std::shared_ptr<CompiledPattern> &pat, const std::string &text, size_t fromPos,
                     const Flags &flags, const cuff::SourceLocation &loc, MatchOutcome &out)
         {
-            RegexMatcher matcher(pat->root, pat->groupCount, flags.caseInsensitive, flags.multiline, loc);
-            return matcher.search(text, fromPos, out);
+            return searchUntil(pat, text, fromPos, flags, loc, out, deadlineFor(text));
+        }
+
+        // Start/end byte offsets of every non-overlapping match. Much lighter
+        // than searchAll(), which also materializes capture groups.
+        std::vector<std::pair<size_t, size_t>> searchAllSpans(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+                                                              const Flags &flags, const cuff::SourceLocation &loc)
+        {
+            std::vector<std::pair<size_t, size_t>> spans;
+            const auto deadline = deadlineFor(text);
+            size_t pos = 0;
+            while (pos <= text.size())
+            {
+                MatchOutcome out;
+                if (!searchUntil(pat, text, pos, flags, loc, out, deadline))
+                    break;
+                if (spans.size() >= limits::kMaxCollectionItems)
+                    throwTooManyMatches(loc);
+                spans.emplace_back(out.start, out.end);
+                pos = (out.end > out.start) ? out.end : out.end + 1;
+            }
+            return spans;
         }
 
         std::vector<MatchOutcome> searchAll(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                                              const Flags &flags, const cuff::SourceLocation &loc)
         {
             std::vector<MatchOutcome> results;
+            const auto deadline = deadlineFor(text);
             size_t pos = 0;
             while (pos <= text.size())
             {
                 MatchOutcome out;
-                if (!search(pat, text, pos, flags, loc, out))
+                if (!searchUntil(pat, text, pos, flags, loc, out, deadline))
                     break;
+                if (results.size() >= limits::kMaxCollectionItems)
+                    throwTooManyMatches(loc);
                 results.push_back(out);
                 pos = (out.end > out.start) ? out.end : out.end + 1; // always advance on empty matches
             }
@@ -104,6 +139,7 @@ namespace cuff::regex
                              const std::string &replacement, const Flags &flags, const cuff::SourceLocation &loc)
         {
             std::string result;
+            const auto deadline = deadlineFor(text);
             size_t pos = 0;
             bool replacedOnce = false;
             while (pos <= text.size())
@@ -111,8 +147,10 @@ namespace cuff::regex
                 if (!flags.global && replacedOnce)
                     break;
                 MatchOutcome out;
-                if (!search(pat, text, pos, flags, loc, out))
+                if (!searchUntil(pat, text, pos, flags, loc, out, deadline))
                     break;
+                if (result.size() + (out.start - pos) + replacement.size() > limits::kMaxStringBytes)
+                    throwResultTooLarge(loc);
                 result.append(text, pos, out.start - pos);
                 result.append(replacement);
                 replacedOnce = true;
@@ -141,12 +179,13 @@ namespace cuff::regex
             Flags flags;
             flags.global = true;
             std::vector<std::string> pieces;
+            const auto deadline = deadlineFor(text);
             size_t pos = 0;
             size_t segmentStart = 0;
             while (pos <= text.size())
             {
                 MatchOutcome out;
-                if (!search(pat, text, pos, flags, loc, out))
+                if (!searchUntil(pat, text, pos, flags, loc, out, deadline))
                     break;
                 if (out.end == out.start)
                 {
@@ -154,6 +193,8 @@ namespace cuff::regex
                     pos = out.end + 1;
                     continue;
                 }
+                if (pieces.size() >= limits::kMaxCollectionItems)
+                    throwTooManyMatches(loc);
                 pieces.push_back(text.substr(segmentStart, out.start - segmentStart));
                 segmentStart = out.end;
                 pos = out.end;
@@ -167,11 +208,61 @@ namespace cuff::regex
         {
             Flags f = flags;
             f.global = true;
-            return searchAll(pat, text, f, loc).size();
+            const auto deadline = deadlineFor(text);
+            size_t n = 0;
+            size_t pos = 0;
+            while (pos <= text.size())
+            {
+                MatchOutcome out;
+                if (!searchUntil(pat, text, pos, f, loc, out, deadline))
+                    break;
+                ++n;
+                pos = (out.end > out.start) ? out.end : out.end + 1;
+            }
+            return n;
         }
 
     private:
+        using Clock = std::chrono::steady_clock;
+        // A whole find/replace/split/count over a large text is legitimately
+        // slower than over a small one, so the allowance grows with the input.
+        static constexpr int kBaseTimeMs = 5000;
+        static constexpr int kTimeMsPerMiB = 2000;
+        static constexpr long long kMaxTimeMs = 10LL * 60 * 1000;
+
         std::unordered_map<std::string, std::shared_ptr<CompiledPattern>> cache_;
+
+        static Clock::time_point deadlineFor(const std::string &text)
+        {
+            long long ms = kBaseTimeMs + static_cast<long long>(text.size() >> 20) * kTimeMsPerMiB;
+            return Clock::now() + std::chrono::milliseconds(std::min(ms, kMaxTimeMs));
+        }
+
+        static RegexLimits limitsUntil(Clock::time_point deadline)
+        {
+            RegexLimits l;
+            l.operationDeadline = deadline;
+            return l;
+        }
+
+        bool searchUntil(const std::shared_ptr<CompiledPattern> &pat, const std::string &text, size_t fromPos,
+                         const Flags &flags, const cuff::SourceLocation &loc, MatchOutcome &out, Clock::time_point deadline)
+        {
+            RegexMatcher matcher(pat->root, pat->groupCount, flags.caseInsensitive, flags.multiline, loc, limitsUntil(deadline));
+            return matcher.search(text, fromPos, out);
+        }
+
+        [[noreturn]] static void throwTooManyMatches(const cuff::SourceLocation &loc)
+        {
+            throw cuff::CuffRuntimeError(cuff::ErrorCode::SizeLimitExceeded,
+                                         "pattern produced too many matches", loc);
+        }
+
+        [[noreturn]] static void throwResultTooLarge(const cuff::SourceLocation &loc)
+        {
+            throw cuff::CuffRuntimeError(cuff::ErrorCode::SizeLimitExceeded,
+                                         "string exceeds the maximum allowed size", loc);
+        }
     };
 
 } // namespace cuff::regex

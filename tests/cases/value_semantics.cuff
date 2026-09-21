@@ -1,0 +1,32 @@
+note: circular structures print with a marker and compare by shape
+set list a to [1]
+add a to a
+print(a)
+
+set list b to [1]
+add b to b
+print(a is b)
+
+set map d to {"k": 1}
+change d["self"] to d
+print(d)
+
+note: nested structures compare deeply, however deep
+set list x to []
+set list z to []
+loop repeat i to 1 ~ 3000 do:
+    set list y to [x]
+    change x to y
+    set list w to [z]
+    change z to w
+end
+print(x is z)
+add z to z
+print(x is z)
+
+note: strings are values — copies never affect each other
+set str original to "abc"
+set str copy to original
+change copy to copy + "d"
+print(original)
+print(copy)

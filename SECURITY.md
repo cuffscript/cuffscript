@@ -32,6 +32,18 @@ Logic issues in user-written CuffScript code and vulnerabilities in external bui
 
 ---
 
+## Running untrusted scripts
+
+The engine is designed so that a script can fail but not crash the host: nesting, recursion,
+value depth, string/collection size and regex work are all bounded and reported as ordinary
+error codes, and `use ... from` cannot read outside the script's directory (or the `--root`
+you choose). No built-in performs file or network access. Two things are deliberately left
+to the embedder: an execution budget (`--max-steps`, `--timeout`, or `CuffEngine::Options`) is
+off by default, and process-level memory and CPU limits should still be applied when hosting
+untrusted code. Details and numbers are in `docs/IMPLEMENTATION_NOTES.md`, sections 22-23.
+
+---
+
 # 보안 정책 (한국어)
 
 ## 지원 버전

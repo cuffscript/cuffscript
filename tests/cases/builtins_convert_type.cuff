@@ -1,0 +1,17 @@
+print(to_number("42"))
+print(to_number("  -3.5  "))
+print(to_number("1e3"))
+print(to_number(".5"))
+print(to_number(true))
+
+print(type_of(1))
+print(type_of("a"))
+print(type_of([1]))
+print(type_of({"a": 1}))
+print(type_of(true))
+print(type_of(empty))
+
+print(to_str(12))
+print(to_str([1, "a"]))
+print(to_boolean(""))
+print(to_boolean("x"))

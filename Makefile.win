@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG
+CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG -Wl,--stack,8388608
 
 TARGET = cuffc.exe
 SOURCES = main.cpp

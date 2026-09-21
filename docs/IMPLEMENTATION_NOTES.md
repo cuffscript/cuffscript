@@ -100,11 +100,12 @@ f-string은 바깥쪽 큰따옴표(`"`)로 감싸입니다. `{...}` 표현식 �
 
 | 라이브러리 | 제공 함수 |
 |---|---|
-| `DLC:math` | `sqrt`, `abs`, `pow`, `round`, `floor`, `ceil`, `min`, `max` |
-| `DLC:string` | `upper`, `lower`, `trim`, `length`, `contains`, `starts_with`, `ends_with` |
+| `DLC:math` | `sqrt`, `abs`, `pow`, `round`, `floor`, `ceil`, `trunc`, `sign`, `min`, `max`, `clamp`, `mod`, `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pi`, `e` |
+| `DLC:string` | `upper`, `lower`, `trim`, `trim_start`, `trim_end`, `length`, `contains`, `index_of`, `starts_with`, `ends_with`, `repeat_str`, `pad_left`, `pad_right`, `char_code`, `from_char_code` |
 | `DLC:time` | `now`, `timestamp` |
-| `DLC:random` | `random`, `random_int` |
-| `DLC:list` | `sort`, `reverse`, `join`, `unique` — 전부 원본을 바꾸지 않고 새 값을 반환 |
+| `DLC:random` | `random`, `random_int`, `random_seed`, `choice`, `shuffle` |
+| `DLC:list` | `sort`, `reverse`, `join`, `unique`, `sum`, `average`, `flatten`, `range`, `length`, `contains`, `index_of` — 전부 원본을 바꾸지 않고 새 값을 반환 |
+| `DLC:map` | `keys`, `values`, `has_key`, `entries`, `merge`, `length`, `contains` — 22~24번 항목 참고 |
 | `DLC:convert` | `to_number`, `to_str`, `to_boolean` — 명시적 타입 변환 |
 | `DLC:json` | `to_json`, `from_json` — 아래 19번 항목 참고 |
 | `DLC:network` | `fetch`, `get`, `post` — **불러오기는 항상 성공**하지만, 실제로 호출하면 이 실행 환경에 네트워크 샌드박싱이 없다는 명확한 `ModuleError`를 던집니다. |
@@ -339,3 +340,87 @@ running a stack VM, which is a rewrite of the execution core rather than a refac
 That is a reasonable next step if a real workload demands it; it is not worth the risk on
 speculation, and the current engine is in the same performance range as CPython on
 call-heavy code.
+
+## 22. Recursion safety and resource limits
+
+Every native-stack recursion in the engine is now bounded, so no script can crash the
+process; hostile or accidental input ends in an ordinary error code instead. All numeric
+limits live in one file, `engine/common/Limits.h`.
+
+**Parser.** `ParseDepthScope` (in `ParserCore.h`) counts native recursion across all parsers,
+including the nested parser used for f-string expressions, and fails with `E2008` beyond
+256 levels of nested parentheses, lists, maps, unary chains or blocks. Chains that the parser
+builds iteratively (`1+1+1+...`, `a[1][1]...`) are bounded by `Expr::height`, computed when
+each node is constructed (`E2008` beyond 10,000). Source larger than 16 MiB is rejected
+(`E2009`).
+
+**Evaluator.** A depth counter alone cannot bound stack use: a function body with many
+nested blocks uses far more stack per call than a flat one. So `evalExpr` and `execStatement`
+compare the real stack pointer with a budget derived from the actual stack size (on Linux,
+`pthread_getattr_np`; elsewhere a fixed default, `Interpreter::Config::stackBudgetBytes` to
+override). Exceeding it raises the catchable `E4017`, the same code as the call-depth limit
+(1,000 calls, unchanged). Regex matching checks a hard floor below that budget, so it fails
+with `E3103` rather than overflowing when the interpreter is already deep.
+
+**Values.** Nested lists/maps are destroyed iteratively (`dismantleValues`), and `is` compares
+iteratively, so depth never matters; circular structures of the same shape compare equal.
+Printing marks cycles (`[...]`, `{...}`) and stops at depth 1,000. `to_json`/`from_json` stop at
+depth 200.
+
+**Sizes.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4026`), enforced where
+they can grow: `+`, f-strings, `join`, `repeat_str`, padding, `range`, `flatten`, `merge`,
+regex `replace`/`find`/`split` results and the async task queue. Running out of memory anyway
+is reported as `E6003` instead of terminating the process.
+
+**Execution budget (opt-in).** `--max-steps N` and `--timeout MS` (or `CuffEngine::Options`)
+bound loop iterations plus function calls, and wall-clock time. Both are off by default. They
+raise `E6001`/`E6002`, which live in the 6000 range and are deliberately **not** catchable by
+`or_else`, so a script cannot swallow its own kill switch.
+
+**Regex.** Group nesting is capped at 64 and quantifier counts at 100,000; a pattern over
+64 KiB is rejected. Each find/replace/split/count also has an overall time allowance
+(5 s plus 2 s per MiB of input) on top of the existing per-attempt limits, and the compile
+cache is bounded (512 entries).
+
+Tuning: the numbers were chosen so that ordinary programs never notice them (10M-element
+lists, 1,500-term expressions, 2M regex matches and 990-deep recursion with rich bodies all
+still work). Raise them in `Limits.h` if a workload needs more.
+
+## 23. Module sandbox
+
+`use name from path` may only load files inside a root directory: the running script's
+directory by default, or `--root <dir>` / `CuffEngine::Options::rootDir`. Absolute paths and
+paths that resolve outside the root (`..`, or a symlink pointing out, checked on the
+canonicalized path) fail with `E5006`. A module must be a regular file no larger than the source
+limit, and imports may nest 64 levels (`E5007`). Errors show the path as written in the script
+rather than the host's absolute path. A failed import no longer marks the module as loaded,
+and its AST is kept alive even if its body fails, so functions it registered can never dangle.
+
+## 24. Built-in functions and performance
+
+**Added.** `type_of` (always available); `DLC:math` `mod` (floored), `clamp`, `sign`, `trunc`,
+`log`, `log2`, `log10`, `exp`, trig functions, `pi`, `e`, `round(x, digits)`; `DLC:string`
+`trim_start`, `trim_end`, `index_of`, `repeat_str`, `pad_left`, `pad_right`, `char_code`,
+`from_char_code`; `DLC:list` `sum`, `average`, `flatten`, `range`; `DLC:random` `random_seed`,
+`choice`, `shuffle`; and a new `DLC:map` with `keys`, `values`, `has_key`, `entries`, `merge`.
+`length`, `contains` and `index_of` work on strings, lists and maps and are available from
+whichever of `DLC:string`/`DLC:list`/`DLC:map` is imported. `min`/`max` also accept a list.
+
+**Hardened.** `sort`, `min`, `max` and `clamp` reject NaN instead of misordering (sorting NaN
+was undefined behavior). `pow`, `log`, `asin`, `acos`, `mod` reject domain errors and results that
+are not finite. `to_number` accepts only plain decimal text (no `nan`, `inf`, hex floats or
+trailing garbage). Whole-number arguments are range-checked to +/-2^53 (`random_int` used a
+32-bit `long` under WebAssembly). `unique` is O(n) for numbers and strings. `upper`/`lower`
+map Latin, Greek and Cyrillic letters, not just ASCII. Number formatting no longer builds an
+`ostringstream` per value.
+
+**Performance.** Strings are immutable and shared (`StrData`): reading a variable or passing a
+string never copies its text, literals are built once at parse time, and ASCII-ness, codepoint
+count and a codepoint cursor are cached, so indexing and `length` are O(1) for ASCII text and
+amortized O(1) for sequential access on other text (a 1 MB string read 20,000 times went from
+19.7 s to 6 ms; a 20,000-character index loop from 0.55 s to 12 ms). Environments keep their
+name index up to date incrementally (20,000 globals: 3.8 s to 0.05 s). Native and user
+functions are looked up by interned id; cold error paths are out of line, which shrinks the
+hot recursion frames and the stack used per call by about a quarter. Tokens are moved rather
+than copied between pipeline stages.
+

@@ -22,6 +22,9 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
   `registerDLC()`의 분기에 추가하세요 (기존 라이브러리 이름과 충돌하지 않는지 확인).
 - `expectArgCount`/`expectArgRange`/`expectNumber`/`expectStr`는 인자 검증과 함께
   일관된 `ArgumentError`/`TypeError` 메시지를 만들어 줍니다 — 새 함수도 이걸 재사용하세요.
+  정수 인자는 `expectWhole`(±2^53 범위 검사 포함)을 쓰세요.
+- 문자열이나 리스트를 크게 만들 수 있는 함수는 결과를 만들기 전에 `ensureStringSize`/
+  `ensureItemCount`로 크기를 확인하세요 (한도는 `engine/common/Limits.h`).
 
 ## 2. 새로운 값 타입 추가하기
 
@@ -29,7 +32,7 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 
 1. `ValueType`에 새 항목을 추가하고 `valueTypeName()`에 이름을 추가합니다.
 2. `Value::Storage` variant에 저장 타입을 추가하고, `make*`/`as*`/`is*` 헬퍼를 추가합니다.
-3. `truthy()`, `toDisplayString()`, `strictEquals()`의 switch에 새 case를 추가합니다
+3. `truthy()`, `appendDisplay()`, `strictEquals()`(`equalsImpl`/`scalarEquals`)의 switch에 새 case를 추가합니다
    (컴파일러가 `-Wswitch`로 누락된 case를 잡아 줍니다).
 
 ## 3. 새로운 문(statement) 또는 표현식(expression) 추가하기
@@ -53,7 +56,7 @@ implementations" 섹션에 (양쪽 클래스가 모두 완전한 타입이 된 �
 
 1. `engine/common/ErrorCodes.h`의 `ErrorCode`에 알맞은 숫자대(1000=lexical,
    2000=syntax, 3000/3100=regex syntax/runtime, 4000=runtime, 5000=module,
-   9000=internal) 안에서 새 값을 추가합니다.
+   6000=resource limit(`or_else`로 잡히지 않음), 9000=internal) 안에서 새 값을 추가합니다.
 2. 필요하면 `engine/common/CuffError.h`에 작은 서브클래스를 추가합니다 (기존 클래스
    중 하나로 충분하면 이 단계는 생략 가능 — 예: `CuffRuntimeError(ErrorCode::내코드, ...)`
    를 직접 던져도 됩니다).

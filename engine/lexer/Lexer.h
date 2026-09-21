@@ -37,7 +37,7 @@ namespace cuff
                 }
             }
 
-            return tokens_;
+            return std::move(tokens_);
         }
 
     private:

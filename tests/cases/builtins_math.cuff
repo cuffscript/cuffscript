@@ -1,0 +1,37 @@
+use DLC:math
+
+note: floored modulo takes the sign of the divisor
+print(mod(7, 3))
+print(mod(-7, 3))
+print(mod(7, -3))
+print(mod(5.5, 2))
+
+print(clamp(15, 0, 10))
+print(clamp(-5, 0, 10))
+print(clamp(5, 0, 10))
+
+print(sign(-8))
+print(sign(0))
+print(sign(3.5))
+
+print(trunc(-2.7))
+print(trunc(2.7))
+print(round(3.14159, 2))
+print(round(2.5))
+print(round(-2.5))
+
+print(log2(8))
+print(log10(1000))
+print(log(8, 2))
+print(exp(0))
+print(round(atan2(1, 1) * 4, 10))
+print(round(sin(pi() / 2), 10))
+print(round(cos(0), 10))
+
+note: min/max take separate numbers or one list
+print(min(3, 1, 2))
+print(max([4, 9, 2]))
+print(min([5]))
+
+print(pow(2, 10))
+print(pow(2, -1))

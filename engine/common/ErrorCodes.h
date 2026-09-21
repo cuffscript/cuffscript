@@ -17,6 +17,7 @@ namespace cuff
     //   3000-3999  Regex      (CuffScript pattern compiler / matcher)
     //   4000-4999  Runtime    (interpreter — recoverable via or_else)
     //   5000-5999  Module     (use/from — recoverable via or_else)
+    //   6000-6999  Resource   (execution budget / memory — terminal, never caught by or_else)
     //   9000-9999  Internal   (engine bugs — should never surface to users)
     //
     // Adding a new error kind is a two-step, additive process:
@@ -45,6 +46,8 @@ namespace cuff
         MalformedImport = 2005,
         UnbalancedBlock = 2006,
         InvalidAssignmentTarget = 2007,
+        NestingTooDeep = 2008,
+        SourceTooLarge = 2009,
 
         // ---- Regex (3000s: syntax subset compiled at parse time) ----
         RegexUnclosedGroup = 3001,
@@ -57,6 +60,7 @@ namespace cuff
         RegexInvalidEscape = 3008,
         RegexDanglingQuantifier = 3009,
         RegexUnexpectedCharacter = 3010,
+        RegexPatternTooComplex = 3011,
         // ---- Regex runtime (3100s: safety limits during matching) ----
         RegexStepLimitExceeded = 3101,
         RegexTimeout = 3102,
@@ -88,6 +92,7 @@ namespace cuff
         StopOutsideLoop = 4023,
         FractionalIndex = 4024,
         InvalidArgumentValue = 4025,
+        SizeLimitExceeded = 4026,
 
         // ---- Module (5000s) ----
         ModuleNotFound = 5001,
@@ -95,6 +100,13 @@ namespace cuff
         CircularImport = 5003,
         UnknownDLC = 5004,
         DLCFeatureUnavailable = 5005,
+        ModuleAccessDenied = 5006,
+        ModuleLimitExceeded = 5007,
+
+        // ---- Resource limits (6000s) ----
+        ExecutionStepLimit = 6001,
+        ExecutionTimeout = 6002,
+        OutOfMemory = 6003,
 
         // ---- Internal (9000s) ----
         InternalError = 9001,
@@ -117,6 +129,8 @@ namespace cuff
             return "Runtime Error";
         if (n >= 5000 && n < 6000)
             return "Module Error";
+        if (n >= 6000 && n < 7000)
+            return "Resource Limit Error";
         return "Internal Error";
     }
 

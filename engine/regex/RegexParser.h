@@ -2,6 +2,7 @@
 
 #include "RegexAst.h"
 #include "../common/CuffError.h"
+#include "../common/Limits.h"
 #include "../common/SourceLocation.h"
 #include "../common/Utf8.h"
 #include <string>
@@ -56,10 +57,26 @@ namespace cuff::regex
         cuff::SourceLocation loc_;
         size_t pos_;
         int nextGroupIndex_;
+        int nesting_ = 0;
+
+        // Groups are parsed recursively, so their nesting depth is capped to
+        // keep a hostile pattern from exhausting the native stack.
+        struct NestingScope
+        {
+            RegexParser &p;
+            explicit NestingScope(RegexParser &parser) : p(parser)
+            {
+                if (++p.nesting_ > limits::kMaxRegexNesting)
+                    p.fail(cuff::ErrorCode::RegexPatternTooComplex,
+                           "groups are nested too deeply (maximum is " + std::to_string(limits::kMaxRegexNesting) + ")");
+            }
+            ~NestingScope() { --p.nesting_; }
+        };
 
         [[noreturn]] void fail(cuff::ErrorCode code, const std::string &msg, const std::string &hint = "")
         {
-            throw cuff::RegexSyntaxError(code, "in pattern \"" + text_ + "\": " + msg, loc_, hint);
+            const std::string shown = text_.size() > 120 ? text_.substr(0, 120) + "..." : text_;
+            throw cuff::RegexSyntaxError(code, "in pattern \"" + shown + "\": " + msg, loc_, hint);
         }
 
         bool atEnd() const { return pos_ >= text_.size(); }
@@ -74,10 +91,15 @@ namespace cuff::regex
 
         int parseNumber()
         {
-            std::string digits;
+            long long value = 0;
             while (!atEnd() && isDigitChar(peek()))
-                digits += advance();
-            return std::stoi(digits);
+            {
+                value = value * 10 + (advance() - '0');
+                if (value > limits::kMaxRegexQuantifier)
+                    fail(cuff::ErrorCode::RegexInvalidQuantifierRange,
+                         "quantifier count is too large (maximum is " + std::to_string(limits::kMaxRegexQuantifier) + ")");
+            }
+            return static_cast<int>(value);
         }
 
         // Sequence of atoms, stopping at end-of-text or when the current
@@ -106,6 +128,7 @@ namespace cuff::regex
             if (c == '(')
             {
                 advance();
+                NestingScope nest(*this);
                 int idx = nextGroupIndex_++;
                 RNodePtr inner = parseSequence(")");
                 if (atEnd())
@@ -133,6 +156,7 @@ namespace cuff::regex
                          "no space is allowed before ':' in a named capture",
                          "write <" + trimTrailingSpace(name) + ":...> instead");
                 advance(); // consume ':'
+                NestingScope nest(*this);
                 RNodePtr inner = parseSequence(">");
                 if (atEnd())
                     fail(cuff::ErrorCode::RegexUnclosedGroup, "unclosed named capture '<" + name + ":...>' — missing '>'");

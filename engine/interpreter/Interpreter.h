@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Value.h"
+#include "../common/Attributes.h"
+#include "../common/Limits.h"
 #include "../common/Utf8.h"
 #include "Environment.h"
 #include "Signals.h"
@@ -25,6 +27,8 @@
 #include <cmath>
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdint>
 
 namespace cuff
 {
@@ -69,25 +73,59 @@ namespace cuff
     class Interpreter
     {
     public:
+        struct Config
+        {
+            std::string rootDir;    // modules must resolve inside this directory (default: the script's directory)
+            uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
+            uint32_t timeoutMs = 0; // wall-clock budget for the whole run; 0 = unlimited
+            size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
+        };
+
         Interpreter() { registerBuiltins(natives_); }
+        explicit Interpreter(Config config) : config_(std::move(config)) { registerBuiltins(natives_); }
 
         // Entry point for the top-level script. `scriptDir` is used to
         // resolve relative `use ... from ...` paths; the caller must keep
-        // `program` alive for the interpreter's whole lifetime (userFunctions_
+        // `program` alive for the interpreter's whole lifetime (userById_
         // stores raw pointers into it).
         void run(const Program &program, const std::string &scriptDir)
         {
             scriptDir_ = scriptDir.empty() ? std::string(".") : scriptDir;
+            initModuleRoot();
+            const uintptr_t sp = stackPointer();
+            size_t softBudget = config_.stackBudgetBytes ? config_.stackBudgetBytes : limits::kDefaultStackBudget;
+            size_t hardBudget = softBudget + 3 * 1024 * 1024;
+            if (size_t avail = availableStackBytes(); avail && !config_.stackBudgetBytes)
+            {
+                // Real stack size is known: interpreter recursion may use nearly
+                // all of it, keeping a reserve below for native helpers (regex
+                // matching also checks the hard floor and fails cleanly).
+                constexpr size_t kMargin = 256 * 1024;
+                constexpr size_t kLeafReserve = 768 * 1024;
+                hardBudget = avail > kMargin ? avail - kMargin : avail / 2;
+                softBudget = hardBudget - std::min(kLeafReserve, hardBudget / 3);
+                softBudget = std::min(softBudget, limits::kMaxStackBudget);
+            }
+            stackLimit_ = sp > softBudget ? sp - softBudget : 0;
+            StackFloorScope floorScope(sp > hardBudget ? sp - hardBudget : 0);
+            stepsLeft_ = config_.maxSteps ? config_.maxSteps : UINT64_MAX;
+            timed_ = config_.timeoutMs != 0;
+            if (timed_)
+                deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.timeoutMs);
             execProgram(program, globalEnv_);
         }
 
     private:
+        Config config_;
         Environment globalEnv_;
         std::unordered_map<std::string, NativeFn> natives_;
-        std::unordered_map<uint32_t, const FunctionDecl *> userFunctions_;
+        std::vector<const FunctionDecl *> userById_;  // indexed by interned function name id
+        std::vector<const NativeFn *> nativeById_;    // lazily filled cache into natives_ (node-stable)
         std::vector<std::unique_ptr<Program>> loadedModules_; // keeps imported-module ASTs alive
         std::unordered_set<std::string> importedPaths_;
         std::string scriptDir_ = ".";
+        std::filesystem::path moduleRoot_;
+        int moduleDepth_ = 0;
         regex::RegexEngine regexEngine_;
 
         // An async function called without `await` doesn't run immediately —
@@ -105,7 +143,23 @@ namespace cuff
         int callDepth_ = 0;
         bool inFunctionBody_ = false;
         bool currentFunctionReturnable_ = false;
-        static constexpr int kMaxCallDepth = 1000;
+        static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
+
+        // Native-stack safety net. The call-depth counter above bounds
+        // recursion in the common case, but a function body with deeply nested
+        // blocks/expressions uses far more stack per call, so every evaluation
+        // step also compares the real stack pointer against a fixed budget.
+        uintptr_t stackLimit_ = 0;
+        uint64_t stepsLeft_ = UINT64_MAX;
+        uint32_t tickCount_ = 0;
+        bool timed_ = false;
+        std::chrono::steady_clock::time_point deadline_;
+
+        struct StackFloorScope
+        {
+            explicit StackFloorScope(uintptr_t floor) { stackFloor() = floor; }
+            ~StackFloorScope() { stackFloor() = 0; }
+        };
 
         // RAII guard for entering/leaving a user function call — keeps the
         // call-depth counter and the two "current frame" flags correct even
@@ -130,6 +184,64 @@ namespace cuff
                 --interp->callDepth_;
             }
         };
+
+        // ==== Resource guards ===================================================
+
+        template <typename Node>
+        CUFF_ALWAYS_INLINE void guardStack(const Node &node)
+        {
+            if (stackPointer() < stackLimit_)
+                stackExhausted(node);
+        }
+
+        [[noreturn]] CUFF_COLD void stackExhausted(const Expr &e) const
+        {
+            throwStackExhausted(std::visit([](const auto &n) { return n.loc; }, e.data));
+        }
+        [[noreturn]] CUFF_COLD void stackExhausted(const Stmt &s) const
+        {
+            throwStackExhausted(std::visit([](const auto &n) { return n.loc; }, s.data));
+        }
+        [[noreturn]] CUFF_COLD static void throwStackExhausted(const SourceLocation &loc)
+        {
+            throw StackOverflowError("native stack budget exhausted — calls and blocks are nested too deeply", loc);
+        }
+
+        // Charged once per loop iteration and per user-function call, which is
+        // enough to bound any non-terminating program: expression trees are
+        // finite and regex work has its own limits.
+        CUFF_ALWAYS_INLINE void tick(const SourceLocation &loc)
+        {
+            if (--stepsLeft_ == 0)
+                budgetExceeded(ErrorCode::ExecutionStepLimit,
+                               "execution step limit (" + std::to_string(config_.maxSteps) + ") exceeded", loc);
+            if (timed_ && (++tickCount_ & 0x3FF) == 0 && std::chrono::steady_clock::now() > deadline_)
+                budgetExceeded(ErrorCode::ExecutionTimeout,
+                               "execution time limit (" + std::to_string(config_.timeoutMs) + " ms) exceeded", loc);
+        }
+
+        [[noreturn]] CUFF_COLD static void budgetExceeded(ErrorCode code, const std::string &msg, const SourceLocation &loc)
+        {
+            throw CuffRuntimeError(code, msg, loc);
+        }
+
+        [[noreturn]] CUFF_COLD static void throwSizeLimit(const char *what, const SourceLocation &loc)
+        {
+            throw CuffRuntimeError(ErrorCode::SizeLimitExceeded,
+                                   std::string(what) + " exceeds the maximum allowed size", loc);
+        }
+
+        static void checkStringSize(size_t n, const SourceLocation &loc)
+        {
+            if (n > limits::kMaxStringBytes)
+                throwSizeLimit("string", loc);
+        }
+
+        static void checkCollectionSize(size_t n, const SourceLocation &loc)
+        {
+            if (n > limits::kMaxCollectionItems)
+                throwSizeLimit("collection", loc);
+        }
 
         // ==== Program / statement execution ====================================
 
@@ -193,11 +305,47 @@ namespace cuff
 
         void registerFunction(const FunctionDecl &decl)
         {
-            userFunctions_[decl.nameId] = &decl;
+            if (decl.nameId >= userById_.size())
+                userById_.resize(decl.nameId + 1, nullptr);
+            userById_[decl.nameId] = &decl;
+        }
+
+        const FunctionDecl *findUser(uint32_t id) const
+        {
+            return id < userById_.size() ? userById_[id] : nullptr;
+        }
+
+        const NativeFn *findNative(const FunctionCall &fc)
+        {
+            const uint32_t id = fc.functionNameId;
+            if (id < nativeById_.size() && nativeById_[id])
+                return nativeById_[id];
+            auto it = natives_.find(fc.functionName);
+            if (it == natives_.end())
+                return nullptr;
+            if (id >= nativeById_.size())
+                nativeById_.resize(id + 1, nullptr);
+            nativeById_[id] = &it->second;
+            return &it->second;
+        }
+
+        [[noreturn]] CUFF_COLD static void throwNestedFunction(const FunctionDecl &decl)
+        {
+            throw CuffRuntimeError(ErrorCode::NestedFunctionNotSupported,
+                                   "nested function definitions are not supported ('" + decl.name + "' is defined inside another function)",
+                                   decl.loc, "move '" + decl.name + "' to the top level");
+        }
+
+        [[noreturn]] CUFF_COLD static void throwReturnInVoidFunction(const SourceLocation &loc)
+        {
+            throw CuffRuntimeError(ErrorCode::UnsupportedOperation,
+                                   "cannot return a value from a non-returnable function",
+                                   loc, "declare it with 'set returnable function' to allow returning a value");
         }
 
         ExecOutcome execStatement(const Stmt &stmt, Environment &env)
         {
+            guardStack(stmt);
             switch (stmt.kind)
             {
             case StmtKind::Declaration:
@@ -210,11 +358,7 @@ namespace cuff
             {
                 const auto &decl = std::get<FunctionDecl>(stmt.data);
                 if (inFunctionBody_)
-                {
-                    throw CuffRuntimeError(ErrorCode::NestedFunctionNotSupported,
-                                           "nested function definitions are not supported ('" + decl.name + "' is defined inside another function)",
-                                           decl.loc, "move '" + decl.name + "' to the top level");
-                }
+                    throwNestedFunction(decl);
                 registerFunction(decl); // reached for functions nested in top-level if/loop bodies
                 return ExecOutcome::normal();
             }
@@ -229,16 +373,15 @@ namespace cuff
                 const auto &r = std::get<ReturnStmt>(stmt.data);
                 Value v = r.value ? evalExpr(*r.value, env) : Value::makeEmpty();
                 if (r.value && !currentFunctionReturnable_)
-                {
-                    throw CuffRuntimeError(ErrorCode::UnsupportedOperation,
-                                           "cannot return a value from a non-returnable function",
-                                           r.loc, "declare it with 'set returnable function' to allow returning a value");
-                }
+                    throwReturnInVoidFunction(r.loc);
                 return ExecOutcome::makeReturn(std::move(v), r.loc);
             }
             case StmtKind::AwaitStmt:
-                execAwaitStmt(std::get<AwaitStmt>(stmt.data), env);
+            {
+                const auto &aw = std::get<AwaitStmt>(stmt.data);
+                invokeAwaited(*aw.expr->call, env, aw.loc); // result intentionally discarded
                 return ExecOutcome::normal();
+            }
             case StmtKind::UseStmt:
                 execUse(std::get<UseStmt>(stmt.data), env);
                 return ExecOutcome::normal();
@@ -269,36 +412,49 @@ namespace cuff
             return hasUpper;
         }
 
+        [[noreturn]] CUFF_COLD static void throwDeclarationMismatch(const std::string &varType, const Value &v,
+                                                                       const std::string &name, const SourceLocation &loc)
+        {
+            throw CuffRuntimeError(ErrorCode::DeclarationTypeMismatch,
+                                   "cannot assign a " + valueTypeName(v.type()) + " value to " + varType + " variable '" + name + "'",
+                                   loc, "the declared type (" + varType + ") and the assigned value's type must match at 'set'");
+        }
+
         static void checkDeclaredType(const std::string &varType, const Value &v, const std::string &name, const SourceLocation &loc)
         {
             // `empty` is a universal "no value" sentinel — any declared type
             // may hold it (this is what lets `find`/`match`/map lookups that
             // come up empty be stored directly in a typed variable, to then
             // be handled with `or_else` or an `is empty` check).
-            if (v.isEmpty())
+            if (v.isEmpty() || varType.empty())
                 return;
 
-            bool ok = true;
-            if (varType == "number")
-                ok = v.isNumber();
-            else if (varType == "str")
-                ok = v.isStr();
-            else if (varType == "list")
-                ok = v.isList();
-            else if (varType == "map")
-                ok = v.isMap();
-            else if (varType == "boolean")
-                ok = v.isBool();
-            else if (varType == "empty")
-                ok = false; // already handled above; a non-empty value can never satisfy `empty`
-            else if (varType == "match")
-                ok = v.isMatch();
-            if (!ok)
+            bool ok;
+            switch (varType[0])
             {
-                throw CuffRuntimeError(ErrorCode::DeclarationTypeMismatch,
-                                       "cannot assign a " + valueTypeName(v.type()) + " value to " + varType + " variable '" + name + "'",
-                                       loc, "the declared type (" + varType + ") and the assigned value's type must match at 'set'");
+            case 'n':
+                ok = v.isNumber();
+                break;
+            case 's':
+                ok = v.isStr();
+                break;
+            case 'l':
+                ok = v.isList();
+                break;
+            case 'b':
+                ok = v.isBool();
+                break;
+            case 'm':
+                ok = varType.size() == 3 ? v.isMap() : v.isMatch(); // "map" / "match"
+                break;
+            case 'e':
+                ok = false; // a non-empty value can never satisfy `empty`
+                break;
+            default:
+                ok = true;
             }
+            if (!ok)
+                throwDeclarationMismatch(varType, v, name, loc);
         }
 
         static std::string upperAscii(const std::string &s)
@@ -402,6 +558,7 @@ namespace cuff
                 {
                     for (long long i = start; i <= end; ++i)
                     {
+                        tick(loop.loc);
                         assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
                         ExecOutcome outcome = execBlock(loop.body, env);
                         if (outcome.result == ExecResult::Stop)
@@ -414,6 +571,7 @@ namespace cuff
                 {
                     for (long long i = start; i >= end; --i)
                     {
+                        tick(loop.loc);
                         assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
                         ExecOutcome outcome = execBlock(loop.body, env);
                         if (outcome.result == ExecResult::Stop)
@@ -430,6 +588,7 @@ namespace cuff
                 // implementation).
                 while (evalExpr(*loop.condition, env).truthy())
                 {
+                    tick(loop.loc);
                     ExecOutcome outcome = execBlock(loop.body, env);
                     if (outcome.result == ExecResult::Stop)
                         return ExecOutcome::normal();
@@ -486,6 +645,7 @@ namespace cuff
                 if (!target.isList())
                     throw TypeError("'add ... to' requires a list, got " + valueTypeName(target.type()), co.loc);
                 Value v = evalExpr(*co.addValue, env);
+                checkCollectionSize(target.asList()->items.size() + 1, co.loc);
                 target.asList()->items.push_back(std::move(v));
                 break;
             }
@@ -493,7 +653,7 @@ namespace cuff
             {
                 Value idxKey = evalExpr(*co.indexOrKey, env);
                 Value newVal = evalExpr(*co.newValue, env);
-                std::vector<Value> idxVals{idxKey};
+                std::vector<Value> idxVals{std::move(idxKey)};
                 ContainerSlot slot = resolveContainerSlot(target, idxVals, co.loc);
                 slot.write(std::move(newVal));
                 break;
@@ -512,7 +672,7 @@ namespace cuff
                     else
                     {
                         auto it = std::find_if(items.begin(), items.end(), [&](const Value &v)
-                                                { return v.strictEquals(rv); });
+                                                { return valuesEqual(v, rv, co.loc); });
                         if (it == items.end())
                             throw ElementNotFoundError("value not found in list — nothing to remove", co.loc);
                         items.erase(it);
@@ -546,29 +706,36 @@ namespace cuff
             size_t index = 0;
             ValueMap *map = nullptr;
             std::string key;
+            SourceLocation loc;
 
             void write(Value v)
             {
                 if (kind == Kind::ListIndex)
+                {
                     list->items[index] = std::move(v);
-                else
-                    map->set(key, std::move(v));
+                    return;
+                }
+                if (map->size() >= limits::kMaxCollectionItems && !map->has(key))
+                    throwSizeLimit("collection", loc);
+                map->set(key, std::move(v));
             }
 
-            static ContainerSlot forList(ValueList *l, size_t i)
+            static ContainerSlot forList(ValueList *l, size_t i, const SourceLocation &at)
             {
                 ContainerSlot s;
                 s.kind = Kind::ListIndex;
                 s.list = l;
                 s.index = i;
+                s.loc = at;
                 return s;
             }
-            static ContainerSlot forMap(ValueMap *m, std::string k)
+            static ContainerSlot forMap(ValueMap *m, std::string k, const SourceLocation &at)
             {
                 ContainerSlot s;
                 s.kind = Kind::MapKey;
                 s.map = m;
                 s.key = std::move(k);
+                s.loc = at;
                 return s;
             }
         };
@@ -579,12 +746,19 @@ namespace cuff
         // the calculation is wrong, not that element 2 or 3 was intended.
         static long long expectWholeNumber(double d, const char *what, const SourceLocation &loc)
         {
-            if (d != std::floor(d) || std::isnan(d) || std::isinf(d))
+            constexpr double kExactLimit = 9007199254740992.0; // 2^53: every whole number up to here is exactly representable
+            if (!std::isfinite(d) || d != std::floor(d))
             {
                 throw CuffRuntimeError(ErrorCode::FractionalIndex,
                                        std::string(what) + " must be a whole number, got " + formatCuffNumber(d),
                                        loc,
                                        "round it explicitly first (DLC:math's round/floor/ceil)");
+            }
+            if (std::fabs(d) > kExactLimit)
+            {
+                throw CuffRuntimeError(ErrorCode::InvalidArgumentValue,
+                                       std::string(what) + " is outside the supported range (+/-9007199254740992), got " + formatCuffNumber(d),
+                                       loc);
             }
             return static_cast<long long>(d);
         }
@@ -617,11 +791,13 @@ namespace cuff
             {
                 if (!indexVal.isNumber())
                     throw TypeError("str index must be a number (1-based)", loc);
-                const std::string &s = target.asStr();
-                auto bounds = utf8::boundaries(s);
-                size_t n = bounds.size() - 1;
-                size_t cp = resolveIndex1Based(expectWholeNumber(indexVal.asNumber(), "str index", loc), n, loc);
-                return Value::makeStr(s.substr(bounds[cp], bounds[cp + 1] - bounds[cp]));
+                const StrData &sd = target.asStrData();
+                size_t cp = resolveIndex1Based(expectWholeNumber(indexVal.asNumber(), "str index", loc), sd.codepoints(), loc);
+                if (sd.ascii())
+                    return Value::makeChar(static_cast<unsigned char>(sd.text()[cp]));
+                size_t from = sd.offsetOf(cp);
+                size_t to = sd.offsetOf(cp + 1);
+                return Value::makeStr(sd.text().substr(from, to - from));
             }
             if (target.isMap())
             {
@@ -666,20 +842,23 @@ namespace cuff
                 size_t re = resolveIndex1Based(e, n, loc);
                 auto result = std::make_shared<ValueList>();
                 if (rs <= re)
-                    for (size_t i = rs; i <= re; ++i)
-                        result->items.push_back(target.asList()->items[i]);
+                {
+                    const auto &src = target.asList()->items;
+                    result->items.assign(src.begin() + static_cast<long>(rs), src.begin() + static_cast<long>(re) + 1);
+                }
                 return Value::makeList(result);
             }
             if (target.isStr())
             {
-                const std::string &str = target.asStr();
-                auto bounds = utf8::boundaries(str);
-                size_t n = bounds.size() - 1;
+                const StrData &sd = target.asStrData();
+                size_t n = sd.codepoints();
                 size_t rs = resolveIndex1Based(s, n, loc);
                 size_t re = resolveIndex1Based(e, n, loc);
                 if (rs > re)
-                    return Value::makeStr("");
-                return Value::makeStr(str.substr(bounds[rs], bounds[re + 1] - bounds[rs]));
+                    return Value::makeStr(std::string());
+                size_t from = sd.offsetOf(rs);
+                size_t to = sd.offsetOf(re + 1);
+                return Value::makeStr(sd.text().substr(from, to - from));
             }
             throw TypeError("cannot slice a " + valueTypeName(target.type()) + " value", loc);
         }
@@ -696,27 +875,44 @@ namespace cuff
                 if (!finalIdx.isNumber())
                     throw TypeError("list index must be a number (1-based)", loc);
                 size_t real = resolveIndex1Based(expectWholeNumber(finalIdx.asNumber(), "list index", loc), current.asList()->items.size(), loc);
-                return ContainerSlot::forList(current.asList().get(), real);
+                return ContainerSlot::forList(current.asList().get(), real, loc);
             }
             if (current.isMap())
             {
                 if (!finalIdx.isStr())
                     throw TypeError("map keys are strings — cannot assign with a " + valueTypeName(finalIdx.type()), loc);
-                return ContainerSlot::forMap(current.asMap().get(), finalIdx.asStr());
+                return ContainerSlot::forMap(current.asMap().get(), finalIdx.asStr(), loc);
             }
             throw TypeError("cannot index-assign into a " + valueTypeName(current.type()) + " value", loc);
         }
 
         // ==== Expression evaluation =============================================
 
+        [[noreturn]] CUFF_COLD static void throwUndefinedVariable(const std::string &name, const SourceLocation &loc)
+        {
+            throw UndefinedVariableError("undefined variable '" + name + "'", loc);
+        }
+
+        [[noreturn]] CUFF_COLD static void throwUndefinedFunction(const std::string &name, const SourceLocation &loc)
+        {
+            throw UndefinedFunctionError("undefined function '" + name + "'", loc,
+                                         "check the spelling, or make sure it's declared before this point");
+        }
+
+        [[noreturn]] CUFF_COLD static void throwDivisionByZero(const SourceLocation &loc)
+        {
+            throw DivisionByZeroError("division by zero", loc);
+        }
+
         Value evalExpr(const Expr &expr, Environment &env)
         {
+            guardStack(expr);
             switch (expr.kind)
             {
             case ExprKind::Number:
                 return Value::makeNumber(std::get<NumberLiteral>(expr.data).value);
             case ExprKind::String:
-                return Value::makeStr(std::get<StringLiteral>(expr.data).value);
+                return Value::makeStr(std::get<StringLiteral>(expr.data).shared);
             case ExprKind::Bool:
                 return Value::makeBool(std::get<BoolLiteral>(expr.data).value);
             case ExprKind::Empty:
@@ -726,106 +922,29 @@ namespace cuff
                 const auto &id = std::get<IdentifierExpr>(expr.data);
                 auto look = env.resolve(id.nameId);
                 if (!look.value)
-                    throw UndefinedVariableError("undefined variable '" + id.name + "'", id.loc);
+                    throwUndefinedVariable(id.name, id.loc);
                 return *look.value;
             }
             case ExprKind::List:
-            {
-                const auto &list = std::get<ListLiteral>(expr.data);
-                auto out = std::make_shared<ValueList>();
-                out->items.reserve(list.elements.size());
-                for (auto &e : list.elements)
-                    out->items.push_back(evalExpr(*e, env));
-                return Value::makeList(out);
-            }
+                return evalList(std::get<ListLiteral>(expr.data), env);
             case ExprKind::Map:
-            {
-                const auto &map = std::get<MapLiteral>(expr.data);
-                auto out = std::make_shared<ValueMap>();
-                for (auto &pair : map.pairs)
-                {
-                    Value k = evalExpr(*pair.key, env);
-                    if (!k.isStr())
-                        throw TypeError("map keys must be strings", map.loc);
-                    Value v = evalExpr(*pair.value, env);
-                    out->set(k.asStr(), std::move(v));
-                }
-                return Value::makeMap(out);
-            }
+                return evalMap(std::get<MapLiteral>(expr.data), env);
             case ExprKind::FString:
-            {
-                const auto &fs = std::get<FStringExpr>(expr.data);
-                std::string out;
-                for (auto &seg : fs.segments)
-                {
-                    if (seg.isExpression)
-                        out += evalExpr(*seg.expr, env).toDisplayString();
-                    else
-                        out += seg.text;
-                }
-                return Value::makeStr(out);
-            }
+                return evalFString(std::get<FStringExpr>(expr.data), env);
             case ExprKind::BinaryOp:
                 return evalBinaryOp(std::get<BinaryOp>(expr.data), env);
             case ExprKind::UnaryOp:
                 return evalUnaryOp(std::get<UnaryOp>(expr.data), env);
             case ExprKind::IndexAccess:
-            {
-                const auto &idx = std::get<IndexAccess>(expr.data);
-                Value t = evalExpr(*idx.target, env);
-                Value i = evalExpr(*idx.index, env);
-                return indexInto(t, i, idx.loc);
-            }
+                return evalIndexAccess(std::get<IndexAccess>(expr.data), env);
             case ExprKind::SliceAccess:
-            {
-                const auto &sl = std::get<SliceAccess>(expr.data);
-                Value t = evalExpr(*sl.target, env);
-                Value s = evalExpr(*sl.start, env);
-                Value e = evalExpr(*sl.end, env);
-                return sliceInto(t, s, e, sl.loc);
-            }
+                return evalSliceAccess(std::get<SliceAccess>(expr.data), env);
             case ExprKind::FunctionCall:
-            {
-                const auto &fc = std::get<FunctionCall>(expr.data);
-                std::vector<Value> args;
-                args.reserve(fc.args.size());
-                for (auto &a : fc.args)
-                    args.push_back(evalExpr(*a, env));
-
-                // Check user-defined functions first (one hash lookup) since
-                // that's the hot path for any recursive/heavily-called
-                // script function; natives are checked only if it's not a
-                // user function. This also handles the async-deferral check
-                // without a second, separate lookup for the same name.
-                auto userIt = userFunctions_.find(fc.functionNameId);
-                if (userIt != userFunctions_.end())
-                {
-                    if (userIt->second->isAsync)
-                    {
-                        // Called without await: doesn't run now — see the
-                        // class-level comment on taskQueue_ above.
-                        taskQueue_.push_back(QueuedTask{userIt->second, std::move(args)});
-                        return Value::makeEmpty();
-                    }
-                    return callUserFunction(*userIt->second, args, fc.loc);
-                }
-
-                auto nativeIt = natives_.find(fc.functionName);
-                if (nativeIt != natives_.end())
-                    return nativeIt->second(args, fc.loc);
-
-                throw UndefinedFunctionError("undefined function '" + fc.functionName + "'", fc.loc,
-                                             "check the spelling, or make sure it's declared before this point");
-            }
+                return evalCall(std::get<FunctionCall>(expr.data), env);
             case ExprKind::Await:
             {
                 const auto &aw = std::get<AwaitExpr>(expr.data);
-                checkAsyncTarget(aw.call->functionName, aw.loc);
-                std::vector<Value> args;
-                args.reserve(aw.call->args.size());
-                for (auto &a : aw.call->args)
-                    args.push_back(evalExpr(*a, env));
-                return callFunction(aw.call->functionName, args, aw.loc);
+                return invokeAwaited(*aw.call, env, aw.loc);
             }
             case ExprKind::RegexMatch:
                 return evalRegexMatch(std::get<RegexMatchExpr>(expr.data), env);
@@ -843,6 +962,60 @@ namespace cuff
             throw InternalEngineError("unhandled expression kind");
         }
 
+        CUFF_NOINLINE Value evalList(const ListLiteral &list, Environment &env)
+        {
+            checkCollectionSize(list.elements.size(), list.loc);
+            auto out = std::make_shared<ValueList>();
+            out->items.reserve(list.elements.size());
+            for (auto &e : list.elements)
+                out->items.push_back(evalExpr(*e, env));
+            return Value::makeList(std::move(out));
+        }
+
+        CUFF_NOINLINE Value evalMap(const MapLiteral &map, Environment &env)
+        {
+            auto out = std::make_shared<ValueMap>();
+            out->reserve(map.pairs.size());
+            for (auto &pair : map.pairs)
+            {
+                Value k = evalExpr(*pair.key, env);
+                if (!k.isStr())
+                    throw TypeError("map keys must be strings", map.loc);
+                Value v = evalExpr(*pair.value, env);
+                out->set(k.asStr(), std::move(v));
+            }
+            return Value::makeMap(std::move(out));
+        }
+
+        CUFF_NOINLINE Value evalFString(const FStringExpr &fs, Environment &env)
+        {
+            std::string out;
+            for (auto &seg : fs.segments)
+            {
+                if (seg.isExpression)
+                    evalExpr(*seg.expr, env).appendDisplay(out);
+                else
+                    out += seg.text;
+                checkStringSize(out.size(), fs.loc);
+            }
+            return Value::makeStr(std::move(out));
+        }
+
+        CUFF_NOINLINE Value evalIndexAccess(const IndexAccess &idx, Environment &env)
+        {
+            Value t = evalExpr(*idx.target, env);
+            Value i = evalExpr(*idx.index, env);
+            return indexInto(t, i, idx.loc);
+        }
+
+        CUFF_NOINLINE Value evalSliceAccess(const SliceAccess &sl, Environment &env)
+        {
+            Value t = evalExpr(*sl.target, env);
+            Value s = evalExpr(*sl.start, env);
+            Value e = evalExpr(*sl.end, env);
+            return sliceInto(t, s, e, sl.loc);
+        }
+
         Value evalUnaryOp(const UnaryOp &u, Environment &env)
         {
             Value operand = evalExpr(*u.operand, env);
@@ -853,65 +1026,96 @@ namespace cuff
             return Value::makeNumber(-operand.asNumber());
         }
 
-        static std::string lowerAscii(const std::string &s)
-        {
-            std::string out = s;
-            std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c)
-                            { return std::tolower(c); });
-            return out;
-        }
-
         Value evalBinaryOp(const BinaryOp &b, Environment &env)
         {
             Value l = evalExpr(*b.left, env);
             Value r = evalExpr(*b.right, env);
 
-            switch (b.op)
-            {
             // Fast path: both operands numeric, which is the overwhelmingly
             // common case for arithmetic and ordering.
+            if (l.isNumber() && r.isNumber())
+            {
+                const double x = l.asNumber(), y = r.asNumber();
+                switch (b.op)
+                {
+                case BinOp::Add:
+                    return Value::makeNumber(x + y);
+                case BinOp::Sub:
+                    return Value::makeNumber(x - y);
+                case BinOp::Mul:
+                    return Value::makeNumber(x * y);
+                case BinOp::Div:
+                    if (y == 0.0)
+                        throwDivisionByZero(b.loc);
+                    return Value::makeNumber(x / y);
+                case BinOp::Is:
+                case BinOp::IsCase:
+                    return Value::makeBool(x == y);
+                case BinOp::IsNot:
+                case BinOp::IsNotCase:
+                    return Value::makeBool(x != y);
+                case BinOp::Greater:
+                    return Value::makeBool(x > y);
+                case BinOp::Less:
+                    return Value::makeBool(x < y);
+                case BinOp::GreaterEq:
+                    return Value::makeBool(x >= y);
+                case BinOp::LessEq:
+                    return Value::makeBool(x <= y);
+                }
+            }
+            return evalBinaryOpSlow(b, l, r);
+        }
+
+        CUFF_NOINLINE Value evalBinaryOpSlow(const BinaryOp &b, const Value &l, const Value &r)
+        {
+            switch (b.op)
+            {
             case BinOp::Add:
-                if (l.isNumber() && r.isNumber())
-                    return Value::makeNumber(l.asNumber() + r.asNumber());
                 if (l.isStr() && r.isStr())
-                    return Value::makeStr(l.asStr() + r.asStr());
+                {
+                    const std::string &a = l.asStr();
+                    const std::string &c = r.asStr();
+                    checkStringSize(a.size() + c.size(), b.loc);
+                    if (c.empty())
+                        return l;
+                    if (a.empty())
+                        return r;
+                    std::string out;
+                    out.reserve(a.size() + c.size());
+                    out += a;
+                    out += c;
+                    return Value::makeStr(std::move(out));
+                }
                 if (l.isList() && r.isList())
                 {
+                    const auto &la = l.asList()->items;
+                    const auto &lb = r.asList()->items;
+                    checkCollectionSize(la.size() + lb.size(), b.loc);
                     auto out = std::make_shared<ValueList>();
-                    out->items = l.asList()->items;
-                    out->items.insert(out->items.end(), r.asList()->items.begin(), r.asList()->items.end());
-                    return Value::makeList(out);
+                    out->items.reserve(la.size() + lb.size());
+                    out->items.insert(out->items.end(), la.begin(), la.end());
+                    out->items.insert(out->items.end(), lb.begin(), lb.end());
+                    return Value::makeList(std::move(out));
                 }
                 throw TypeError("cannot add " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc,
                                 "'+' works on number+number, str+str, or list+list");
 
             case BinOp::Sub:
-                if (l.isNumber() && r.isNumber())
-                    return Value::makeNumber(l.asNumber() - r.asNumber());
                 throw TypeError("'-' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
-
             case BinOp::Mul:
-                if (l.isNumber() && r.isNumber())
-                    return Value::makeNumber(l.asNumber() * r.asNumber());
                 throw TypeError("'*' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
-
             case BinOp::Div:
-                if (l.isNumber() && r.isNumber())
-                {
-                    if (r.asNumber() == 0.0)
-                        throw DivisionByZeroError("division by zero", b.loc);
-                    return Value::makeNumber(l.asNumber() / r.asNumber());
-                }
                 throw TypeError("'/' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
 
             case BinOp::Is:
-                return Value::makeBool(l.strictEquals(r));
+                return Value::makeBool(valuesEqual(l, r, b.loc));
             case BinOp::IsNot:
-                return Value::makeBool(!l.strictEquals(r));
+                return Value::makeBool(!valuesEqual(l, r, b.loc));
             case BinOp::IsCase:
-                return Value::makeBool(caseInsensitiveEquals(l, r));
+                return Value::makeBool(caseInsensitiveEquals(l, r, b.loc));
             case BinOp::IsNotCase:
-                return Value::makeBool(!caseInsensitiveEquals(l, r));
+                return Value::makeBool(!caseInsensitiveEquals(l, r, b.loc));
 
             case BinOp::Greater:
             case BinOp::Less:
@@ -922,11 +1126,20 @@ namespace cuff
             throw InternalEngineError("unknown binary operator");
         }
 
-        static bool caseInsensitiveEquals(const Value &l, const Value &r)
+        static bool caseInsensitiveEquals(const Value &l, const Value &r, const SourceLocation &loc)
         {
             if (l.isStr() && r.isStr())
-                return lowerAscii(l.asStr()) == lowerAscii(r.asStr());
-            return l.strictEquals(r);
+            {
+                const std::string &a = l.asStr();
+                const std::string &c = r.asStr();
+                if (a.size() != c.size())
+                    return false;
+                for (size_t i = 0; i < a.size(); ++i)
+                    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(c[i])))
+                        return false;
+                return true;
+            }
+            return valuesEqual(l, r, loc);
         }
 
         static Value compareOrdered(BinOp op, const Value &l, const Value &r, const SourceLocation &loc)
@@ -961,44 +1174,86 @@ namespace cuff
 
         // ---- Function calls ----
 
-        void checkAsyncTarget(const std::string &name, const SourceLocation &loc)
+        [[noreturn]] CUFF_COLD static void throwAwaitOnNonAsync(const std::string &name, const SourceLocation &loc)
         {
-            auto it = userFunctions_.find(internName(name));
-            if (it != userFunctions_.end() && !it->second->isAsync)
-            {
-                throw CuffRuntimeError(ErrorCode::AwaitOnNonAsync,
-                                       "'await' can only be used with an async function; '" + name + "' is not declared async", loc,
-                                       "declare it with 'set async function " + name + "(...) do:', or call it without 'await'");
-            }
-            // Native/DLC functions aren't classified async/sync — awaiting one
-            // is allowed and just calls it normally.
+            throw CuffRuntimeError(ErrorCode::AwaitOnNonAsync,
+                                   "'await' can only be used with an async function; '" + name + "' is not declared async", loc,
+                                   "declare it with 'set async function " + name + "(...) do:', or call it without 'await'");
         }
 
-        Value callFunction(const std::string &name, std::vector<Value> &args, const SourceLocation &loc)
+        [[noreturn]] CUFF_COLD static void throwArgumentCount(const FunctionDecl &decl, size_t got, const SourceLocation &loc)
         {
-            auto nativeIt = natives_.find(name);
-            if (nativeIt != natives_.end())
-                return nativeIt->second(args, loc);
+            throw ArgumentError(decl.name + "() expects " + std::to_string(decl.params.size()) +
+                                    " argument(s), got " + std::to_string(got),
+                                loc);
+        }
 
-            auto userIt = userFunctions_.find(internName(name));
-            if (userIt == userFunctions_.end())
-                throw UndefinedFunctionError("undefined function '" + name + "'", loc,
-                                             "check the spelling, or make sure it's declared before this point");
+        [[noreturn]] CUFF_COLD static void throwCallDepth(const FunctionDecl &decl, const SourceLocation &loc)
+        {
+            throw StackOverflowError("maximum call depth (" + std::to_string(kMaxCallDepth) +
+                                         ") exceeded while calling '" + decl.name + "' — check for infinite recursion",
+                                     loc);
+        }
 
-            return callUserFunction(*userIt->second, args, loc);
+        void queueTask(const FunctionDecl &decl, std::vector<Value> &&args, const SourceLocation &loc)
+        {
+            if (taskQueue_.size() >= limits::kMaxQueuedTasks)
+                throwSizeLimit("async task queue", loc);
+            taskQueue_.push_back(QueuedTask{&decl, std::move(args)});
+        }
+
+        Value evalCall(const FunctionCall &fc, Environment &env)
+        {
+            std::vector<Value> args;
+            args.reserve(fc.args.size());
+            for (auto &a : fc.args)
+                args.push_back(evalExpr(*a, env));
+
+            // User-defined functions are checked first: it's the hot path for
+            // any recursive/heavily-called script function, and the same
+            // lookup answers the async-deferral question.
+            if (const FunctionDecl *user = findUser(fc.functionNameId))
+            {
+                if (user->isAsync)
+                {
+                    // Called without await: doesn't run now — see the
+                    // class-level comment on taskQueue_ above.
+                    queueTask(*user, std::move(args), fc.loc);
+                    return Value::makeEmpty();
+                }
+                return callUserFunction(*user, args, fc.loc);
+            }
+            if (const NativeFn *native = findNative(fc))
+                return (*native)(args, fc.loc);
+            throwUndefinedFunction(fc.functionName, fc.loc);
+        }
+
+        // `await f(...)`: runs the call immediately. A user function must be
+        // declared async; native/DLC functions aren't classified async/sync,
+        // so awaiting one just calls it normally.
+        CUFF_NOINLINE Value invokeAwaited(const FunctionCall &call, Environment &env, const SourceLocation &loc)
+        {
+            const FunctionDecl *user = findUser(call.functionNameId);
+            if (user && !user->isAsync)
+                throwAwaitOnNonAsync(call.functionName, loc);
+            std::vector<Value> args;
+            args.reserve(call.args.size());
+            for (auto &a : call.args)
+                args.push_back(evalExpr(*a, env));
+            if (user)
+                return callUserFunction(*user, args, loc);
+            if (const NativeFn *native = findNative(call))
+                return (*native)(args, loc);
+            throwUndefinedFunction(call.functionName, loc);
         }
 
         Value callUserFunction(const FunctionDecl &decl, std::vector<Value> &args, const SourceLocation &loc)
         {
             if (args.size() != decl.params.size())
-                throw ArgumentError(decl.name + "() expects " + std::to_string(decl.params.size()) +
-                                        " argument(s), got " + std::to_string(args.size()),
-                                    loc);
-
-            if (callDepth_ + 1 > kMaxCallDepth)
-                throw StackOverflowError("maximum call depth (" + std::to_string(kMaxCallDepth) +
-                                             ") exceeded while calling '" + decl.name + "' — check for infinite recursion",
-                                         loc);
+                throwArgumentCount(decl, args.size(), loc);
+            if (callDepth_ >= kMaxCallDepth)
+                throwCallDepth(decl, loc);
+            tick(loc);
 
             FrameGuard guard(this, decl.isReturnable);
 
@@ -1014,16 +1269,6 @@ namespace cuff
                 throw CuffRuntimeError(ErrorCode::StopOutsideLoop,
                                        "'stop' cannot be used outside of a loop", outcome.loc);
             return Value::makeEmpty();
-        }
-
-        void execAwaitStmt(const AwaitStmt &aw, Environment &env)
-        {
-            checkAsyncTarget(aw.expr->call->functionName, aw.loc);
-            std::vector<Value> args;
-            args.reserve(aw.expr->call->args.size());
-            for (auto &a : aw.expr->call->args)
-                args.push_back(evalExpr(*a, env));
-            callFunction(aw.expr->call->functionName, args, aw.loc); // result intentionally discarded
         }
 
         // ---- Pattern-matching commands (docs/REGEX.md) ----
@@ -1078,11 +1323,12 @@ namespace cuff
 
             if (flags.global)
             {
-                auto all = regexEngine_.searchAll(compiled, targetVal.asStr(), flags, f.loc);
+                auto spans = regexEngine_.searchAllSpans(compiled, targetVal.asStr(), flags, f.loc);
                 auto list = std::make_shared<ValueList>();
-                for (auto &m : all)
-                    list->items.push_back(Value::makeStr(targetVal.asStr().substr(m.start, m.end - m.start)));
-                return Value::makeList(list);
+                list->items.reserve(spans.size());
+                for (auto &m : spans)
+                    list->items.push_back(Value::makeStr(targetVal.asStr().substr(m.first, m.second - m.first)));
+                return Value::makeList(std::move(list));
             }
             regex::MatchOutcome out;
             if (!regexEngine_.search(compiled, targetVal.asStr(), 0, flags, f.loc, out))
@@ -1139,32 +1385,103 @@ namespace cuff
             loadCustomModule(use.name, use.path, use.loc, env);
         }
 
+        void initModuleRoot()
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            fs::path root = config_.rootDir.empty() ? fs::path(scriptDir_) : fs::path(config_.rootDir);
+            fs::path canon = fs::weakly_canonical(root, ec);
+            moduleRoot_ = ec ? root.lexically_normal() : canon;
+        }
+
+        static bool isInsideRoot(const std::filesystem::path &path, const std::filesystem::path &root)
+        {
+            auto r = root.begin();
+            auto p = path.begin();
+            for (; r != root.end(); ++r, ++p)
+            {
+                if (r->empty())
+                    break;
+                if (p == path.end() || *r != *p)
+                    return false;
+            }
+            return true;
+        }
+
+        struct ImportMark
+        {
+            std::unordered_set<std::string> &set;
+            std::string key;
+            bool committed = false;
+            ~ImportMark()
+            {
+                if (!committed)
+                    set.erase(key);
+            }
+        };
+
+        struct ImportDepthGuard
+        {
+            int &depth;
+            explicit ImportDepthGuard(int &d) : depth(d) { ++depth; }
+            ~ImportDepthGuard() { --depth; }
+        };
+
         void loadCustomModule(const std::string &moduleName, const std::string &relPath, const SourceLocation &loc, Environment &env)
         {
             namespace fs = std::filesystem;
-            fs::path base = fs::path(scriptDir_);
-            fs::path full = base / relPath / (moduleName + ".cuff");
+            const std::string shown = (relPath.empty() ? std::string() : relPath + "/") + moduleName + ".cuff";
 
+            fs::path rel(relPath);
+            if (rel.has_root_name() || rel.has_root_directory())
+                throw ModuleError(ErrorCode::ModuleAccessDenied,
+                                  "absolute module paths are not allowed ('use " + moduleName + " from " + relPath + "')", loc,
+                                  "use a path relative to the running script, e.g. ./lib");
+
+            fs::path full = fs::path(scriptDir_) / rel / (moduleName + ".cuff");
             std::error_code ec;
             fs::path canon = fs::weakly_canonical(full, ec);
-            std::string key = ec ? full.string() : canon.string();
+            if (ec)
+                canon = full.lexically_normal();
+
+            if (!isInsideRoot(canon, moduleRoot_))
+                throw ModuleError(ErrorCode::ModuleAccessDenied,
+                                  "module '" + shown + "' resolves outside the allowed directory", loc,
+                                  "keep imported modules inside the script's directory, or run with --root <dir> to widen it");
+
+            const std::string key = canon.string();
 
             // Idempotent: a module already loaded (including the diamond- or
             // circular-import case) is treated as a no-op rather than
             // re-parsed/re-executed or flagged as an error.
             if (importedPaths_.count(key))
                 return;
-            importedPaths_.insert(key); // mark before parsing to make self-cycles a safe no-op too
 
-            std::ifstream file(full);
+            if (moduleDepth_ >= limits::kMaxImportDepth)
+                throw ModuleError(ErrorCode::ModuleLimitExceeded,
+                                  "modules are imported too deeply (maximum is " + std::to_string(limits::kMaxImportDepth) + " levels)", loc);
+
+            if (!fs::exists(canon, ec))
+                throw ModuleError(ErrorCode::ModuleNotFound,
+                                  "could not find module file '" + shown + "' for 'use " + moduleName + " from " + relPath + "'",
+                                  loc, "paths are resolved relative to the running script's directory");
+            if (!fs::is_regular_file(canon, ec))
+                throw ModuleError(ErrorCode::ModuleAccessDenied, "module '" + shown + "' is not a regular file", loc);
+            const auto size = fs::file_size(canon, ec);
+            if (ec || size > limits::kMaxSourceBytes)
+                throw ModuleError(ErrorCode::ModuleLimitExceeded,
+                                  "module '" + shown + "' is larger than the " + std::to_string(limits::kMaxSourceBytes / 1024) + " KiB source limit", loc);
+
+            std::ifstream file(canon, std::ios::binary);
             if (!file)
                 throw ModuleError(ErrorCode::ModuleNotFound,
-                                  "could not find module file '" + full.string() + "' for 'use " + moduleName + " from " + relPath + "'",
-                                  loc, "paths are resolved relative to the running script's directory");
+                                  "could not read module file '" + shown + "' for 'use " + moduleName + " from " + relPath + "'", loc);
+            std::string source(static_cast<size_t>(size), '\0');
+            file.read(source.data(), static_cast<std::streamsize>(size));
+            source.resize(static_cast<size_t>(file.gcount()));
 
-            std::ostringstream ss;
-            ss << file.rdbuf();
-            std::string source = ss.str();
+            importedPaths_.insert(key); // mark before parsing to make self-cycles a safe no-op too
+            ImportMark mark{importedPaths_, key};
 
             std::unique_ptr<Program> modProgram;
             try
@@ -1179,20 +1496,25 @@ namespace cuff
             catch (const CuffError &e)
             {
                 throw ModuleError(ErrorCode::ModuleParseFailed,
-                                  "failed to parse module '" + full.string() + "': " + e.message, loc);
+                                  "failed to parse module '" + shown + "': " + e.message, loc);
             }
+
+            // The module's AST must outlive its functions, which stay
+            // registered in userById_ even if the module body fails midway.
+            loadedModules_.push_back(std::move(modProgram));
+            const Program &program = *loadedModules_.back();
 
             // Execute the module's top level into its own environment, then
             // merge its top-level variables into the importer's current
             // scope. Function declarations are automatically visible to the
-            // importer too, since userFunctions_ is a single registry shared
+            // importer too, since userById_ is a single registry shared
             // by the whole interpreter (execProgram registers them there).
+            ImportDepthGuard depthGuard(moduleDepth_);
             Environment moduleEnv;
-            execProgram(*modProgram, moduleEnv);
+            execProgram(program, moduleEnv);
             for (const auto &kv : moduleEnv.localVars())
                 env.declare(kv.first, kv.second, moduleEnv.isConstantHere(kv.first));
-
-            loadedModules_.push_back(std::move(modProgram));
+            mark.committed = true;
         }
     };
 

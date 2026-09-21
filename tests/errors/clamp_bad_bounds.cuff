@@ -1,0 +1,3 @@
+note: E4025
+use DLC:math
+print(clamp(1, 10, 0))

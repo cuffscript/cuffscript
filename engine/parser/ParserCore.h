@@ -3,12 +3,42 @@
 #include "../common/Token.h"
 #include "../common/TokenTypes.h"
 #include "../common/CuffError.h"
+#include "../common/Limits.h"
 #include "ASTNodes.h"
 #include <vector>
 #include <string>
 
 namespace cuff
 {
+
+    // Counts native recursion depth across every parser (including the nested
+    // parsers used for f-string expressions) so hostile nesting fails with a
+    // syntax error instead of exhausting the C++ stack.
+    class ParseDepthScope
+    {
+    public:
+        explicit ParseDepthScope(const SourceLocation &loc)
+        {
+            if (++depth() > limits::kMaxParseDepth)
+            {
+                --depth();
+                throw SyntaxError(ErrorCode::NestingTooDeep,
+                                  "code is nested too deeply (maximum nesting depth is " +
+                                      std::to_string(limits::kMaxParseDepth) + ")",
+                                  loc);
+            }
+        }
+        ~ParseDepthScope() { --depth(); }
+        ParseDepthScope(const ParseDepthScope &) = delete;
+        ParseDepthScope &operator=(const ParseDepthScope &) = delete;
+
+    private:
+        static int &depth()
+        {
+            static thread_local int d = 0;
+            return d;
+        }
+    };
 
     // Core parser state — token cursor + utility helpers.
     // Shared by all sub-parsers.

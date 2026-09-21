@@ -30,6 +30,7 @@ namespace cuff
                 return nullptr;
 
             const Token &tok = p.current();
+            ParseDepthScope depth(tok.location);
             std::unique_ptr<Stmt> stmt;
 
             switch (tok.type)
