@@ -1,3 +1,36 @@
+## v1.6.0 - 2026-09-21
+
+## Description
+
+- **Fixed: deeply nested input could crash the process.** Nested parentheses, lists, maps, unary chains (`----1`, `!!!!true`), `if`/`loop`/`or_else` blocks, `await` chains, index chains and f-string expressions recursed on the native stack with no bound, so a hostile (or generated) script killed the process with a segfault. Parser recursion is now counted across every sub-parser, including the nested parser used for f-string expressions, and fails with the new `E2008` beyond 256 levels. Left-associative chains that the parser builds iteratively (`1+1+1+...`, `a[1][1]...`) are bounded by an AST height computed as each node is built (10,000). Source over 16 MiB is rejected with `E2009`. A number literal too large for a double is now a clean `E1003` instead of `Internal error: stod`.
+
+- **Fixed: runtime stack exhaustion.** The 1,000-call limit did not protect functions whose bodies nest blocks: 40 nested `if`s inside a function recursing 990 deep segfaulted. The evaluator now compares the real stack pointer against a budget derived from the actual stack size and raises the catchable `E4017` (the same code as the call-depth limit) before it can overflow. Regex matching honors a hard floor below that budget and fails with `E3103` instead of overflowing on small stacks. Programs that ran before still run: a 990-deep recursion with six nested blocks per call and 10M-element lists work as before.
+
+- **Fixed: circular and very deep values crashed.** `add a to a` followed by `print(a)`, `a is b` or `to_json(a)` recursed forever, and destroying a deeply nested list recursed once per level. Nested lists/maps are now destroyed iteratively; `is` compares iteratively (any depth, and circular structures of the same shape compare equal); printing marks cycles as `[...]`/`{...}` and stops at depth 1,000; `to_json` reports `E4025` instead of overflowing.
+
+- **Regex hardening.** Group nesting is capped at 64 (`E3011`), quantifier counts at 100,000 (`E3004`; a huge count used to escape as `Internal error: stoi`), patterns at 64 KiB, and the compile cache at 512 entries. Every find/replace/split/count now has an overall time allowance (5 s plus 2 s per MiB of input) on top of the existing per-attempt limits, `replace` cannot build a result beyond the string limit, and `find ... g` no longer materializes capture groups for every match.
+
+- **Size limits.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4026`), checked where they can grow (`+`, f-strings, `join`, `repeat_str`, padding, `range`, `flatten`, `merge`, regex results, the async task queue). Running out of memory anyway is reported as `E6003` instead of terminating the process. All limits are in `engine/common/Limits.h`.
+
+- **New opt-in execution budget.** `--max-steps <n>` (loop iterations + function calls) and `--timeout <ms>`, also available as `CuffEngine::Options`. Off by default. They raise `E6001`/`E6002`, a new 6000 "Resource" range that `or_else` deliberately cannot catch.
+
+- **Module sandbox (behavior change).** `use name from path` may only load files inside the script's directory, or inside `--root <dir>` / `Options::rootDir`. Absolute paths and paths that resolve outside the root (`..`, or a symlink pointing out) fail with `E5006`; oversized or too deeply nested imports fail with `E5007`. Error messages show the path as written instead of the host's absolute path. A failed import no longer marks the module as loaded, and a module's AST now outlives a failure in its body, so functions it registered can no longer dangle. Scripts that import from a parent directory need `--root`.
+
+- **New built-ins.** `type_of` (always available). `DLC:math`: `mod` (floored), `clamp`, `sign`, `trunc`, `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pi`, `e`, and `round(x, digits)`. `DLC:string`: `trim_start`, `trim_end`, `index_of`, `repeat_str`, `pad_left`, `pad_right`, `char_code`, `from_char_code`. `DLC:list`: `sum`, `average`, `flatten`, `range`. `DLC:random`: `random_seed`, `choice`, `shuffle`. New `DLC:map`: `keys`, `values`, `has_key`, `entries`, `merge` (maps previously had no way to enumerate their keys). `length`, `contains` and `index_of` work on strings, lists and maps. `min`/`max` accept a single list.
+
+- **Hardened built-ins (behavior changes).** `sort`, `min`, `max` and `clamp` reject NaN (sorting a list containing NaN was undefined behavior). `pow` reports domain errors and results too large to represent (previously `Infinity`/`NaN`); `log`, `asin`, `acos` and `mod` reject out-of-domain input. `to_number` accepts only plain decimal text: `"nan"`, `"inf"`, hex floats and trailing garbage are now `E4025`. Whole-number arguments and indices are range-checked to +/-2^53 (an index like `1e30` used to be undefined behavior; `random_int` used a 32-bit `long` under WebAssembly). `unique` is O(n) for numbers and strings. `upper`/`lower` map Latin, Greek and Cyrillic letters, not just ASCII. `await` now resolves a name the same way a plain call does (user function first).
+
+- **Performance.** Strings are now immutable and shared: reading a variable or passing a string never copies its text, literals are built once at parse time, and ASCII-ness, codepoint count and a codepoint cursor are cached. Reading a 1 MB string variable 20,000 times: 19.7 s → 6 ms. A 20,000-character `s[i]` loop: 0.55 s → 12 ms. Declaring 20,000 globals: 3.8 s → ~0.1 s (the scope index is now maintained incrementally instead of rebuilt). Native and user functions are looked up by interned id, and cold error paths are out of line, which shrinks the stack used per call by about a quarter. Tokens are moved rather than copied between pipeline stages. Raw arithmetic speed (`fib(27)`, tight loops) is unchanged; the bytecode VM remains deferred (see section 21 of `docs/IMPLEMENTATION_NOTES.md`).
+
+- Added error codes: `E1003` now covers oversized number literals; new `E2008`, `E2009`, `E3011`, `E4026`, `E5006`, `E5007`, `E6001`, `E6002`, `E6003`. `main.cpp` no longer syncs iostreams with stdio.
+
+- Tests: new `tests/unit/limits_test.cpp` (45 checks: hostile nesting, cycles, size and step/time limits, module sandbox, and large legitimate inputs that must keep working), 6 new script cases (`builtins_*`, `strings_utf8_access`, `value_semantics`) and 21 new error cases. The suite now has 94 checks (was 66). Also run clean under AddressSanitizer + UBSan.
+
+- Docs: `docs/IMPLEMENTATION_NOTES.md` sections 22 (limits and recursion safety), 23 (module sandbox) and 24 (built-ins and performance); `SECURITY.md` gained a "Running untrusted scripts" section; READMEs list the new CLI options and `DLC:map`. `Makefile.win` now links with an 8 MiB stack.
+
+
+---
+
 ## v1.5.0 - 2026-09-19
 
 ## Description
