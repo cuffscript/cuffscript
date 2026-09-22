@@ -6,6 +6,8 @@
 
 # CuffScript 프로그래밍 언어
 
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white)
+
 CuffScript는 자연어 키워드와 간결한 문법을 사용하는 스크립트 언어입니다. 이 저장소는 토크나이저, 렉서, 파서, 자체 정규식 엔진, 그리고 실제로 CuffScript 프로그램을 실행하는 트리 워킹(tree-walking) 인터프리터로 이루어진 완전한 엔진을 담고 있습니다.
 
 ## 현재 상태
