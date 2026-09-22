@@ -2,6 +2,9 @@
     <img src="https://raw.githubusercontent.com/cuffscript/cuffscript/refs/heads/main/assets/cuffscript_horiz.svg" alt="CuffScript logo" width="360" />
 </p>
 
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white)
+
+
 ---
 
 # The CuffScript Programming Language
