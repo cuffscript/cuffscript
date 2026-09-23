@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
