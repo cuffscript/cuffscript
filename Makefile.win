@@ -1,11 +1,12 @@
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG -Wl,--stack,8388608
+LDLIBS = -lws2_32
 
 TARGET = cuffc.exe
 SOURCES = main.cpp
 
 $(TARGET): $(SOURCES) $(wildcard engine/**/*.h engine/*.h)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SOURCES)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SOURCES) $(LDLIBS)
 
 clean:
 	del /Q $(TARGET)
