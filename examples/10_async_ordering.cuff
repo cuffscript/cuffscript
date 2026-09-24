@@ -2,15 +2,15 @@ note: async 함수를 await 없이 호출하면 즉시 실행되지 않고 큐�
 note: 최상위 스크립트의 동기 코드가 전부 끝난 뒤 큐에 쌓인 순서(FIFO)대로 실행됩니다.
 note: await를 붙이면 지금까지와 동일하게 즉시 실행되고 값을 돌려받습니다.
 
-set async function notify_a() do:
+set async func notify_a() do:
     print("[비동기] A 처리 완료")
 end
 
-set async function notify_b() do:
+set async func notify_b() do:
     print("[비동기] B 처리 완료")
 end
 
-set async returnable function fetch_score() do:
+set async returnable func fetch_score() do:
     print("[비동기] 점수 조회 중...")
     return 87
 end

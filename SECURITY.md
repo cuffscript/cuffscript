@@ -37,10 +37,41 @@ Logic issues in user-written CuffScript code and vulnerabilities in external bui
 The engine is designed so that a script can fail but not crash the host: nesting, recursion,
 value depth, string/collection size and regex work are all bounded and reported as ordinary
 error codes, and `use ... from` cannot read outside the script's directory (or the `--root`
-you choose). No built-in performs file or network access. Two things are deliberately left
+you choose). No built-in performs file access. Two things are deliberately left
 to the embedder: an execution budget (`--max-steps`, `--timeout`, or `CuffEngine::Options`) is
 off by default, and process-level memory and CPU limits should still be applied when hosting
 untrusted code. Details and numbers are in `docs/IMPLEMENTATION_NOTES.md`, sections 22-23.
+
+## DLC:network
+
+As of v2.0.0, `use DLC:network` gives a script real outbound HTTP access (`get`/`post`, plain
+HTTP only — no TLS, so `https://` is rejected rather than silently downgraded). This is a
+meaningfully different trust boundary from everything else in the engine, worth calling out on
+its own:
+
+- **Off by default is not the default.** Unlike the module sandbox (safe by default, widened
+  explicitly), network access is _on_ by default, because that's what makes `use DLC:network`
+  useful out of the box for a script you run yourself. If you embed this engine to run scripts
+  you did not write — a web IDE, a multi-tenant service, anything processing untrusted
+  input — set `CuffEngine::Options::networkEnabled = false` (or run `cuffc --no-network`)
+  before you need it, not after.
+- **SSRF is blocked by default, not eliminated.** Every resolved address is checked against
+  loopback/private/link-local ranges (including the common cloud-metadata address,
+  `169.254.169.254`) right before connecting, so a script cannot reach `localhost`, your
+  internal network, or instance metadata through it. This check is deliberately on the
+  resolved IP, not the hostname text, but it is a single point-in-time check, not a general
+  DNS-rebinding defense. `allowPrivateNetworkTargets` / `--allow-private-network` turns it off
+  entirely — only do this for scripts you trust, or from a host that is itself isolated from
+  anything sensitive.
+- **No allowlist/denylist of hosts.** A script with network enabled can reach any public
+  address. If you need to restrict _which_ hosts a script may reach, that has to be enforced
+  outside the engine today (a filtering proxy, network namespace, or firewall in front of the
+  process) — it is not a configuration option here.
+- **Response size and time are capped** (`engine/common/Limits.h`:
+  `kHttpMaxResponseBytes`/`kHttpConnectTimeoutMs`/`kHttpTotalTimeoutMs`/`kHttpMaxRedirects`), so
+  a slow or oversized response can't hang or exhaust memory, but a script can still make many
+  requests in a loop — the execution budget above (`--max-steps`/`--timeout`) is what bounds
+  that, and it's off by default too.
 
 ---
 

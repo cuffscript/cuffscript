@@ -1,0 +1,26 @@
+set number counter to 100
+
+set returnable pure func square(n) do:
+    return n * n
+end
+print(square(6))
+
+set func bump() do:
+    change counter to global
+    change counter to counter + 1
+end
+
+set returnable pure func trigger_bump() do:
+    note: pure functions may call non-pure functions; the restriction is on
+    note: this function's own body, not the whole call graph
+    bump()
+    return 1
+end
+print(trigger_bump())
+print(counter)
+
+use DLC:math
+set returnable pure func hypotenuse(a, b) do:
+    return sqrt(pow(a, 2) + pow(b, 2))
+end
+print(hypotenuse(3, 4))

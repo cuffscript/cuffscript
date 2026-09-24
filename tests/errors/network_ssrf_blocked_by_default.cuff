@@ -1,0 +1,3 @@
+note: E4028
+use DLC:network
+get("http://127.0.0.1:1/x")

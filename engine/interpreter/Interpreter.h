@@ -79,6 +79,8 @@ namespace cuff
             uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
             uint32_t timeoutMs = 0; // wall-clock budget for the whole run; 0 = unlimited
             size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
+            bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
+            bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
         };
 
         Interpreter() { registerBuiltins(natives_); }
@@ -120,6 +122,50 @@ namespace cuff
         Environment globalEnv_;
         std::unordered_map<std::string, NativeFn> natives_;
         std::vector<const FunctionDecl *> userById_;  // indexed by interned function name id
+        // Recycled buffers for the two allocations every function call would
+        // otherwise make from scratch: evalCall's argument vector and the
+        // callee's Environment::vars_. Both are plain LIFO pools — a call
+        // returns its buffer right after it's done with it, so a recursive
+        // call chain naturally reuses the buffer its own child just freed.
+        // Capped so a script that briefly makes many concurrent calls (e.g.
+        // queuing a lot of async tasks) can't grow this without bound.
+        static constexpr size_t kCallPoolCap = 256;
+        std::vector<std::vector<Value>> argsPool_;
+        std::vector<std::vector<std::pair<uint32_t, Value>>> envVarsPool_;
+
+        std::vector<Value> takeArgsBuffer()
+        {
+            if (argsPool_.empty())
+                return {};
+            std::vector<Value> v = std::move(argsPool_.back());
+            argsPool_.pop_back();
+            v.clear();
+            return v;
+        }
+        void returnArgsBuffer(std::vector<Value> &&v)
+        {
+            if (argsPool_.size() < kCallPoolCap)
+            {
+                v.clear();
+                argsPool_.push_back(std::move(v));
+            }
+        }
+
+        // RAII: recovers `env`'s vars_ storage into envVarsPool_ once the
+        // environment is done with it, on every exit path (normal return or
+        // an exception unwinding through callUserFunction) — declared right
+        // after the Environment it guards, so it's destroyed first.
+        struct EnvPoolReturner
+        {
+            Interpreter *interp;
+            Environment *env;
+            ~EnvPoolReturner()
+            {
+                if (interp->envVarsPool_.size() < kCallPoolCap)
+                    interp->envVarsPool_.push_back(env->releaseStorage());
+            }
+        };
+
         std::vector<const NativeFn *> nativeById_;    // lazily filled cache into natives_ (node-stable)
         std::vector<std::unique_ptr<Program>> loadedModules_; // keeps imported-module ASTs alive
         std::unordered_set<std::string> importedPaths_;
@@ -143,6 +189,7 @@ namespace cuff
         int callDepth_ = 0;
         bool inFunctionBody_ = false;
         bool currentFunctionReturnable_ = false;
+        bool currentFunctionPure_ = false; // 'pure': body cannot touch global-scope variables
         static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
 
         // Native-stack safety net. The call-depth counter above bounds
@@ -169,18 +216,22 @@ namespace cuff
             Interpreter *interp;
             bool prevInFunc;
             bool prevReturnable;
-            FrameGuard(Interpreter *i, bool returnable) : interp(i)
+            bool prevPure;
+            FrameGuard(Interpreter *i, bool returnable, bool pure) : interp(i)
             {
                 prevInFunc = i->inFunctionBody_;
                 prevReturnable = i->currentFunctionReturnable_;
+                prevPure = i->currentFunctionPure_;
                 i->inFunctionBody_ = true;
                 i->currentFunctionReturnable_ = returnable;
+                i->currentFunctionPure_ = pure;
                 ++i->callDepth_;
             }
             ~FrameGuard()
             {
                 interp->inFunctionBody_ = prevInFunc;
                 interp->currentFunctionReturnable_ = prevReturnable;
+                interp->currentFunctionPure_ = prevPure;
                 --interp->callDepth_;
             }
         };
@@ -252,7 +303,7 @@ namespace cuff
             // textual definition, as long as both are top-level).
             for (auto &s : program.statements)
                 if (s->kind == StmtKind::FunctionDecl)
-                    registerFunction(std::get<FunctionDecl>(s->data));
+                    registerFunction((*std::get_if<FunctionDecl>(&s->data)));
 
             for (auto &s : program.statements)
             {
@@ -349,28 +400,28 @@ namespace cuff
             switch (stmt.kind)
             {
             case StmtKind::Declaration:
-                execDeclaration(std::get<DeclarationStmt>(stmt.data), env);
+                execDeclaration((*std::get_if<DeclarationStmt>(&stmt.data)), env);
                 return ExecOutcome::normal();
             case StmtKind::Change:
-                execChange(std::get<ChangeStmt>(stmt.data), env);
+                execChange((*std::get_if<ChangeStmt>(&stmt.data)), env);
                 return ExecOutcome::normal();
             case StmtKind::FunctionDecl:
             {
-                const auto &decl = std::get<FunctionDecl>(stmt.data);
+                const auto &decl = (*std::get_if<FunctionDecl>(&stmt.data));
                 if (inFunctionBody_)
                     throwNestedFunction(decl);
                 registerFunction(decl); // reached for functions nested in top-level if/loop bodies
                 return ExecOutcome::normal();
             }
             case StmtKind::IfStmt:
-                return execIf(std::get<IfStmt>(stmt.data), env);
+                return execIf((*std::get_if<IfStmt>(&stmt.data)), env);
             case StmtKind::LoopStmt:
-                return execLoop(std::get<LoopStmt>(stmt.data), env);
+                return execLoop((*std::get_if<LoopStmt>(&stmt.data)), env);
             case StmtKind::StopStmt:
-                return ExecOutcome::makeStop(std::get<StopStmt>(stmt.data).loc);
+                return ExecOutcome::makeStop((*std::get_if<StopStmt>(&stmt.data)).loc);
             case StmtKind::ReturnStmt:
             {
-                const auto &r = std::get<ReturnStmt>(stmt.data);
+                const auto &r = (*std::get_if<ReturnStmt>(&stmt.data));
                 Value v = r.value ? evalExpr(*r.value, env) : Value::makeEmpty();
                 if (r.value && !currentFunctionReturnable_)
                     throwReturnInVoidFunction(r.loc);
@@ -378,21 +429,21 @@ namespace cuff
             }
             case StmtKind::AwaitStmt:
             {
-                const auto &aw = std::get<AwaitStmt>(stmt.data);
+                const auto &aw = (*std::get_if<AwaitStmt>(&stmt.data));
                 invokeAwaited(*aw.expr->call, env, aw.loc); // result intentionally discarded
                 return ExecOutcome::normal();
             }
             case StmtKind::UseStmt:
-                execUse(std::get<UseStmt>(stmt.data), env);
+                execUse((*std::get_if<UseStmt>(&stmt.data)), env);
                 return ExecOutcome::normal();
             case StmtKind::ExprStmt:
-                evalExpr(*std::get<ExprStmt>(stmt.data).expr, env);
+                evalExpr(*(*std::get_if<ExprStmt>(&stmt.data)).expr, env);
                 return ExecOutcome::normal();
             case StmtKind::CollectionOp:
-                execCollectionOp(std::get<CollectionOpStmt>(stmt.data), env);
+                execCollectionOp((*std::get_if<CollectionOpStmt>(&stmt.data)), env);
                 return ExecOutcome::normal();
             case StmtKind::OrElse:
-                return execOrElse(std::get<OrElseStmt>(stmt.data), env);
+                return execOrElse((*std::get_if<OrElseStmt>(&stmt.data)), env);
             }
             throw InternalEngineError("unhandled statement kind");
         }
@@ -477,7 +528,39 @@ namespace cuff
             }
 
             checkDeclaredType(decl.varType, v, decl.name, decl.loc);
+            if (decl.isConstant && v.isList())
+                v = freezeList(v);
             env.declare(decl.nameId, std::move(v), decl.isConstant);
+        }
+
+        // `constant list` (a tuple): rather than flip isConstant on whatever
+        // ValueList the initializer happened to produce — which, if it came
+        // from an existing variable, would silently freeze that variable's
+        // list too, since List is a reference type — always hand back an
+        // independent copy. Only the copy's top-level slots are frozen: an
+        // element that is itself a list/map keeps its own, separate
+        // isConstant (false unless it too was declared constant), the same
+        // shallow immutability a Python tuple gives a list it contains.
+        static Value freezeList(const Value &v)
+        {
+            auto frozen = std::make_shared<ValueList>();
+            frozen->items = v.asList()->items;
+            frozen->isConstant = true;
+            return Value::makeList(std::move(frozen));
+        }
+
+        [[noreturn]] CUFF_COLD static void throwConstantListMutation(const SourceLocation &loc)
+        {
+            throw ConstantError(ErrorCode::ConstantReassignment,
+                                "cannot modify a constant list — it was declared with 'constant' and its contents are read-only",
+                                loc, "assigning it to another variable does not unfreeze it; build a new list instead, e.g. 'change x to y + []'");
+        }
+
+        [[noreturn]] CUFF_COLD void throwPureGlobalAccess(const std::string &name, const SourceLocation &loc) const
+        {
+            throw CuffRuntimeError(ErrorCode::PureFunctionGlobalAccess,
+                                   "cannot access global variable '" + name + "' from inside a pure function", loc,
+                                   "remove the 'pure' keyword to allow this");
         }
 
         void execChange(const ChangeStmt &c, Environment &env)
@@ -490,6 +573,8 @@ namespace cuff
                                            "'change " + c.name + " to global' can only be used inside a function body",
                                            c.loc, "at the top level, every variable is already global");
                 }
+                if (currentFunctionPure_)
+                    throwPureGlobalAccess(c.name, c.loc);
                 env.declareGlobal(c.nameId);
                 return;
             }
@@ -500,9 +585,21 @@ namespace cuff
                 throw UndefinedVariableError("cannot change undefined variable '" + c.name + "'", c.loc,
                                              "declare it first with 'set', or bridge a global with 'change " + c.name + " to global'");
             }
+            if (currentFunctionPure_ && look.owner == &globalEnv_)
+                throwPureGlobalAccess(c.name, c.loc);
             if (env.isConstantIn(look.owner, c.nameId))
             {
-                throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + c.name + "'", c.loc);
+                // Whole-variable reassignment is always blocked. An indexed
+                // write into a constant *list* is instead let through to
+                // resolveContainerSlot, which enforces immutability exactly
+                // at the frozen list's own slots (ValueList::isConstant,
+                // set by freezeList) while still permitting a mutation that
+                // lands on a plain, non-frozen container nested inside it —
+                // the same shallow immutability a Python tuple gives a list
+                // it contains. There's no 'constant map' yet, so any other
+                // indexed type keeps the simpler, all-or-nothing block.
+                if (c.indices.empty() || !look.value->isList())
+                    throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + c.name + "'", c.loc);
             }
 
             if (c.indices.empty())
@@ -616,7 +713,7 @@ namespace cuff
                 // `change` can find and fix it up.
                 if (oe.primaryStmt->kind == StmtKind::Declaration)
                 {
-                    const auto &decl = std::get<DeclarationStmt>(oe.primaryStmt->data);
+                    const auto &decl = (*std::get_if<DeclarationStmt>(&oe.primaryStmt->data));
                     if (!env.isDeclaredHere(decl.nameId))
                         env.declare(decl.nameId, Value::makeEmpty(), false);
                 }
@@ -633,6 +730,8 @@ namespace cuff
             auto look = env.resolve(co.collectionNameId);
             if (!look.value)
                 throw UndefinedVariableError("undefined collection '" + co.collectionName + "'", co.loc);
+            if (currentFunctionPure_ && look.owner == &globalEnv_)
+                throwPureGlobalAccess(co.collectionName, co.loc);
             if (env.isConstantIn(look.owner, co.collectionNameId))
                 throw ConstantError(ErrorCode::ConstantReassignment, "cannot modify constant collection '" + co.collectionName + "'", co.loc);
 
@@ -644,6 +743,8 @@ namespace cuff
             {
                 if (!target.isList())
                     throw TypeError("'add ... to' requires a list, got " + valueTypeName(target.type()), co.loc);
+                if (target.asList()->isConstant)
+                    throwConstantListMutation(co.loc);
                 Value v = evalExpr(*co.addValue, env);
                 checkCollectionSize(target.asList()->items.size() + 1, co.loc);
                 target.asList()->items.push_back(std::move(v));
@@ -663,6 +764,8 @@ namespace cuff
                 Value rv = evalExpr(*co.removeValue, env);
                 if (target.isList())
                 {
+                    if (target.asList()->isConstant)
+                        throwConstantListMutation(co.loc);
                     auto &items = target.asList()->items;
                     if (rv.isNumber())
                     {
@@ -872,6 +975,8 @@ namespace cuff
             const Value &finalIdx = indexValues.back();
             if (current.isList())
             {
+                if (current.asList()->isConstant)
+                    throwConstantListMutation(loc);
                 if (!finalIdx.isNumber())
                     throw TypeError("list index must be a number (1-based)", loc);
                 size_t real = resolveIndex1Based(expectWholeNumber(finalIdx.asNumber(), "list index", loc), current.asList()->items.size(), loc);
@@ -910,54 +1015,56 @@ namespace cuff
             switch (expr.kind)
             {
             case ExprKind::Number:
-                return Value::makeNumber(std::get<NumberLiteral>(expr.data).value);
+                return Value::makeNumber((*std::get_if<NumberLiteral>(&expr.data)).value);
             case ExprKind::String:
-                return Value::makeStr(std::get<StringLiteral>(expr.data).shared);
+                return Value::makeStr((*std::get_if<StringLiteral>(&expr.data)).shared);
             case ExprKind::Bool:
-                return Value::makeBool(std::get<BoolLiteral>(expr.data).value);
+                return Value::makeBool((*std::get_if<BoolLiteral>(&expr.data)).value);
             case ExprKind::Empty:
                 return Value::makeEmpty();
             case ExprKind::Identifier:
             {
-                const auto &id = std::get<IdentifierExpr>(expr.data);
+                const auto &id = (*std::get_if<IdentifierExpr>(&expr.data));
                 auto look = env.resolve(id.nameId);
                 if (!look.value)
                     throwUndefinedVariable(id.name, id.loc);
+                if (currentFunctionPure_ && look.owner == &globalEnv_)
+                    throwPureGlobalAccess(id.name, id.loc);
                 return *look.value;
             }
             case ExprKind::List:
-                return evalList(std::get<ListLiteral>(expr.data), env);
+                return evalList((*std::get_if<ListLiteral>(&expr.data)), env);
             case ExprKind::Map:
-                return evalMap(std::get<MapLiteral>(expr.data), env);
+                return evalMap((*std::get_if<MapLiteral>(&expr.data)), env);
             case ExprKind::FString:
-                return evalFString(std::get<FStringExpr>(expr.data), env);
+                return evalFString((*std::get_if<FStringExpr>(&expr.data)), env);
             case ExprKind::BinaryOp:
-                return evalBinaryOp(std::get<BinaryOp>(expr.data), env);
+                return evalBinaryOp((*std::get_if<BinaryOp>(&expr.data)), env);
             case ExprKind::UnaryOp:
-                return evalUnaryOp(std::get<UnaryOp>(expr.data), env);
+                return evalUnaryOp((*std::get_if<UnaryOp>(&expr.data)), env);
             case ExprKind::IndexAccess:
-                return evalIndexAccess(std::get<IndexAccess>(expr.data), env);
+                return evalIndexAccess((*std::get_if<IndexAccess>(&expr.data)), env);
             case ExprKind::SliceAccess:
-                return evalSliceAccess(std::get<SliceAccess>(expr.data), env);
+                return evalSliceAccess((*std::get_if<SliceAccess>(&expr.data)), env);
             case ExprKind::FunctionCall:
-                return evalCall(std::get<FunctionCall>(expr.data), env);
+                return evalCall((*std::get_if<FunctionCall>(&expr.data)), env);
             case ExprKind::Await:
             {
-                const auto &aw = std::get<AwaitExpr>(expr.data);
+                const auto &aw = (*std::get_if<AwaitExpr>(&expr.data));
                 return invokeAwaited(*aw.call, env, aw.loc);
             }
             case ExprKind::RegexMatch:
-                return evalRegexMatch(std::get<RegexMatchExpr>(expr.data), env);
+                return evalRegexMatch((*std::get_if<RegexMatchExpr>(&expr.data)), env);
             case ExprKind::MatchFrom:
-                return evalMatchFrom(std::get<MatchFromExpr>(expr.data), env);
+                return evalMatchFrom((*std::get_if<MatchFromExpr>(&expr.data)), env);
             case ExprKind::Find:
-                return evalFind(std::get<FindExpr>(expr.data), env);
+                return evalFind((*std::get_if<FindExpr>(&expr.data)), env);
             case ExprKind::PatternReplace:
-                return evalPatternReplace(std::get<PatternReplaceExpr>(expr.data), env);
+                return evalPatternReplace((*std::get_if<PatternReplaceExpr>(&expr.data)), env);
             case ExprKind::Split:
-                return evalSplit(std::get<SplitExpr>(expr.data), env);
+                return evalSplit((*std::get_if<SplitExpr>(&expr.data)), env);
             case ExprKind::Count:
-                return evalCount(std::get<CountExpr>(expr.data), env);
+                return evalCount((*std::get_if<CountExpr>(&expr.data)), env);
             }
             throw InternalEngineError("unhandled expression kind");
         }
@@ -1204,7 +1311,14 @@ namespace cuff
 
         Value evalCall(const FunctionCall &fc, Environment &env)
         {
-            std::vector<Value> args;
+            std::vector<Value> args = takeArgsBuffer();
+            struct ArgsReturner
+            {
+                Interpreter *interp;
+                std::vector<Value> *v;
+                ~ArgsReturner() { interp->returnArgsBuffer(std::move(*v)); }
+            } argsReturn{this, &args};
+
             args.reserve(fc.args.size());
             for (auto &a : fc.args)
                 args.push_back(evalExpr(*a, env));
@@ -1236,7 +1350,14 @@ namespace cuff
             const FunctionDecl *user = findUser(call.functionNameId);
             if (user && !user->isAsync)
                 throwAwaitOnNonAsync(call.functionName, loc);
-            std::vector<Value> args;
+            std::vector<Value> args = takeArgsBuffer();
+            struct ArgsReturner
+            {
+                Interpreter *interp;
+                std::vector<Value> *v;
+                ~ArgsReturner() { interp->returnArgsBuffer(std::move(*v)); }
+            } argsReturn{this, &args};
+
             args.reserve(call.args.size());
             for (auto &a : call.args)
                 args.push_back(evalExpr(*a, env));
@@ -1255,9 +1376,15 @@ namespace cuff
                 throwCallDepth(decl, loc);
             tick(loc);
 
-            FrameGuard guard(this, decl.isReturnable);
+            FrameGuard guard(this, decl.isReturnable, decl.isPure);
 
             Environment funcEnv(Environment::Kind::FunctionScope, globalEnv_);
+            EnvPoolReturner poolReturn{this, &funcEnv}; // must be declared after funcEnv (see its comment)
+            if (!envVarsPool_.empty())
+            {
+                funcEnv.adoptStorage(std::move(envVarsPool_.back()));
+                envVarsPool_.pop_back();
+            }
             funcEnv.reserve(decl.params.size());
             for (size_t i = 0; i < decl.paramIds.size(); ++i)
                 funcEnv.declare(decl.paramIds[i], std::move(args[i]), false);
@@ -1379,7 +1506,10 @@ namespace cuff
         {
             if (use.isDLC)
             {
-                registerDLC(use.name, natives_, use.loc);
+                NetworkDLCOptions netOpts;
+                netOpts.enabled = config_.networkEnabled;
+                netOpts.allowPrivateTargets = config_.allowPrivateNetworkTargets;
+                registerDLC(use.name, natives_, use.loc, netOpts);
                 return;
             }
             loadCustomModule(use.name, use.path, use.loc, env);

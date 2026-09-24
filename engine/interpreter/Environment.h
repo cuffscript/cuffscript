@@ -109,6 +109,25 @@ namespace cuff
         // with the parameter count, so binding N parameters is one allocation.
         void reserve(size_t n) { vars_.reserve(n); }
 
+        // Reuses a previously-released vars_ buffer (see Interpreter's
+        // per-call environment pool) instead of starting from an empty
+        // vector, so a hot recursive call doesn't pay for a fresh heap
+        // allocation on every invocation. Only the raw storage is reused —
+        // it's cleared first, and this environment's own index_/constants_
+        // are unaffected (a freshly constructed Environment already has
+        // neither).
+        void adoptStorage(std::vector<std::pair<uint32_t, Value>> &&storage)
+        {
+            storage.clear();
+            vars_ = std::move(storage);
+        }
+
+        // Hands back this environment's vars_ storage so a later call can
+        // adopt it (see adoptStorage). Only call this once vars_ is no
+        // longer needed — e.g., right after execBlock returns, before the
+        // Environment itself goes out of scope.
+        std::vector<std::pair<uint32_t, Value>> releaseStorage() { return std::move(vars_); }
+
         bool isDeclaredHere(uint32_t nameId) const
         {
             return const_cast<Environment *>(this)->findLocal(nameId) != nullptr;

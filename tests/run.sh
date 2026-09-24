@@ -43,8 +43,14 @@ run_success_case() {
 run_error_case() {
     local cuff="$1"
     local expected_code_file="${cuff%.cuff}.expected_code"
+    local args_file="${cuff%.cuff}.args"
+    local extra_args=()
+    if [ -f "$args_file" ]; then
+        # shellcheck disable=SC2207
+        extra_args=($(cat "$args_file"))
+    fi
     local actual
-    actual=$(timeout 10 "$BIN" "$cuff" 2>&1)
+    actual=$(timeout 10 "$BIN" "${extra_args[@]}" "$cuff" 2>&1)
     local code=$?
     if [ $code -eq 0 ]; then
         echo "FAIL (expected nonzero exit): $cuff"

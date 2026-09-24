@@ -41,6 +41,8 @@ namespace cuff
             uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
             uint32_t timeoutMs = 0; // wall-clock budget; 0 = unlimited
             size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
+            bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
+            bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
         };
 
         // `keepTokens` retains the raw/lexed token streams in the result (only
@@ -122,6 +124,8 @@ namespace cuff
                 config.maxSteps = options.maxSteps;
                 config.timeoutMs = options.timeoutMs;
                 config.stackBudgetBytes = options.stackBudgetBytes;
+                config.networkEnabled = options.networkEnabled;
+                config.allowPrivateNetworkTargets = options.allowPrivateNetworkTargets;
                 Interpreter interp(std::move(config));
                 interp.run(*result.ast, scriptDir);
             }

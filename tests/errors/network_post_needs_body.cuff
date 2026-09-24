@@ -1,0 +1,3 @@
+note: E1001
+use DLC:network
+post("http://example.com/")

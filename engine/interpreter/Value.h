@@ -192,6 +192,15 @@ namespace cuff
     struct ValueList
     {
         std::vector<Value> items;
+        // Set once, at the point a `constant list` declaration freezes a
+        // fresh copy of its value (see Interpreter::execDeclaration). Checked
+        // wherever list *contents* can be mutated (add/remove/index-assign);
+        // reassigning the *variable* that names a constant is a separate,
+        // pre-existing check in Environment/execChange. Because this lives on
+        // the value itself rather than any one variable, it also protects an
+        // alias or a function argument that ends up pointing at the same
+        // frozen list — a plain `list` variable can never set this to true.
+        bool isConstant = false;
         ~ValueList();
     };
 

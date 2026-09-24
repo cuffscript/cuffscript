@@ -27,7 +27,8 @@ namespace cuff
         {
             if (!p.check(TokenType::SET))
                 return false;
-            return p.peek(1).is(TokenType::FUNCTION) || p.peek(1).is(TokenType::RETURNABLE) || p.peek(1).is(TokenType::ASYNC);
+            return p.peek(1).is(TokenType::FUNCTION) || p.peek(1).is(TokenType::RETURNABLE) ||
+                   p.peek(1).is(TokenType::ASYNC) || p.peek(1).is(TokenType::PURE);
         }
 
         // Parse a set declaration (non-function). Caller should check isFunctionDecl first.

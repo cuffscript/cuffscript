@@ -464,12 +464,13 @@ namespace cuff
 
     struct FunctionDecl
     {
-        // A function can be async, returnable, both, or neither (e.g.
-        // `set async returnable function fetch() do: ... end`). The two
-        // modifiers are independent, so they're tracked as separate flags
-        // rather than a single enum.
+        // A function can be async, returnable, pure, any combination, or
+        // none (e.g. `set async returnable function fetch() do: ... end`).
+        // The modifiers are independent, so they're tracked as separate
+        // flags rather than a single enum.
         bool isAsync = false;
         bool isReturnable = false;
+        bool isPure = false; // 'pure': body cannot read or write global-scope variables
         std::string name;
         uint32_t nameId = 0; // interned `name`, set by the parser
         std::vector<std::string> params;

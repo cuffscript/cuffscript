@@ -16,7 +16,7 @@ set str user_email to "Player_One@CuffLang.com"
 set list reward_tier_list to ["Gold", "Silver", "Bronze"]
 
 note: 3단계: 논리 검증 및 텍스트 패턴 매칭을 담당하는 리턴 제어 함수 선언
-set returnable function audit_and_assess_user(email, lvl) do:
+set returnable func audit_and_assess_user(email, lvl) do:
 
     note: 패턴 매칭을 통한 이메일 구조 검증 (is 연산자 사용)
     if email is "[str]+@[str]2~10" do:
@@ -38,7 +38,7 @@ set returnable function audit_and_assess_user(email, lvl) do:
 end
 
 note: 4단계: 비동기 데이터 처리를 대행하는 독립형 함수 개설
-set async function backup_user_cloud_data() do:
+set async func backup_user_cloud_data() do:
     print("가상 머신 내부 데이터 스냅샷을 원격 클라우드 인프라로 전송 동기화합니다.")
 end
 

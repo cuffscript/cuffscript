@@ -40,7 +40,7 @@ set list colors to ["red", "green", "blue"]
 change age to 26
 ```
 
-상수는 `constant`를 사용하며 이름은 반드시 전체 대문자여야 합니다 (런타임에 검사됩니다 — 소문자를 하나라도 쓰거나, 이후 `change`로 값을 바꾸려 하면 즉시 런타임 오류가 발생합니다).
+상수는 `constant`를 사용하며 이름은 반드시 전체 대문자여야 합니다 (런타임에 검사됩니다 — 소문자를 하나라도 쓰거나, 이후 `change`로 값을 바꾸려 하면 즉시 런타임 오류가 발생합니다). `constant`는 `list`에도 쓸 수 있어서, 파이썬 튜플처럼 완전히 읽기 전용인 리스트를 만들 수 있습니다 — 추가/삭제/인덱스 대입 시도는 (별명이나 함수 인자를 통해서도) 전부 런타임 오류이며, 다만 그 안에 든 리스트 자체는 파이썬 튜플처럼 여전히 바꿀 수 있습니다(얕은 불변성).
 
 ```cuff
 set constant number MAX_LEVEL to 99
@@ -50,7 +50,7 @@ set constant number MAX_LEVEL to 99
 
 ```cuff
 set number counter to 0
-set function increment() do:
+set func increment() do:
     change counter to global
     change counter to counter + 1
 end
@@ -108,17 +108,17 @@ set number n to count "[num]+" in text
 
 ### 함수와 모듈
 
-함수 선언은 `returnable`과 `async` 수식어를 자유롭게 조합할 수 있습니다 (`set function`, `set returnable function`, `set async function`, `set async returnable function` 등). `async` 함수를 `await`로 호출하면 즉시 실행되어 값을 돌려받고, `await` 없이 호출하면 최상위 스크립트의 동기 코드가 전부 끝난 뒤 실행되도록 큐에 쌓입니다 ([docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 1번 항목 참고).
+함수 선언은 `returnable`, `async`, `pure` 수식어를 자유롭게 조합할 수 있습니다 (`set func`, `set returnable func`, `set async func`, `set pure func`, `set async returnable pure func` 등). `async` 함수를 `await`로 호출하면 즉시 실행되어 값을 돌려받고, `await` 없이 호출하면 최상위 스크립트의 동기 코드가 전부 끝난 뒤 실행되도록 큐에 쌓입니다 ([docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 1번 항목 참고). `pure`가 붙은 함수는 본문에서 최상위 전역 변수를 읽거나 쓸 수 없으며(시도하면 즉시 런타임 오류), 이 제약은 그 함수 자신에게만 적용되고 `pure` 키워드를 지우면 바로 풀립니다.
 
 ```cuff
-set returnable function double(value) do:
+set returnable func double(value) do:
     return value * 2
 end
 
 set number result to double(21)
 ```
 
-`use DLC:<이름>`은 내장 라이브러리(`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network`)를 불러옵니다 — 전체 함수 목록은 [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 참고. `use <이름> from <경로>`는 실행 중인 스크립트를 기준으로 다른 `.cuff` 파일을 불러와 최상위 함수/변수를 현재 스코프에 합칩니다. 모듈은 스크립트가 있는 폴더 안에 있어야 하며, `--root <dir>`로 범위를 넓힐 수 있습니다.
+`use DLC:<이름>`은 내장 라이브러리(`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network`)를 불러옵니다 — 전체 함수 목록은 [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) 참고. `DLC:network`의 `get`/`post`는 평범한 HTTP만 지원하며(TLS 없음) 기본적으로 로컬/사설망 주소는 차단합니다 — 민감한 곳에 쓰기 전에 `SECURITY.md`를 확인하세요. `use <이름> from <경로>`는 실행 중인 스크립트를 기준으로 다른 `.cuff` 파일을 불러와 최상위 함수/변수를 현재 스코프에 합칩니다. 모듈은 스크립트가 있는 폴더 안에 있어야 하며, `--root <dir>`로 범위를 넓힐 수 있습니다.
 
 오류 처리 결합 구문은 `or_else do: ... end`이며, 바로 앞 구문에서 발생한 (문법 오류가 아닌) 복구 가능한 런타임 오류를 잡아냅니다.
 

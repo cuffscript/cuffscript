@@ -1,5 +1,5 @@
 note: E4017
-set returnable function down(n) do:
+set returnable func down(n) do:
     if n is 0 do:
         return 0
     end

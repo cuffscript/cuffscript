@@ -1,0 +1,6 @@
+note: E4003
+set constant list T to [1, 2, 3]
+set func mutate(x) do:
+    add 4 to x
+end
+mutate(T)

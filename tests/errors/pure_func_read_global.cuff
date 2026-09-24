@@ -1,0 +1,6 @@
+note: E4027
+set number x to 1
+set returnable pure func f() do:
+    return x
+end
+print(f())

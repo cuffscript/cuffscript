@@ -2,24 +2,68 @@
 
 #include "../common/Token.h"
 #include "../common/TokenTypes.h"
+#include "../common/Attributes.h"
 #include "../common/CuffError.h"
 #include "../common/Limits.h"
 #include "ASTNodes.h"
+#include <algorithm>
+#include <cstdio>
 #include <vector>
 #include <string>
 
 namespace cuff
 {
 
+    // Lowest real stack address the parser's own recursion may reach; 0 =
+    // no floor (unknown/not yet primed). Kept separate from the
+    // interpreter's stackFloor() — they guard different, non-overlapping
+    // phases (see ParseStackFloorScope) and must never be confused.
+    inline uintptr_t &parseStackFloor()
+    {
+        static thread_local uintptr_t floor = 0;
+        return floor;
+    }
+
+    // Primes parseStackFloor() from the real stack available *right now* —
+    // called once at the top of Parser::parse(), so a module parsed deep
+    // inside a running script's own recursion (via `use ... from`) gets a
+    // floor based on however much stack is actually left at that point, not
+    // a stale budget computed back when the top-level script started.
+    struct ParseStackFloorScope
+    {
+        uintptr_t previous;
+        ParseStackFloorScope()
+        {
+            previous = parseStackFloor();
+            const uintptr_t sp = stackPointer();
+            size_t avail = availableStackBytes();
+            size_t budget = avail
+                                ? (avail > limits::kParseStackMargin ? avail - limits::kParseStackMargin : avail / 2)
+                                : limits::kParseStackBudget;
+            budget = std::min(budget, limits::kParseStackBudget);
+            parseStackFloor() = sp > budget ? sp - budget : 0;
+#ifdef CUFF_DEBUG_STACK
+            std::fprintf(stderr, "[parse-stack] sp=%zu avail=%zu budget=%zu floor=%zu\n",
+                         (size_t)sp, avail, budget, (size_t)parseStackFloor());
+#endif
+        }
+        ~ParseStackFloorScope() { parseStackFloor() = previous; }
+    };
+
     // Counts native recursion depth across every parser (including the nested
     // parsers used for f-string expressions) so hostile nesting fails with a
-    // syntax error instead of exhausting the C++ stack.
+    // syntax error instead of exhausting the C++ stack. Backed by two
+    // independent checks: a level counter (kMaxParseDepth) and, since a
+    // single level can cost several KB of real stack, a stack-pointer floor
+    // primed by ParseStackFloorScope — either one alone can miss a case the
+    // other catches.
     class ParseDepthScope
     {
     public:
         explicit ParseDepthScope(const SourceLocation &loc)
         {
-            if (++depth() > limits::kMaxParseDepth)
+            const uintptr_t floor = parseStackFloor();
+            if (++depth() > limits::kMaxParseDepth || (floor != 0 && stackPointer() < floor))
             {
                 --depth();
                 throw SyntaxError(ErrorCode::NestingTooDeep,

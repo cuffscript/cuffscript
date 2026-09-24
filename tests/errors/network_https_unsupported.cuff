@@ -1,0 +1,3 @@
+note: E4028
+use DLC:network
+get("https://example.com/")
