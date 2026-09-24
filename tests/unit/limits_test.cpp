@@ -71,6 +71,9 @@ int main()
     expectOk("100 nested parens", "set number x to " + rep("(", 100) + "1" + rep(")", 100) + "\n");
     expectOk("100 nested lists", "set list x to " + rep("[", 100) + rep("]", 100) + "\n");
     expectOk("200 nested ifs", rep("if true do: ", 200) + "print(1) " + rep("end ", 200) + "\n");
+    expectOk("480 nested parens (near the raised 512 ceiling)", "set number x to " + rep("(", 480) + "1" + rep(")", 480) + "\n");
+    expectOk("480 nested ifs (near the raised 512 ceiling)", rep("if true do: ", 480) + "print(1) " + rep("end ", 480) + "\n");
+    expectError("700 nested parens exceeds the raised 512 ceiling", "print(" + rep("(", 700) + "1" + rep(")", 700) + ")\n", "E2008");
     expectOk("500-term chain", "set number x to " + rep("1+", 500) + "1\n");
     expectOk("1500-term chain", "set number x to " + rep("1+", 1500) + "1\n");
 
@@ -79,7 +82,7 @@ int main()
 
     // ---- runtime stack safety ----
     {
-        std::string body = "set returnable function down(n) do:\n    if n is 0 do:\n        return 0\n    end\n";
+        std::string body = "set returnable func down(n) do:\n    if n is 0 do:\n        return 0\n    end\n";
         int depth = 60;
         for (int i = 0; i < depth; ++i)
             body += rep("    ", 1 + static_cast<size_t>(i)) + "if true do:\n";
@@ -91,9 +94,9 @@ int main()
         expectOk("nested blocks x shallow recursion", body + "print(down(5))\n");
     }
     expectOk("plain recursion at depth 900",
-             "set returnable function down(n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + down(n - 1)\nend\nprint(down(900))\n");
+             "set returnable func down(n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + down(n - 1)\nend\nprint(down(900))\n");
     expectError("infinite recursion",
-                "set returnable function boom(n) do:\n    return boom(n + 1)\nend\nprint(boom(1))\n", "E4017");
+                "set returnable func boom(n) do:\n    return boom(n + 1)\nend\nprint(boom(1))\n", "E4017");
 
     // ---- value structure safety ----
     expectOk("print a cyclic list", "set list a to []\nadd a to a\nprint(a)\n");
@@ -156,8 +159,8 @@ int main()
         fs::create_directories(base / "proj" / "lib");
         fs::create_directories(base / "shared");
         {
-            std::ofstream(base / "proj" / "lib" / "helper.cuff") << "set returnable function seven() do:\n    return 7\nend\n";
-            std::ofstream(base / "shared" / "outside.cuff") << "set returnable function eight() do:\n    return 8\nend\n";
+            std::ofstream(base / "proj" / "lib" / "helper.cuff") << "set returnable func seven() do:\n    return 7\nend\n";
+            std::ofstream(base / "shared" / "outside.cuff") << "set returnable func eight() do:\n    return 8\nend\n";
         }
         const std::string dir = (base / "proj").string();
 

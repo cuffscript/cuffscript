@@ -1,0 +1,4 @@
+note: E4003
+set constant list T to [1, 2, 3]
+set list a to T
+add 4 to a

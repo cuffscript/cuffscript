@@ -1,0 +1,7 @@
+note: E4027
+set number x to 1
+set pure func f() do:
+    change x to global
+    change x to 2
+end
+f()

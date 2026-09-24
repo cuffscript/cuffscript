@@ -18,19 +18,19 @@
   들어가고, **최상위 스크립트의 동기 코드가 전부 끝난 뒤** 큐에 들어간 순서대로(FIFO)
   실행됩니다. 큐에 들어간 호출의 반환값은 관찰할 수 없습니다 (애초에 `await`를 안 썼으니
   값을 받을 방법이 없음) — 항상 `empty`가 즉시 반환됩니다.
-  - 큐를 비우는 시점은 스크립트 전체 실행 종료 시 딱 한 번입니다. 도중에(예: 각 최상위
-    문장 끝마다) 비우는 방식도 고려했지만, 그러면 "큐에 넣은 바로 다음 줄이 실행되기도
-    전에 비동기 작업이 끝나버려서" 사실상 즉시 실행과 체감상 차이가 없었습니다. "동기
-    코드가 전부 끝난 뒤에 실행된다"는 규칙이 훨씬 이해하기 쉽고 실제로 "나중에
-    실행된다"는 걸 보여줍니다. (`examples/10_async_ordering.cuff` 참고)
-  - 실제 스레드/병렬성은 전혀 쓰지 않습니다 — 인터프리터의 공유 상태
-    (`Environment`, 함수 테이블, 정규식 캐시 등)가 스레드 안전하지 않으므로, 진짜
-    동시성을 도입하려면 그 전부를 뮤텍스로 감싸야 하는 큰 작업이 됩니다. 안정성을
-    우선해 "협조적 지연 실행"만 구현했습니다.
+    - 큐를 비우는 시점은 스크립트 전체 실행 종료 시 딱 한 번입니다. 도중에(예: 각 최상위
+      문장 끝마다) 비우는 방식도 고려했지만, 그러면 "큐에 넣은 바로 다음 줄이 실행되기도
+      전에 비동기 작업이 끝나버려서" 사실상 즉시 실행과 체감상 차이가 없었습니다. "동기
+      코드가 전부 끝난 뒤에 실행된다"는 규칙이 훨씬 이해하기 쉽고 실제로 "나중에
+      실행된다"는 걸 보여줍니다. (`examples/10_async_ordering.cuff` 참고)
+    - 실제 스레드/병렬성은 전혀 쓰지 않습니다 — 인터프리터의 공유 상태
+      (`Environment`, 함수 테이블, 정규식 캐시 등)가 스레드 안전하지 않으므로, 진짜
+      동시성을 도입하려면 그 전부를 뮤텍스로 감싸야 하는 큰 작업이 됩니다. 안정성을
+      우선해 "협조적 지연 실행"만 구현했습니다.
 - `await`를 `async`가 아닌 함수에 사용하면 `AwaitOnNonAsync` 런타임 오류가 발생합니다 —
   이렇게 하면 `await`가 여전히 "이 함수는 비동기다"라는 문서 역할을 합니다.
 - `async`와 `returnable`은 서로 다른 수식어라서 함께 쓸 수 있습니다
-  (`set async returnable function ...`). 명세 예제에는 등장하지 않지만 문법상 자연스러운
+  (`set async returnable func ...`). 명세 예제에는 등장하지 않지만 문법상 자연스러운
   조합이라 허용했습니다.
 
 ## 2. 정규식에서 `.`(마침표)의 의미
@@ -98,17 +98,17 @@ f-string은 바깥쪽 큰따옴표(`"`)로 감싸입니다. `{...}` 표현식 �
 명세는 `use DLC:network`라는 예시 하나만 보여줄 뿐 구체적인 라이브러리 목록을 정의하지
 않습니다. 이 엔진은 다음을 제공합니다.
 
-| 라이브러리 | 제공 함수 |
-|---|---|
-| `DLC:math` | `sqrt`, `abs`, `pow`, `round`, `floor`, `ceil`, `trunc`, `sign`, `min`, `max`, `clamp`, `mod`, `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pi`, `e` |
-| `DLC:string` | `upper`, `lower`, `trim`, `trim_start`, `trim_end`, `length`, `contains`, `index_of`, `starts_with`, `ends_with`, `repeat_str`, `pad_left`, `pad_right`, `char_code`, `from_char_code` |
-| `DLC:time` | `now`, `timestamp` |
-| `DLC:random` | `random`, `random_int`, `random_seed`, `choice`, `shuffle` |
-| `DLC:list` | `sort`, `reverse`, `join`, `unique`, `sum`, `average`, `flatten`, `range`, `length`, `contains`, `index_of` — 전부 원본을 바꾸지 않고 새 값을 반환 |
-| `DLC:map` | `keys`, `values`, `has_key`, `entries`, `merge`, `length`, `contains` — 22~24번 항목 참고 |
-| `DLC:convert` | `to_number`, `to_str`, `to_boolean` — 명시적 타입 변환 |
-| `DLC:json` | `to_json`, `from_json` — 아래 19번 항목 참고 |
-| `DLC:network` | `fetch`, `get`, `post` — **불러오기는 항상 성공**하지만, 실제로 호출하면 이 실행 환경에 네트워크 샌드박싱이 없다는 명확한 `ModuleError`를 던집니다. |
+| 라이브러리    | 제공 함수                                                                                                                                                                                     |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DLC:math`    | `sqrt`, `abs`, `pow`, `round`, `floor`, `ceil`, `trunc`, `sign`, `min`, `max`, `clamp`, `mod`, `log`, `log2`, `log10`, `exp`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `pi`, `e` |
+| `DLC:string`  | `upper`, `lower`, `trim`, `trim_start`, `trim_end`, `length`, `contains`, `index_of`, `starts_with`, `ends_with`, `repeat_str`, `pad_left`, `pad_right`, `char_code`, `from_char_code`        |
+| `DLC:time`    | `now`, `timestamp`                                                                                                                                                                            |
+| `DLC:random`  | `random`, `random_int`, `random_seed`, `choice`, `shuffle`                                                                                                                                    |
+| `DLC:list`    | `sort`, `reverse`, `join`, `unique`, `sum`, `average`, `flatten`, `range`, `length`, `contains`, `index_of` — 전부 원본을 바꾸지 않고 새 값을 반환                                            |
+| `DLC:map`     | `keys`, `values`, `has_key`, `entries`, `merge`, `length`, `contains` — 22~24번 항목 참고                                                                                                     |
+| `DLC:convert` | `to_number`, `to_str`, `to_boolean` — 명시적 타입 변환                                                                                                                                        |
+| `DLC:json`    | `to_json`, `from_json` — 아래 19번 항목 참고                                                                                                                                                  |
+| `DLC:network` | `fetch`, `get`, `post` — **불러오기는 항상 성공**하지만, 실제로 호출하면 이 실행 환경에 네트워크 샌드박싱이 없다는 명확한 `ModuleError`를 던집니다.                                           |
 
 `DLC:list`/`DLC:convert`를 추가하며 발견한 것: 라이브러리 이름이 `list`, `count`,
 `find`처럼 언어 예약어와 겹치면 `use DLC:list`가 파싱조차 안 되는 버그가 있었습니다
@@ -209,7 +209,7 @@ build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
 실측 없이는 믿으면 안 됩니다.
 
 **식별자로 예약어를 쓸 수 없는 범위가 생각보다 넓음 (미해결, 기록만 해둠).**
-`set number add to 5`, `set returnable function add(...) do:` 둘 다 파싱 에러가 납니다 —
+`set number add to 5`, `set returnable func add(...) do:` 둘 다 파싱 에러가 납니다 —
 `add`/`count`/`find`/`split`/`replace`/`match`/`in`/`by`/`not`/`global` 등, 문법 키워드로
 쓰이는 흔한 단어들을 변수명/함수명으로 전혀 쓸 수 없습니다. `ImportParser`에서 DLC 이름이
 같은 문제였던 것과 동일한 원인(`TokenType::IDENTIFIER`만 엄격히 검사)인데, 이번엔
@@ -219,11 +219,11 @@ build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
 
 ## 17. Regex matching is codepoint-based (not byte-based)
 
-*(Notes from here on are written in English.)*
+_(Notes from here on are written in English.)_
 
 The matcher walks the subject string one **UTF-8 codepoint** at a time, not one byte.
 Positions are still stored as byte offsets internally — that keeps `substr()` on captures
-free and avoids building an index table per match — but every place that *advances* a
+free and avoids building an index table per match — but every place that _advances_ a
 position now consumes a whole codepoint (`engine/common/Utf8.h`).
 
 What this changes, concretely:
@@ -233,10 +233,10 @@ What this changes, concretely:
 - A literal non-ASCII character written directly in a pattern (`"안녕"`) is compiled into a
   single multi-byte literal node and compared as one unit, instead of byte-by-byte.
 - Negated sets (`[!num]`, `[!a-z]`) match a non-ASCII codepoint. This is the one case where
-  a named class *can* apply to multi-byte text, and it's handled by testing the whole
+  a named class _can_ apply to multi-byte text, and it's handled by testing the whole
   codepoint rather than each byte.
 - `search()` only ever starts an attempt at a codepoint boundary, and `[one:...]`
-  alternatives must also *end* on one — otherwise a match could span a partial character
+  alternatives must also _end_ on one — otherwise a match could span a partial character
   and `substr()` would produce mojibake.
 - `[edge]` treats any non-ASCII codepoint as a word character, so `[edge]안녕[edge]` works.
   This follows the spec's own definition (REGEX.md section 17: the boundary between a word
@@ -245,7 +245,7 @@ What this changes, concretely:
 What deliberately stays ASCII-only, per the spec's explicit wording:
 
 - `[let]` (영문 알파벳 / English alphabet), `[low]`, `[up]`, `[str]` (영문자 + 숫자),
-  `[word]` (영문자 + 숫자 + 언더바 — an *identifier* class), `[num]`, `[hex]`, and the
+  `[word]` (영문자 + 숫자 + 언더바 — an _identifier_ class), `[num]`, `[hex]`, and the
   `[int]`/`[float]`/`[email]`/`[phone]`/`[url]` presets. `"안녕" is "[let]+"` is false.
 - `[any]` is the token for "any character in any language" — REGEX.md describes it as
   "줄바꿈을 제외한 세상의 모든 글자 및 기호".
@@ -262,7 +262,7 @@ sequences) are likewise out of scope, same reasoning as section 14.
 
 `list[i]`, `str[i]`, `x[i~j]`, and `loop repeat i to A ~ B` all reject a fractional value
 with `FractionalIndex` (E4024) instead of silently rounding it, which is what the engine
-used to do. A computed index that lands on `2.5` almost always means the *calculation* is
+used to do. A computed index that lands on `2.5` almost always means the _calculation_ is
 wrong; rounding it hides the bug and produces a plausible-looking wrong answer.
 
 Whole-valued doubles still work, since CuffScript has a single `number` type and `6 / 2`
@@ -295,7 +295,7 @@ Two conventions, both checked during a full audit of every throw site:
 - **Message capitalization is uniform**: every error message starts lowercase, because it's
   always rendered after a `...at line N, column M: ` prefix. (Parser messages used to start
   uppercase while runtime messages started lowercase.)
-- **`ArgumentError` means the wrong *number* of arguments; `ValueError`
+- **`ArgumentError` means the wrong _number_ of arguments; `ValueError`
   (`InvalidArgumentValue`, E4025) means the right number but a value the function can't
   use** — `sqrt(-1)`, `to_number("abc")`, malformed `from_json` input, `random_int(5, 1)`.
   These previously all reported as E4010 `ArgumentCountMismatch`, which was simply the wrong
@@ -326,12 +326,12 @@ merge path.
 
 Where it stands now, versus before any of this session's work:
 
-| benchmark | before | after |
-| :--- | ---: | ---: |
-| `fib(27)` (635k calls) | 0.241s | 0.140s |
+| benchmark                       | before |  after |
+| :------------------------------ | -----: | -----: |
+| `fib(27)` (635k calls)          | 0.241s | 0.140s |
 | 2M-iteration loop with `change` | 0.287s | 0.173s |
-| 400 globals, 200k lookups | 0.059s | 0.027s |
-| 3-argument call overhead | 252ns | ~145ns |
+| 400 globals, 200k lookups       | 0.059s | 0.027s |
+| 3-argument call overhead        |  252ns | ~145ns |
 
 **What would come next, and why it hasn't been done.** The profile is now dominated by
 `evalExpr` itself — AST node dispatch and `Value` copies — which is the intrinsic cost of a
@@ -424,3 +424,98 @@ functions are looked up by interned id; cold error paths are out of line, which 
 hot recursion frames and the stack used per call by about a quarter. Tokens are moved rather
 than copied between pipeline stages.
 
+## 25. v2.0.0: nesting ceiling, tuples, `pure`, `func`, and DLC:network
+
+**Nesting depth raised to 512.** `limits::kMaxParseDepth` (256 -> 512) governs source-level
+nesting: parentheses, list/map literals, and `if`/`loop`/`or_else` blocks. Raising the counter
+alone would have been unsafe on a small native stack (the parser recurses on the real C++
+stack with no bytecode to unwind into) — measured empirically, 512 levels of nested
+parentheses can need over 1 MiB of native stack, more than Windows' 1 MiB default thread
+stack. The parser now also primes a stack-pointer floor at the start of every `Parser::parse()`
+call (`ParseStackFloorScope`/`parseStackFloor()` in `ParserCore.h`), sized from the real
+available stack (`availableStackBytes()`, extended below) and checked by every
+`ParseDepthScope`, mirroring the interpreter's own stack guard. Other depth-like limits
+(`kMaxRegexNesting`, `kMaxImportDepth`, `kMaxValueDepth`) were left as they were — this change
+is scoped to source nesting only, not the size/collection/regex limits from v1.6.0.
+
+**`availableStackBytes()` is now cross-platform** (`engine/common/Attributes.h`): Linux via
+`pthread_getattr_np`, macOS via `pthread_get_stackaddr_np`/`pthread_get_stacksize_np`, Windows
+via `GetCurrentThreadStackLimits`, and Emscripten via `emscripten_stack_get_free()`. Previously
+Linux-only; both the parser's and the interpreter's stack guards now adapt to the real stack
+everywhere instead of guessing on three of the four shipped targets.
+
+**`constant list` (tuple).** `constant` now works on `list` as well as scalars, giving a
+Python-tuple-style read-only list — no new value type: `ValueList` gained one field,
+`isConstant`, checked at every mutation site (`add`/`remove`, and the final container in
+`resolveContainerSlot`, which is also what `change x[i] to v` and CollectionOp's `Replace` go
+through). Declaring one (`execDeclaration`'s `freezeList`) always copies the initializer into a
+fresh `ValueList` before freezing it, specifically so `set constant list T to existing_var`
+can't reach back and silently freeze `existing_var`'s own list — `List` is a reference type
+(`engine/interpreter/Value.h`), so without a defensive copy the two names would share one
+backing object. The immutability travels with that object, not with any one variable name: an
+alias or a function argument bound to the same frozen list is blocked too (`execChange`'s
+existing name-based constant check was narrowed to whole-variable reassignment only; an
+indexed write now falls through to the value-level check, which is what makes both the alias
+case and shallow nesting — mutating a plain list found _inside_ a frozen tuple is allowed, only
+the tuple's own slots are frozen — work correctly). `constant map` was not added; the ALL-CAPS
+naming rule is unchanged and applies to constants of every type as before.
+
+**`function` renamed to `func`.** A straight keyword replacement (`lexer/KeywordClassifier.h`),
+not an alias — existing scripts using `function` need a one-word find-and-replace. Every
+example, test fixture, and doc code sample was updated.
+
+**`pure` functions.** A new independent modifier (`async`/`returnable`/`pure` combine in any
+order): `set pure func f() do: ... end`. Enforcement lives entirely in `Interpreter`, not
+`Environment` — `FrameGuard` now also carries `isPure`, and the three places that resolve a
+name against an `Environment` (`evalExpr`'s identifier case, `execChange`, `execCollectionOp`)
+each check `currentFunctionPure_ && look.owner == &globalEnv_` and raise the new
+`PureFunctionGlobalAccess` (E4027) before the read/write happens; `change x to global` is
+rejected at the bridge itself, before it can even register. The restriction is on that
+function's own body, not the whole call graph: a pure function calling a non-pure one is fine,
+and the callee's own purity (or lack of it) governs its own body, exactly as `returnable` and
+`async` already worked per-call via the same `FrameGuard`. Removing `pure` is a complete,
+literal escape hatch, by construction — there's no separate override flag to keep in sync.
+
+**`DLC:network`.** A dependency-free HTTP/1.1 client, `engine/net/HttpClient.h`: POSIX sockets
+on Linux/macOS, Winsock2 on Windows (the one file in the engine with `#ifdef _WIN32` socket
+code). Plain HTTP only — no TLS, so `https://` fails with a clear error rather than silently
+talking plaintext to an HTTPS port. `get(url)` and `post(url, body[, content_type])` return
+`{"status", "ok", "body"}`; connection/DNS/timeout failures raise `NetworkRequestFailed` (E4028),
+catchable via `or_else` like any other runtime error. Handles chunked transfer-encoding,
+`Content-Length` framing, and 301/302/303/307/308 redirects (303, and 301/302 for an original
+POST, downgrade to GET per common client behavior; 307/308 preserve method and body), each
+capped (`limits::kHttpMaxRedirects`). Every resolved address is checked against loopback/
+private/link-local ranges (`net::isPrivateOrLoopback`, IPv4 and IPv6, checked on the concrete
+`sockaddr` right before connecting, not the hostname text) and rejected unless
+`CuffEngine::Options::allowPrivateNetworkTargets` opts in — the same "safe by default, widen
+explicitly" shape as the module sandbox's `rootDir`. `networkEnabled` (default true) lets an
+embedder turn `DLC:network` off entirely for untrusted scripts. Both are also CLI flags
+(`--allow-private-network`, `--no-network`). See `SECURITY.md` for the reasoning.
+
+**Windows build fix.** Cross-compiling with `x86_64-w64-mingw32-g++` surfaced a real bug:
+`<windows.h>` (pulled in by `Attributes.h` for `GetCurrentThreadStackLimits`) `#define`s `TRUE`,
+`FALSE` and `IN` as bare macros, silently mangling `TokenType::TRUE`/`FALSE`/`IN` wherever
+`Attributes.h` was included first (`TokenType::TRUE` would macro-expand to `TokenType::1`,
+failing to compile). Fixed with `WIN32_LEAN_AND_MEAN`/`NOMINMAX` plus targeted `#undef`s right
+after the `windows.h` include. The Windows build was not previously exercised with a real
+toolchain; it now compiles cleanly under mingw-w64 (`x86_64-w64-mingw32-g++`, `-lws2_32`).
+Actually running the cross-compiled binary could not be verified in this environment (no
+working Windows/Wine runtime available) — only compilation was confirmed.
+
+**Performance.** Two changes, both measured, both kept because neither regresses anything:
+`std::get<T>` calls in the `evalExpr`/`execStatement` dispatch were replaced with
+`std::get_if<T>` (avoids the exception-handling path `std::get` carries even though the kind
+check already guarantees the right alternative), and `evalCall`/`invokeAwaited`/
+`callUserFunction` now recycle their argument vector and the callee `Environment`'s variable
+storage across calls (`Interpreter::argsPool_`/`envVarsPool_`, capped, RAII-returned on every
+exit path including exceptions) instead of allocating fresh each call. Two other ideas were
+tried and measured to have no real benefit on this toolchain (glibc 2.39), so were **not**
+adopted as load-bearing optimizations: replacing `shared_ptr`'s atomic refcounting with a
+non-atomic one (glibc's `__libc_single_threaded` fast path already makes single-threaded
+`shared_ptr` copies non-atomic in practice) and a broader allocation-pooling scheme beyond the
+call path above (glibc's per-thread tcache already caches same-size small allocations about as
+well as a hand-rolled pool would). Net effect: recursive/call-heavy code (`fib(30)`) is
+modestly faster (~7%); pure arithmetic loops, which make no allocations to begin with, are
+unchanged — a tree-walking evaluator's per-node cost was already close to its practical floor
+after v1.6.0's work, and closing that gap further would mean the bytecode VM this project is
+deliberately deferring, not a tuning pass.

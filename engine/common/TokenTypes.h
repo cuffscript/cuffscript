@@ -71,6 +71,7 @@ namespace cuff
         EMPTY,
         ASYNC,
         RETURNABLE,
+        PURE,
         FUNCTION,
         ADD,
         REMOVE,
@@ -204,8 +205,10 @@ namespace cuff
             return "async";
         case TokenType::RETURNABLE:
             return "returnable";
+        case TokenType::PURE:
+            return "pure";
         case TokenType::FUNCTION:
-            return "function";
+            return "func";
         case TokenType::ADD:
             return "add";
         case TokenType::REMOVE:

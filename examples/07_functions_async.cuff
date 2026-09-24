@@ -1,6 +1,6 @@
 note: returnable / async 함수 조합
 
-set returnable function fib(n) do:
+set returnable func fib(n) do:
     if n <= 1 do:
         return n
     end
@@ -8,7 +8,7 @@ set returnable function fib(n) do:
 end
 print(f"fib(10) = {fib(10)}")
 
-set async returnable function fetch_value() do:
+set async returnable func fetch_value() do:
     return 42
 end
 set number v to await fetch_value()

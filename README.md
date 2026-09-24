@@ -40,7 +40,7 @@ set list colors to ["red", "green", "blue"]
 change age to 26
 ```
 
-Constants use the `constant` keyword; their names must be written in ALL CAPS (checked at runtime — using a lowercase letter, or later trying to `change` one, raises a runtime error immediately).
+Constants use the `constant` keyword; their names must be written in ALL CAPS (checked at runtime — using a lowercase letter, or later trying to `change` one, raises a runtime error immediately). `constant` also works on `list`, giving a Python-tuple-style read-only list: adding, removing, or index-assigning into it (even through an alias or a function argument bound to the same list) is a runtime error, though a plain list found _inside_ a frozen one is still mutable — the same shallow immutability a Python tuple has.
 
 ```cuff
 set constant number MAX_LEVEL to 99
@@ -50,7 +50,7 @@ Inside a function, a variable declared outside it can be modified (not just read
 
 ```cuff
 set number counter to 0
-set function increment() do:
+set func increment() do:
     change counter to global
     change counter to counter + 1
 end
@@ -73,10 +73,10 @@ The loop forms are `loop repeat`, `loop while`, and `loop match`. Inside a loop,
 ### Expressions and Collections
 
 - Comparison: `is` (case-sensitive), `IS` (case-insensitive); negate either with `is not` / `IS not`
-- Boolean negation: `!` — binds *looser* than comparison, so `!lvl is MAX_LEVEL` means `!(lvl is MAX_LEVEL)`
+- Boolean negation: `!` — binds _looser_ than comparison, so `!lvl is MAX_LEVEL` means `!(lvl is MAX_LEVEL)`
 - Lists and maps: `[]`, `{}` (maps preserve insertion order)
 - 1-based indexing and inclusive range slicing: `[1]`, `[2~4]`, negative indices count from the end (`[-1]` is the last element)
-- f-strings: `f"Hello, {name}"` — use `'single quotes'` for any string literal *inside* the `{...}`, since `"` would otherwise close the f-string early; `{{`/`}}` produce literal braces
+- f-strings: `f"Hello, {name}"` — use `'single quotes'` for any string literal _inside_ the `{...}`, since `"` would otherwise close the f-string early; `{{`/`}}` produce literal braces
 - Collection manipulation: `add`, `remove`, `replace`, or index-assignment via `change`
 
 ```cuff
@@ -108,17 +108,17 @@ Pattern matching is protected against catastrophic backtracking with a built-in 
 
 ### Functions and Modules
 
-Function declarations combine the modifiers `returnable` and `async` freely (`set function`, `set returnable function`, `set async function`, `set async returnable function`, ...). Calling an `async` function with `await` runs it immediately and returns its value; calling it *without* `await` defers it to a queue that runs after the whole top-level script's synchronous code finishes (see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) section 1).
+Function declarations combine the modifiers `returnable`, `async`, and `pure` freely (`set func`, `set returnable func`, `set async func`, `set pure func`, `set async returnable pure func`, ...). Calling an `async` function with `await` runs it immediately and returns its value; calling it _without_ `await` defers it to a queue that runs after the whole top-level script's synchronous code finishes (see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) section 1). A `pure` function's body cannot read or write any top-level global variable (a clear runtime error if it tries) — removing the keyword is the only way to lift that; the restriction is on that function's own body, not whatever it calls.
 
 ```cuff
-set returnable function double(value) do:
+set returnable func double(value) do:
     return value * 2
 end
 
 set number result to double(21)
 ```
 
-`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope. Modules must live inside the script's directory unless you widen the sandbox with `--root <dir>`.
+`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `DLC:network`'s `get`/`post` speak plain HTTP only (no TLS) and refuse loopback/private addresses by default — see `SECURITY.md` before pointing it at anything sensitive. `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope. Modules must live inside the script's directory unless you widen the sandbox with `--root <dir>`.
 
 The error-handling composition syntax is `or_else do: ... end`, which catches any recoverable runtime error (not syntax errors) raised by the statement it follows:
 

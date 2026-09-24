@@ -12,9 +12,10 @@ namespace cuff
 {
 
     // Parses function declarations:
-    //   set function name(params) do: <newline> ... end
-    //   set returnable function name(params) do: <newline> ... end
-    //   set async function name(params) do: <newline> ... end
+    //   set func name(params) do: <newline> ... end
+    //   set returnable func name(params) do: <newline> ... end
+    //   set async func name(params) do: <newline> ... end
+    //   set pure func name(params) do: <newline> ... end   (body cannot touch global scope)
     //
     // Enforces: NO one-line shorthand — body must start on a new line after do:.
     // Function bodies require indentation (enforced by INDENT token).
@@ -26,11 +27,12 @@ namespace cuff
             SourceLocation loc = p.current().location;
             p.consume(TokenType::SET, "expected 'set'");
 
-            // `async` and `returnable` are independent modifiers and may
-            // appear together, in either order (e.g. `set async returnable
-            // function ...` or `set returnable async function ...`).
+            // `async`, `returnable` and `pure` are independent modifiers and
+            // may appear together, in any order (e.g. `set async returnable
+            // pure func ...` or `set pure func ...`).
             bool isAsync = false;
             bool isReturnable = false;
+            bool isPure = false;
             while (true)
             {
                 if (p.match(TokenType::RETURNABLE))
@@ -41,13 +43,17 @@ namespace cuff
                 {
                     isAsync = true;
                 }
+                else if (p.match(TokenType::PURE))
+                {
+                    isPure = true;
+                }
                 else
                 {
                     break;
                 }
             }
 
-            p.consume(TokenType::FUNCTION, "expected 'function' keyword");
+            p.consume(TokenType::FUNCTION, "expected 'func' keyword");
 
             std::string name;
             if (p.check(TokenType::IDENTIFIER))
@@ -57,7 +63,7 @@ namespace cuff
             }
             else
             {
-                throw SyntaxError("expected function name after 'function'", p.current().location);
+                throw SyntaxError("expected function name after 'func'", p.current().location);
             }
 
             // Parse parameter list
@@ -118,6 +124,7 @@ namespace cuff
             FunctionDecl decl;
             decl.isAsync = isAsync;
             decl.isReturnable = isReturnable;
+            decl.isPure = isPure;
             decl.name = name;
             decl.nameId = internName(name);
             decl.params = std::move(params);

@@ -1,0 +1,22 @@
+use DLC:list
+set constant list PRIMES to [2, 3, 5, 7]
+print(PRIMES)
+print(length(PRIMES))
+
+note: freezing from an existing variable copies it — the source stays mutable
+set list mutable_src to [1, 2, 3]
+set constant list SNAPSHOT to mutable_src
+add 99 to mutable_src
+print(mutable_src)
+print(SNAPSHOT)
+
+note: shallow immutability, like a Python tuple: nested containers still mutate
+set constant list NESTED to [1, [2, 3]]
+change NESTED[2][1] to 999
+print(NESTED)
+
+note: the escape hatch — concatenation returns a fresh, mutable list
+set list copy to PRIMES + []
+add 11 to copy
+print(copy)
+print(PRIMES)

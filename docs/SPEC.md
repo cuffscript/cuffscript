@@ -38,6 +38,23 @@ set constant number PI to 3.14
 set constant str API_URL to "https://cufflang.dev"
 ```
 
+- **리스트 상수 (튜플):** `constant`는 `list`에도 붙일 수 있습니다 (`set constant list [상수명] to [...]`). 이렇게 선언한 리스트는 파이썬의 튜플처럼, 이후 `add`/`remove`/`change [i]`로 내용을 바꾸려는 시도가 전부 런타임 에러(`ConstantReassignment`)로 즉시 차단되는 완전한 읽기 전용 값이 됩니다. 이 불변성은 리스트 값 자체에 붙어 있어서, 그 값을 다른 변수에 대입하거나 함수 인자로 넘겨도 (별명을 통해서도) 그대로 따라갑니다 — 변수 이름 하나만 상수인 것이 아닙니다. 다만 파이썬 튜플과 마찬가지로 **얕은(shallow)** 불변성이라, 튜플 안에 든 리스트나 맵 원소 자체는 별도로 `constant`를 붙이지 않는 한 여전히 자유롭게 변경할 수 있습니다.
+
+```cuff
+set constant list PRIMES to [2, 3, 5, 7]
+add 11 to PRIMES         note: 즉시 에러 -> ConstantReassignment
+
+set list mutable to [1, 2, 3]
+set constant list SNAPSHOT to mutable  note: mutable의 내용을 복사해서 얼립니다
+add 99 to mutable                      note: 원본 mutable은 여전히 자유롭게 바뀝니다
+print(SNAPSHOT)                        note: [1, 2, 3] -- 영향받지 않음
+
+set constant list NESTED to [1, [2, 3]]
+change NESTED[2][1] to 999             note: 허용 -- 얕은 불변성 (튜플 안의 리스트는 별개)
+
+set list copy to PRIMES + []           note: 탈출구: 이어붙이면 새 mutable 리스트가 나옵니다
+```
+
 ---
 
 ### 3\. 콜론(:) 공백 규격 및 주석 (note:, endnote)
@@ -246,24 +263,35 @@ end
     비동기 함수의 실제 실행 모델과 세부 동작은 별도의 구현 명세에서 정의합니다.
 
 - **문법:**
-    - 순수 보이드 함수 정의: `set function [함수명]([매개변수]) do: [줄바꿈] [실행코드] end`
-    - 결괏값 리턴 함수 정의: `set returnable function [함수명](...) do: [줄바꿈] return [출력값] end`
-    - 비동기 함수 정의: `set async function [함수명](...) do: [줄바꿈] [실행코드] end`
+    - 순수 보이드 함수 정의: `set func [함수명]([매개변수]) do: [줄바꿈] [실행코드] end`
+    - 결괏값 리턴 함수 정의: `set returnable func [함수명](...) do: [줄바꿈] return [출력값] end`
+    - 비동기 함수 정의: `set async func [함수명](...) do: [줄바꿈] [실행코드] end`
+    - 전역 접근 차단 함수 정의: `set pure func [함수명](...) do: [줄바꿈] [실행코드] end`
     - 비동기 함수 호출 대기: `await [비동기함수명]()`
+
+    `async`, `returnable`, `pure`는 서로 독립적인 수식어라 순서에 상관없이 자유롭게 조합할 수 있습니다 (`set returnable pure func`, `set async pure func` 등 모두 가능).
+
+    `pure`가 붙은 함수는 함수 본문에서 파라미터·지역 변수·`use DLC:...`로 불러온 내장 함수는 평소처럼 자유롭게 쓸 수 있지만, 함수 바깥의 최상위 전역 변수를 읽거나(`change ... to global`로 다리를 놓는 것 포함) 쓰려고 하면 그 즉시 런타임 에러(`PureFunctionGlobalAccess`)가 발생합니다. 이 제약은 그 함수의 본문에만 적용되며, `pure` 함수가 **다른(비순수) 함수를 호출**하는 것 자체는 막지 않습니다 — 호출된 함수는 자기 자신의 순수/비순수 여부에 따라 독립적으로 판단됩니다. 제약을 풀고 싶으면 `pure` 키워드만 지우면 됩니다.
 - **예시:**
 
 ```cuff
-set returnable function calculate_bonus(base_pay) do:
+set returnable func calculate_bonus(base_pay) do:
     set constant number MULTIPLIER to 2
     return base_pay * MULTIPLIER
 end
 
-set async function download_graphics() do:
+set async func download_graphics() do:
     print("그래픽 데이터를 비동기로 로드합니다.")
 end
 
 set number final_reward to calculate_bonus(5000)
 await download_graphics()
+
+use DLC:math
+set returnable pure func hypotenuse(a, b) do:
+    return sqrt(pow(a, 2) + pow(b, 2))
+end
+print(hypotenuse(3, 4))
 ```
 
 ---
@@ -285,12 +313,12 @@ await download_graphics()
 ```cuff
 set number global_count to 0
 
-set function increment() do:
+set func increment() do:
     change global_count to global  note: 전역 변수로 선언
     change global_count to global_count + 1
 end
 
-set function test_local() do:
+set func test_local() do:
     set number local_var to 100  note: 로컬 변수 (함수 내에서만 유효)
     print(local_var)             note: 100
 end
@@ -368,6 +396,12 @@ use DLC:network
 use dlc_graphic_pack from ./assets/plugins
 ```
 
+- **`DLC:network`:** 평범한 HTTP(HTTPS 아님) GET/POST 요청을 보내는 초경량 클라이언트입니다.
+    - `get(url)` / `post(url, body[, content_type])` — 둘 다 `{"status": 상태코드, "ok": 200~299 여부, "body": 응답본문}` 형태의 `map`을 돌려줍니다.
+    - `url`은 반드시 `http://`로 시작해야 합니다 (`https://`는 이 클라이언트가 TLS를 구현하지 않으므로 명확한 에러로 거절됩니다).
+    - 연결 실패·타임아웃·차단된 주소 등은 전부 `or_else`로 잡을 수 있는 런타임 에러입니다.
+    - 기본적으로 로컬호스트/사설망 주소로는 연결할 수 없습니다 (SSRF 방지). 호스트 실행 옵션으로 네트워크 자체를 끄거나 사설망 접근을 허용할 수 있습니다 — 자세한 내용과 위험성은 `SECURITY.md`를 참고하세요.
+
 ---
 
 # CuffScript 종합 검증 코드
@@ -391,7 +425,7 @@ set str user_email to "Player_One@CuffLang.com"
 set list reward_tier_list to ["Gold", "Silver", "Bronze"]
 
 note: 3단계: 논리 검증 및 텍스트 패턴 매칭을 담당하는 리턴 제어 함수 선언
-set returnable function audit_and_assess_user(email, lvl) do:
+set returnable func audit_and_assess_user(email, lvl) do:
 
     note: 패턴 매칭을 통한 이메일 구조 검증 (is 연산자 사용)
     if email is "[str]+@[str]2~10" do:
@@ -413,7 +447,7 @@ set returnable function audit_and_assess_user(email, lvl) do:
 end
 
 note: 4단계: 비동기 데이터 처리를 대행하는 독립형 함수 개설
-set async function backup_user_cloud_data() do:
+set async func backup_user_cloud_data() do:
     print("가상 머신 내부 데이터 스냅샷을 원격 클라우드 인프라로 전송 동기화합니다.")
 end
 

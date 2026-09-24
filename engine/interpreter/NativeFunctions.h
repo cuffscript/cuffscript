@@ -5,6 +5,7 @@
 #include "../common/Utf8.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
+#include "../net/HttpClient.h"
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>
@@ -1108,24 +1109,67 @@ namespace cuff
     }
 
     // ---- DLC:network ----
-    // Real network access is out of scope for this interpreter (no sandboxing
-    // story for it yet). The module still loads successfully — `use
-    // DLC:network` never fails by itself — but calling any of its functions
-    // fails clearly, rather than pretending to succeed.
-    inline void registerNetworkDLC(std::unordered_map<std::string, NativeFn> &reg)
+    // A real (plain-HTTP-only) client, backed by engine/net/HttpClient.h — see
+    // that file for the socket-level implementation and the SSRF guard.
+    struct NetworkDLCOptions
     {
-        auto stub = [](const std::string &name)
+        bool enabled = true;
+        bool allowPrivateTargets = false;
+    };
+
+    inline Value makeHttpResultMap(const net::HttpResponse &resp)
+    {
+        auto m = std::make_shared<ValueMap>();
+        m->set("status", Value::makeNumber(resp.status));
+        m->set("ok", Value::makeBool(resp.status >= 200 && resp.status < 300));
+        m->set("body", Value::makeStr(resp.body));
+        return Value::makeMap(std::move(m));
+    }
+
+    [[noreturn]] inline void throwNetworkDisabled(const char *fn, const SourceLocation &loc)
+    {
+        throw ModuleError(ErrorCode::DLCFeatureUnavailable,
+                          std::string("DLC:network's ") + fn + "() is disabled for this run (network access was turned off by the host)",
+                          loc, "the host embedding this engine controls this — see CuffEngine::Options::networkEnabled");
+    }
+
+    [[noreturn]] inline void throwNetworkFailed(const char *fn, const std::string &detail, const SourceLocation &loc)
+    {
+        throw CuffRuntimeError(ErrorCode::NetworkRequestFailed,
+                               std::string(fn) + "() failed: " + detail, loc);
+    }
+
+    inline void registerNetworkDLC(std::unordered_map<std::string, NativeFn> &reg, NetworkDLCOptions opts)
+    {
+        reg["get"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            return [name](std::vector<Value> &, const SourceLocation &loc) -> Value
-            {
-                throw ModuleError(ErrorCode::DLCFeatureUnavailable,
-                                   "DLC:network's " + name + "() is not available in this interpreter (no network sandboxing implemented)",
-                                   loc, "network access must be provided by the host embedding this engine");
-            };
+            expectArgCount("get", args, 1, loc);
+            if (!opts.enabled)
+                throwNetworkDisabled("get", loc);
+            const std::string &url = expectStr("get", args, 0, loc);
+            net::HttpOptions httpOpts;
+            httpOpts.allowPrivateTargets = opts.allowPrivateTargets;
+            net::HttpResponse resp = net::get(url, httpOpts);
+            if (!resp.ok)
+                throwNetworkFailed("get", resp.errorMessage, loc);
+            return makeHttpResultMap(resp);
         };
-        reg["fetch"] = stub("fetch");
-        reg["get"] = stub("get");
-        reg["post"] = stub("post");
+
+        reg["post"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgRange("post", args, 2, 3, loc);
+            if (!opts.enabled)
+                throwNetworkDisabled("post", loc);
+            const std::string &url = expectStr("post", args, 0, loc);
+            const std::string &body = expectStr("post", args, 1, loc);
+            std::string contentType = args.size() == 3 ? expectStr("post", args, 2, loc) : std::string();
+            net::HttpOptions httpOpts;
+            httpOpts.allowPrivateTargets = opts.allowPrivateTargets;
+            net::HttpResponse resp = net::post(url, body, contentType, httpOpts);
+            if (!resp.ok)
+                throwNetworkFailed("post", resp.errorMessage, loc);
+            return makeHttpResultMap(resp);
+        };
     }
 
     // ---- DLC:json ----
@@ -1488,7 +1532,8 @@ namespace cuff
     }
 
     // Dispatches `use DLC:<name>` to the right registration function.
-    inline void registerDLC(const std::string &libName, std::unordered_map<std::string, NativeFn> &reg, const SourceLocation &loc)
+    inline void registerDLC(const std::string &libName, std::unordered_map<std::string, NativeFn> &reg, const SourceLocation &loc,
+                            NetworkDLCOptions networkOpts = NetworkDLCOptions())
     {
         if (libName == "math")
             registerMathDLC(reg);
@@ -1507,7 +1552,7 @@ namespace cuff
         else if (libName == "json")
             registerJsonDLC(reg);
         else if (libName == "network")
-            registerNetworkDLC(reg);
+            registerNetworkDLC(reg, networkOpts);
         else
             throw ModuleError(ErrorCode::UnknownDLC, "unknown DLC library 'DLC:" + libName + "'", loc,
                                "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:list, DLC:map, DLC:convert, DLC:json, DLC:network");

@@ -93,6 +93,8 @@ namespace cuff
         FractionalIndex = 4024,
         InvalidArgumentValue = 4025,
         SizeLimitExceeded = 4026,
+        PureFunctionGlobalAccess = 4027,
+        NetworkRequestFailed = 4028,
 
         // ---- Module (5000s) ----
         ModuleNotFound = 5001,
