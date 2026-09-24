@@ -7,6 +7,7 @@
 # The CuffScript Programming Language
 
 ![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white)
+![License](https://img.shields.io/badge/License-Apache%202.0-red?style=flat)
 
 CuffScript is a scripting language that uses natural-language keywords and concise syntax. This repository contains a complete engine: a tokenizer, lexer, parser, a custom regular-expression engine, and a tree-walking interpreter that actually runs CuffScript programs.
 
