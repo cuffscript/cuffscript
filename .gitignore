@@ -3,6 +3,7 @@ cuffc
 *.o
 *.exe
 .vscode/
+testfile.cuff
 
 *.log
 .DS_Store

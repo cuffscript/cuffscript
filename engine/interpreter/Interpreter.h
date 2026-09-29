@@ -9,6 +9,7 @@
 #include "NativeFunctions.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
+#include "../common/PathSandbox.h"
 #include "../parser/ASTNodes.h"
 #include "../parser/Parser.h"
 #include "../tokenizer/Tokenizer.h"
@@ -81,6 +82,7 @@ namespace cuff
             size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
             bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
             bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
+            bool filesystemEnabled = true; // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
         };
 
         Interpreter() { registerBuiltins(natives_); }
@@ -380,11 +382,20 @@ namespace cuff
             return &it->second;
         }
 
-        [[noreturn]] CUFF_COLD static void throwNestedFunction(const FunctionDecl &decl)
+        // Closures (see Value.h's Closure) support ordinary and pure nested
+        // functions, but not `async` ones yet: an async top-level function
+        // that's called without `await` gets deferred onto taskQueue_ (see
+        // queueTask) and run later by drainTaskQueue, which only knows how
+        // to invoke a plain FunctionDecl — teaching it to also carry and
+        // later replay a closure's captured bindings is real additional
+        // scope, so for now this is a clear, explicit restriction rather
+        // than a silent wrong behavior (either running it synchronously
+        // despite `async`, or dropping the capture).
+        [[noreturn]] CUFF_COLD static void throwNestedAsyncNotSupported(const FunctionDecl &decl)
         {
-            throw CuffRuntimeError(ErrorCode::NestedFunctionNotSupported,
-                                   "nested function definitions are not supported ('" + decl.name + "' is defined inside another function)",
-                                   decl.loc, "move '" + decl.name + "' to the top level");
+            throw CuffRuntimeError(ErrorCode::NestedAsyncFunctionNotSupported,
+                                   "nested async function definitions are not supported yet ('" + decl.name + "' is defined inside another function)",
+                                   decl.loc, "move '" + decl.name + "' to the top level, or drop 'async'");
         }
 
         [[noreturn]] CUFF_COLD static void throwReturnInVoidFunction(const SourceLocation &loc)
@@ -409,7 +420,21 @@ namespace cuff
             {
                 const auto &decl = (*std::get_if<FunctionDecl>(&stmt.data));
                 if (inFunctionBody_)
-                    throwNestedFunction(decl);
+                {
+                    if (decl.isAsync)
+                        throwNestedAsyncNotSupported(decl);
+                    // Nested inside another function's body: becomes a
+                    // closure value bound to its own name in the *current*
+                    // scope, rather than a top-level registration — see the
+                    // comment on Closure in Value.h for the capture design.
+                    auto closure = std::make_shared<Closure>();
+                    closure->decl = &decl;
+                    closure->name = decl.name;
+                    closure->forcedPure = currentFunctionPure_;
+                    env.collectCapturable(closure->captured);
+                    env.declare(decl.nameId, Value::makeFunction(std::move(closure)), false);
+                    return ExecOutcome::normal();
+                }
                 registerFunction(decl); // reached for functions nested in top-level if/loop bodies
                 return ExecOutcome::normal();
             }
@@ -500,6 +525,9 @@ namespace cuff
                 break;
             case 'e':
                 ok = false; // a non-empty value can never satisfy `empty`
+                break;
+            case 'f':
+                ok = v.isFunction();
                 break;
             default:
                 ok = true;
@@ -680,9 +708,7 @@ namespace cuff
             }
             else
             {
-                // While and Match both re-check a boolean condition every
-                // iteration (see LoopParser.h for why the two share this
-                // implementation).
+                // LoopKind::While: re-check a boolean condition every iteration.
                 while (evalExpr(*loop.condition, env).truthy())
                 {
                     tick(loop.loc);
@@ -1004,6 +1030,16 @@ namespace cuff
                                          "check the spelling, or make sure it's declared before this point");
         }
 
+        // A plain "undefined function" is misleading when `name` actually IS
+        // defined, just not as anything callable (e.g. a number) — checked
+        // right before giving up in evalCall/invokeAwaited, once findUser(),
+        // findClosure(), and findNative() have all already missed.
+        [[noreturn]] CUFF_COLD static void throwNotCallable(const std::string &name, const Value &v, const SourceLocation &loc)
+        {
+            throw UndefinedFunctionError("'" + name + "' is a " + valueTypeName(v.type()) + ", not a function",
+                                         loc, "did you mean to call a different name, or use '" + name + "' as a value instead?");
+        }
+
         [[noreturn]] CUFF_COLD static void throwDivisionByZero(const SourceLocation &loc)
         {
             throw DivisionByZeroError("division by zero", loc);
@@ -1309,6 +1345,28 @@ namespace cuff
             taskQueue_.push_back(QueuedTask{&decl, std::move(args)});
         }
 
+        // A pure function's body may call itself, another `pure` function, or
+        // any native/DLC function (natives never touch CuffScript's Environment
+        // at all, so they can't reach globals through this route) — but never
+        // a non-pure *user-defined* function. Without this, `pure` could be
+        // trivially defeated by wrapping the global access in an ordinary
+        // helper and calling that instead, which is exactly the sandbox-escape
+        // this check closes. Checked at the call site (not statically), so it
+        // also naturally covers a pure function that only reaches the impure
+        // call conditionally, deep in a branch.
+        [[noreturn]] CUFF_COLD static void throwPureImpureCall(const std::string &calleeName, const SourceLocation &loc)
+        {
+            throw CuffRuntimeError(ErrorCode::PureFunctionImpureCall,
+                                   "a pure function cannot call non-pure function '" + calleeName + "'", loc,
+                                   "mark '" + calleeName + "' as pure, or remove 'pure' from the caller");
+        }
+
+        void checkPureCallAllowed(bool calleeIsPure, const std::string &calleeName, const SourceLocation &loc)
+        {
+            if (currentFunctionPure_ && !calleeIsPure)
+                throwPureImpureCall(calleeName, loc);
+        }
+
         Value evalCall(const FunctionCall &fc, Environment &env)
         {
             std::vector<Value> args = takeArgsBuffer();
@@ -1328,6 +1386,7 @@ namespace cuff
             // lookup answers the async-deferral question.
             if (const FunctionDecl *user = findUser(fc.functionNameId))
             {
+                checkPureCallAllowed(user->isPure, fc.functionName, fc.loc);
                 if (user->isAsync)
                 {
                     // Called without await: doesn't run now — see the
@@ -1337,8 +1396,15 @@ namespace cuff
                 }
                 return callUserFunction(*user, args, fc.loc);
             }
+            if (const std::shared_ptr<Closure> *closure = findClosure(fc.functionNameId, env))
+            {
+                checkPureCallAllowed((*closure)->effectivePure(), fc.functionName, fc.loc);
+                return callClosure(*closure, args, fc.loc);
+            }
             if (const NativeFn *native = findNative(fc))
                 return (*native)(args, fc.loc);
+            if (Environment::Lookup notFn = env.resolve(fc.functionNameId); notFn.value)
+                throwNotCallable(fc.functionName, *notFn.value, fc.loc);
             throwUndefinedFunction(fc.functionName, fc.loc);
         }
 
@@ -1350,6 +1416,14 @@ namespace cuff
             const FunctionDecl *user = findUser(call.functionNameId);
             if (user && !user->isAsync)
                 throwAwaitOnNonAsync(call.functionName, loc);
+            if (user)
+                checkPureCallAllowed(user->isPure, call.functionName, loc);
+            // A closure can never be async yet (see throwNestedAsyncNotSupported),
+            // so — like a native/DLC function — awaiting one is the same as
+            // calling it plainly; no "must be async" check applies to it.
+            const std::shared_ptr<Closure> *closure = user ? nullptr : findClosure(call.functionNameId, env);
+            if (closure)
+                checkPureCallAllowed((*closure)->effectivePure(), call.functionName, loc);
             std::vector<Value> args = takeArgsBuffer();
             struct ArgsReturner
             {
@@ -1363,8 +1437,12 @@ namespace cuff
                 args.push_back(evalExpr(*a, env));
             if (user)
                 return callUserFunction(*user, args, loc);
+            if (closure)
+                return callClosure(*closure, args, loc);
             if (const NativeFn *native = findNative(call))
                 return (*native)(args, loc);
+            if (Environment::Lookup notFn = env.resolve(call.functionNameId); notFn.value)
+                throwNotCallable(call.functionName, *notFn.value, loc);
             throwUndefinedFunction(call.functionName, loc);
         }
 
@@ -1396,6 +1474,72 @@ namespace cuff
                 throw CuffRuntimeError(ErrorCode::StopOutsideLoop,
                                        "'stop' cannot be used outside of a loop", outcome.loc);
             return Value::makeEmpty();
+        }
+
+        // Same shape as callUserFunction, except the closure's captured
+        // bindings (see Value.h's Closure) are declared into funcEnv ahead
+        // of the parameters, so the body sees them as ordinary locals — a
+        // parameter of the same name still wins (declare() overwrites), and
+        // a nested closure defined inside *this* call sees both, exactly
+        // like an ordinary nested scope would.
+        //
+        // Takes the shared_ptr itself (not just a reference to the Closure)
+        // so it can also bind the closure's own name to itself in funcEnv,
+        // enabling ordinary by-name recursion (`fact` calling `fact`) even
+        // though a closure's own name is never part of its *captured*
+        // snapshot — capturing it there would make the closure hold a
+        // permanent strong reference to itself, a reference cycle that
+        // would leak for the closure's entire lifetime. Binding it into
+        // funcEnv instead only holds that extra reference for the duration
+        // of this one call, released like any other local when funcEnv is
+        // torn down at the end of it.
+        Value callClosure(const std::shared_ptr<Closure> &closurePtr, std::vector<Value> &args, const SourceLocation &loc)
+        {
+            const Closure &closure = *closurePtr;
+            const FunctionDecl &decl = *closure.decl;
+            if (args.size() != decl.params.size())
+                throwArgumentCount(decl, args.size(), loc);
+            if (callDepth_ >= kMaxCallDepth)
+                throwCallDepth(decl, loc);
+            tick(loc);
+
+            FrameGuard guard(this, decl.isReturnable, closure.effectivePure());
+
+            Environment funcEnv(Environment::Kind::FunctionScope, globalEnv_);
+            EnvPoolReturner poolReturn{this, &funcEnv};
+            if (!envVarsPool_.empty())
+            {
+                funcEnv.adoptStorage(std::move(envVarsPool_.back()));
+                envVarsPool_.pop_back();
+            }
+            funcEnv.reserve(decl.params.size() + closure.captured.size() + 1);
+            funcEnv.declare(decl.nameId, Value::makeFunction(closurePtr), false);
+            for (const auto &kv : closure.captured)
+                funcEnv.declare(kv.first, kv.second, false);
+            for (size_t i = 0; i < decl.paramIds.size(); ++i)
+                funcEnv.declare(decl.paramIds[i], std::move(args[i]), false);
+
+            ExecOutcome outcome = execBlock(decl.body, funcEnv);
+            if (outcome.result == ExecResult::Return)
+                return std::move(outcome.returnValue);
+            if (outcome.result == ExecResult::Stop)
+                throw CuffRuntimeError(ErrorCode::StopOutsideLoop,
+                                       "'stop' cannot be used outside of a loop", outcome.loc);
+            return Value::makeEmpty();
+        }
+
+        // Looked up only after both findUser() and findNative() have missed
+        // (see evalCall/invokeAwaited) — a local variable holding a closure,
+        // checked last so an ordinary top-level function call never pays for
+        // this extra scope-chain walk. That ordering means a top-level
+        // function always wins over a same-named local closure; a rare and
+        // unusual collision, but worth documenting.
+        const std::shared_ptr<Closure> *findClosure(uint32_t nameId, Environment &env)
+        {
+            Environment::Lookup look = env.resolve(nameId);
+            if (look.value && look.value->isFunction())
+                return &look.value->asFunction();
+            return nullptr;
         }
 
         // ---- Pattern-matching commands (docs/REGEX.md) ----
@@ -1509,7 +1653,10 @@ namespace cuff
                 NetworkDLCOptions netOpts;
                 netOpts.enabled = config_.networkEnabled;
                 netOpts.allowPrivateTargets = config_.allowPrivateNetworkTargets;
-                registerDLC(use.name, natives_, use.loc, netOpts);
+                FilesystemDLCOptions fsOpts;
+                fsOpts.enabled = config_.filesystemEnabled;
+                fsOpts.root = moduleRoot_;
+                registerDLC(use.name, natives_, use.loc, netOpts, fsOpts);
                 return;
             }
             loadCustomModule(use.name, use.path, use.loc, env);
@@ -1524,19 +1671,9 @@ namespace cuff
             moduleRoot_ = ec ? root.lexically_normal() : canon;
         }
 
-        static bool isInsideRoot(const std::filesystem::path &path, const std::filesystem::path &root)
-        {
-            auto r = root.begin();
-            auto p = path.begin();
-            for (; r != root.end(); ++r, ++p)
-            {
-                if (r->empty())
-                    break;
-                if (p == path.end() || *r != *p)
-                    return false;
-            }
-            return true;
-        }
+        // isInsideRoot() itself now lives in ../common/PathSandbox.h, shared
+        // with DLC:filesystem (see NativeFunctions.h), which needs the exact
+        // same containment check for its own root-confined path resolution.
 
         struct ImportMark
         {

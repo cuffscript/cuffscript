@@ -19,6 +19,54 @@
 namespace cuff
 {
 
+    // Builds a two-line "source snippet + caret" block pointing at `loc`
+    // inside `source`, e.g.:
+    //     loop repeat i to 1 ~ 3 do
+    //              ^
+    // `loc.offset` (a byte offset, always in sync with how the tokenizer
+    // advances `line`/`column` — see ScanState.h) finds the exact line
+    // directly, without re-deriving it from `line`/`column`. The caret's
+    // horizontal position is measured in *codepoints*, not bytes: column
+    // itself is a byte count, so a line with any multibyte UTF-8 text before
+    // the error (Korean identifiers, comments, ...) would otherwise push the
+    // caret too far right. Returns "" when there's no meaningful line to show
+    // (empty source, or an offset past the end).
+    inline std::string buildCaretSnippet(const std::string &source, const SourceLocation &loc)
+    {
+        if (source.empty() || loc.offset < 0)
+            return "";
+        size_t offset = std::min(static_cast<size_t>(loc.offset), source.size());
+        size_t lineStart = (offset == 0) ? 0 : source.rfind('\n', offset - 1);
+        lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+        size_t lineEnd = source.find('\n', offset);
+        if (lineEnd == std::string::npos)
+            lineEnd = source.size();
+        if (lineStart > lineEnd)
+            return "";
+        std::string lineText = source.substr(lineStart, lineEnd - lineStart);
+        if (!lineText.empty() && lineText.back() == '\r')
+            lineText.pop_back();
+        size_t prefixBytes = std::min(offset - lineStart, lineText.size());
+        size_t caretCol = utf8::length(lineText.substr(0, prefixBytes));
+        return "    " + lineText + "\n    " + std::string(caretCol, ' ') + "^";
+    }
+
+    // Rebuilds a CuffError's rendered message (same format as CuffError::what())
+    // with a caret snippet spliced in between the message and the hint. Uses
+    // the error's own public fields directly rather than re-parsing what(),
+    // which already has message+hint flattened into one string.
+    inline std::string renderErrorWithSnippet(const CuffError &e, const std::string &source)
+    {
+        std::string out = "[" + errorCodeTag(e.code) + "] " + e.category +
+                           " at " + e.location.toString() + ": " + e.message;
+        std::string snippet = buildCaretSnippet(source, e.location);
+        if (!snippet.empty())
+            out += "\n" + snippet;
+        if (!e.hint.empty())
+            out += "\n    hint: " + e.hint;
+        return out;
+    }
+
     // CuffScript engine entry point.
     // Runs the full pipeline: source -> tokenize -> lex -> parse -> AST -> (optionally) execute
     class CuffEngine
@@ -43,6 +91,7 @@ namespace cuff
             size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
             bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
             bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
+            bool filesystemEnabled = true; // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
         };
 
         // `keepTokens` retains the raw/lexed token streams in the result (only
@@ -88,7 +137,7 @@ namespace cuff
             }
             catch (const CuffError &e)
             {
-                result.error = e.what();
+                result.error = renderErrorWithSnippet(e, source);
             }
             catch (const std::bad_alloc &)
             {
@@ -126,13 +175,14 @@ namespace cuff
                 config.stackBudgetBytes = options.stackBudgetBytes;
                 config.networkEnabled = options.networkEnabled;
                 config.allowPrivateNetworkTargets = options.allowPrivateNetworkTargets;
+                config.filesystemEnabled = options.filesystemEnabled;
                 Interpreter interp(std::move(config));
                 interp.run(*result.ast, scriptDir);
             }
             catch (const CuffError &e)
             {
                 result.success = false;
-                result.error = e.what();
+                result.error = renderErrorWithSnippet(e, source);
             }
             catch (const std::bad_alloc &)
             {

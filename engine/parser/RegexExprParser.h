@@ -56,7 +56,7 @@ namespace cuff
         // REPLACE token to.
         static bool looksLikeCollectionReplace(ParserCore &p)
         {
-            return p.peek(1).is(TokenType::IDENTIFIER) && p.peek(2).is(TokenType::LBRACKET);
+            return isWordLikeToken(p.peek(1)) && p.peek(2).is(TokenType::LBRACKET);
         }
 
     private:

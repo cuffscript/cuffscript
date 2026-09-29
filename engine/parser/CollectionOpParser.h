@@ -30,7 +30,7 @@ namespace cuff
             p.consume(TokenType::TO, "expected 'to' in 'add' statement");
 
             std::string collectionName;
-            if (p.check(TokenType::IDENTIFIER))
+            if (isWordLikeToken(p.current()))
             {
                 collectionName = p.current().value;
                 p.advance();
@@ -58,7 +58,7 @@ namespace cuff
 
             // Parse the target: collectionName[index] or collectionName["key"]
             std::string collectionName;
-            if (p.check(TokenType::IDENTIFIER))
+            if (isWordLikeToken(p.current()))
             {
                 collectionName = p.current().value;
                 p.advance();
@@ -99,7 +99,7 @@ namespace cuff
             p.consume(TokenType::FROM, "expected 'from' in 'remove' statement");
 
             std::string collectionName;
-            if (p.check(TokenType::IDENTIFIER))
+            if (isWordLikeToken(p.current()))
             {
                 collectionName = p.current().value;
                 p.advance();

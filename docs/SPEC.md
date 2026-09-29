@@ -18,6 +18,15 @@ change age to 26
 change name to "Bob"
 ```
 
+    변수/함수/매개변수/`loop repeat` 반복 변수의 이름 자리는 `add`, `count`,
+    `find`, `split`, `replace`, `match`, `in`, `by`, `not`, `global`처럼
+    문법 키워드로도 쓰이는 단어라도 그대로 이름으로 쓸 수 있습니다 —
+    `set number count to 10`, `set returnable func add(x, y) do: ... end`
+    모두 정상 동작합니다. 다만 `match`/`find`/`replace`/`split`/`count`는
+    각각 자기만의 표현식 문법(`match [대상] from [패턴]` 등)도 가지고
+    있으므로, 바로 뒤에 그 문법이 이어지는 모양이면 이름이 아니라 그
+    문법으로 해석됩니다.
+
 ---
 
 ### 2\. 상수 선언 규칙 (set constant)
@@ -210,13 +219,13 @@ remove "level" from user_profile
 
 ---
 
-### 8\. 조건문 및 3대 즉시 실행 반복문 (if, loop, end, stop)
+### 8\. 조건문 및 2대 즉시 실행 반복문 (if, loop, end, stop)
 
 - **설명:** 조건 분기 처리는 `if`, `else if`, `else` 체인을 사용하며 실행부 코드 영역으로 전환되기 직전에 `do:` 키워드를 배치합니다.
 
     반복 처리하는 루프(loop)문은 메모리 변수 상주 작업이 아닌 즉시 명령 실행의 기조를 띠므로 문두에 변수 생성자 `set`을 절대로 붙이지 않습니다.
 
-    범위를 지정하여 순회하는 `loop repeat`, 조건식이 참인 동안 실행하는 `loop while`, 그리고 조건 상태가 참인 동안 반복하는 `loop match` 세 가지 형태가 제공됩니다. `loop match`는 Python의 if 문 안에 for 문을 넣은 것과 같은 효과입니다.
+    범위를 지정하여 순회하는 `loop repeat`와 조건식이 참인 동안 실행하는 `loop while` 두 가지 형태가 제공됩니다.
 
     제어문 블록을 마감하는 종착역은 `end` 키워드가 마크하며, 짧은 구조의 실행부는 개발자의 시각적 선택에 맞춰 `end`를 한 줄로 연이어 배치할 수 있습니다.
 
@@ -230,7 +239,6 @@ remove "level" from user_profile
     - 다중 조건문 라인: `if [조건] do: [코드] else if [조건] do: [코드] else do: [코드] end`
     - 범위 반복 제어: `loop repeat [루프변수] to [시작값] ~ [끝값] do: [코드] end`
     - 논리 조건 반복: `loop while [논리조건식] do: [코드] end`
-    - 조건-반복 결합 제어: `loop match [식별대상] is/IS [타겟상태] do: [코드] end`
 - **예시:**
 
 ```cuff
@@ -271,7 +279,7 @@ end
 
     `async`, `returnable`, `pure`는 서로 독립적인 수식어라 순서에 상관없이 자유롭게 조합할 수 있습니다 (`set returnable pure func`, `set async pure func` 등 모두 가능).
 
-    `pure`가 붙은 함수는 함수 본문에서 파라미터·지역 변수·`use DLC:...`로 불러온 내장 함수는 평소처럼 자유롭게 쓸 수 있지만, 함수 바깥의 최상위 전역 변수를 읽거나(`change ... to global`로 다리를 놓는 것 포함) 쓰려고 하면 그 즉시 런타임 에러(`PureFunctionGlobalAccess`)가 발생합니다. 이 제약은 그 함수의 본문에만 적용되며, `pure` 함수가 **다른(비순수) 함수를 호출**하는 것 자체는 막지 않습니다 — 호출된 함수는 자기 자신의 순수/비순수 여부에 따라 독립적으로 판단됩니다. 제약을 풀고 싶으면 `pure` 키워드만 지우면 됩니다.
+    `pure`가 붙은 함수는 함수 본문에서 파라미터·지역 변수·`use DLC:...`로 불러온 내장 함수는 평소처럼 자유롭게 쓸 수 있지만, 함수 바깥의 최상위 전역 변수를 읽거나(`change ... to global`로 다리를 놓는 것 포함) 쓰려고 하면 그 즉시 런타임 에러(`PureFunctionGlobalAccess`)가 발생합니다. 이 제약은 호출 그래프 전체로 전파됩니다: `pure` 함수는 자기 자신, 다른 `pure` 함수, 그리고 내장/DLC 함수만 호출할 수 있고, **순수하지 않은 사용자 정의 함수(또는 클로저)를 호출하면** 그 즉시 런타임 에러(`PureFunctionImpureCall`)가 발생합니다 — 그렇지 않으면 전역을 만지는 일반 함수를 한 겹 감싸서 호출하는 것만으로 `pure`의 전역 접근 차단을 우회할 수 있기 때문입니다. `pure` 함수 안에서 만든 중첩 함수(클로저)는 자신에게 `pure`를 붙이지 않았더라도 자동으로 순수하게 취급됩니다. 제약을 풀고 싶으면 `pure` 키워드만 지우면 됩니다.
 - **예시:**
 
 ```cuff
@@ -289,7 +297,7 @@ await download_graphics()
 
 use DLC:math
 set returnable pure func hypotenuse(a, b) do:
-    return sqrt(pow(a, 2) + pow(b, 2))
+    return math_sqrt(math_pow(a, 2) + math_pow(b, 2))
 end
 print(hypotenuse(3, 4))
 ```
@@ -302,7 +310,16 @@ print(hypotenuse(3, 4))
 
     전역 변수를 함수 내에서 수정하려면 먼저 `change [변수명] to global`을 사용하여 해당 변수를 전역으로 선언한 후, 그 다음 줄에서 실제 값을 변경합니다.
 
-    중첩 함수(함수 내 함수 정의)와 클로저(함수를 값으로 취급)는 지원하지 않습니다. 함수는 전역 스코프와 자신의 로컬 스코프만 인식할 수 있습니다.
+    함수 안에 함수를 정의할 수 있으며(중첩 함수), 이렇게 만든 함수는 **클로저**가 되어 값처럼 다룰 수 있습니다 — 변수에 담고(`set func f to make_adder(5)`), 인자로 넘기고, 반환하고, 변수 이름으로 호출할 수 있습니다. 최상위 함수 선언은 그대로이며 값이 아닙니다.
+
+    클로저는 정의되는 순간 그 시점에 보이는 지역 변수들의 **현재 값을 복사(값으로 캡처)** 해서 가져갑니다. 이 때문에:
+    - 숫자/문자열/불리언을 캡처하면 클로저 안에서 바꿔도 바깥 변수에 영향을 주지 않고, **클로저를 여러 번 호출해도 그 값이 누적되지 않습니다** (매 호출이 캡처 당시의 값에서 새로 시작). 흔히 예로 드는 "호출할 때마다 1, 2, 3...을 돌려주는 카운터 클로저"는 이 언어에서 동작하지 않습니다.
+    - 리스트/맵을 캡처하면 (일반 함수 인자로 넘길 때와 똑같이) 같은 리스트/맵을 공유하므로 내용을 바꾸면 다른 곳에서도 보입니다.
+    - 클로저는 자기 자신의 이름으로 재귀 호출할 수 있습니다.
+    - 최상위 함수와 이름이 같은 지역 클로저가 있으면 최상위 함수가 우선합니다.
+    - 중첩된 `async` 함수는 아직 지원하지 않습니다 (`NestedAsyncFunctionNotSupported`).
+
+    클로저가 아닌 일반 함수는 전역 스코프와 자신의 로컬 스코프만 인식합니다.
 
 - **문법:**
     - 전역 변수 선언: `set [자료형] [변수명] to [값]` (함수 외부)
@@ -397,10 +414,28 @@ use dlc_graphic_pack from ./assets/plugins
 ```
 
 - **`DLC:network`:** 평범한 HTTP(HTTPS 아님) GET/POST 요청을 보내는 초경량 클라이언트입니다.
-    - `get(url)` / `post(url, body[, content_type])` — 둘 다 `{"status": 상태코드, "ok": 200~299 여부, "body": 응답본문}` 형태의 `map`을 돌려줍니다.
+    - `network_get(url)` / `network_post(url, body[, content_type])` — 둘 다 `{"status": 상태코드, "ok": 200~299 여부, "body": 응답본문}` 형태의 `map`을 돌려줍니다.
     - `url`은 반드시 `http://`로 시작해야 합니다 (`https://`는 이 클라이언트가 TLS를 구현하지 않으므로 명확한 에러로 거절됩니다).
     - 연결 실패·타임아웃·차단된 주소 등은 전부 `or_else`로 잡을 수 있는 런타임 에러입니다.
     - 기본적으로 로컬호스트/사설망 주소로는 연결할 수 없습니다 (SSRF 방지). 호스트 실행 옵션으로 네트워크 자체를 끄거나 사설망 접근을 허용할 수 있습니다 — 자세한 내용과 위험성은 `SECURITY.md`를 참고하세요.
+
+- **`DLC:filesystem`:** 스크립트가 있는 폴더(또는 호스트가 지정한 `--root`) 안의 파일을 읽고 쓰는 라이브러리입니다.
+
+    | 함수 | 반환 타입 | 설명 |
+    | :--- | :--- | :--- |
+    | `file_exist(path)` | boolean | 파일이 존재하는지 확인합니다. |
+    | `file_size(path)` | number | 파일의 크기를 바이트 단위 숫자로 돌려줍니다. (실패 시 `empty`) |
+    | `file_read(path)` | str | 파일의 모든 글자를 읽어옵니다. (실패 시 `empty`) |
+    | `file_readlines(path)` | list | 파일을 줄바꿈 기준으로 나누어 리스트로 읽어옵니다. (실패 시 `empty`) |
+    | `file_write(path, text)` | boolean | 파일이 있으면 덮어쓰고, 없으면 새로 생성하여 작성합니다. |
+    | `file_add(path, text)` | boolean | 파일 내용 끝에 글을 덧붙입니다. 없으면 새로 생성합니다. |
+    | `file_remove(path)` | boolean | 파일을 완전히 삭제합니다. 성공 여부를 반환합니다. |
+
+    - 모든 경로는 스크립트가 있는 폴더(또는 `--root`)를 기준으로 해석되며, 그 밖으로 벗어나는 경로(절대경로, `../` 탈출 등)는 `FilesystemAccessDenied` 에러로 즉시 거절됩니다. `use ... from`으로 모듈을 불러올 때와 완전히 같은 샌드박스 루트를 공유합니다.
+    - 파일이 없거나 권한이 없는 등 일반적인 OS 수준 실패는 에러가 아니라 표에 적힌 대로 조용히 `empty`/`false`를 돌려줍니다 — 존재 여부는 `file_exist()`로 먼저 확인하세요.
+    - 호스트 실행 옵션(`--no-filesystem`)으로 이 라이브러리를 통째로 끌 수 있습니다 — 자세한 내용과 위험성은 `SECURITY.md`를 참고하세요.
+
+- **함수 이름 규칙:** DLC 함수는 `라이브러리_동사` 형태(`math_sqrt`, `str_upper`, `list_sort`, `map_keys`, `time_now`, `random_int`, `network_get`, `file_read` 등)로 이름이 붙어 어느 라이브러리 소속인지 이름만으로 알 수 있습니다. 예외는 `length`/`contains`/`index_of`(문자열·리스트·맵에 공통으로 쓰이는 다형 함수)와 `to_json`/`from_json`/`to_number`/`to_str`/`to_boolean`(이름에 이미 도메인이 드러남)입니다.
 
 ---
 

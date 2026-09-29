@@ -1,0 +1,34 @@
+note: 회귀 테스트 -- `change name to global`로 브리지한 이름과 같은 이름의
+note: 진짜 로컬(루프 변수, or_else 복구용 플레이스홀더 등)이 같은 함수 호출
+note: 안에서 함께 쓰일 때, 로컬이 항상 브리지보다 우선해야 합니다. 예전
+note: 구현은 Environment::resolve()가 globalDeclared_ 검사를 findLocal보다
+note: 먼저 수행해서, 브리지된 이름과 같은 이름의 루프 변수를 읽으면 매
+note: 반복마다 전역값만 보이는 버그가 있었습니다.
+
+set number i to 100
+
+set func loop_var_shadow() do:
+    change i to global
+    loop repeat i to 1 ~ 3 do:
+        print(f"loop i = {i}")
+    end
+    print(f"after loop, local i = {i}")
+end
+
+loop_var_shadow()
+print(f"global i untouched = {i}")
+
+note: or_else의 선언 복구 플레이스홀더도 같은 이름의 브리지를 가려야 함
+set number counter to 0
+
+set func or_else_shadow() do:
+    change counter to global
+    set number counter to 1 / 0 or_else do:
+        set number counter to 999
+        print(f"inside fallback, local counter = {counter}")
+    end
+    print(f"after or_else, function-scope counter = {counter}")
+end
+
+or_else_shadow()
+print(f"global counter untouched = {counter}")

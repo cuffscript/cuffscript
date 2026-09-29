@@ -1,0 +1,3 @@
+note: E5008
+use DLC:filesystem
+file_read("../../../../etc/passwd")

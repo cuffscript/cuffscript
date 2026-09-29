@@ -10,17 +10,19 @@ set func bump() do:
     change counter to counter + 1
 end
 
-set returnable pure func trigger_bump() do:
-    note: pure functions may call non-pure functions; the restriction is on
-    note: this function's own body, not the whole call graph
-    bump()
-    return 1
-end
-print(trigger_bump())
+bump()
 print(counter)
+
+note: pure 함수는 다른 pure 함수는 자유롭게 호출할 수 있습니다 --
+note: 제약은 호출 그래프 전체에 전파되되, 순수한 쪽 안에서만 순수한
+note: 함수로 이어지면 문제없습니다.
+set returnable pure func square_twice(n) do:
+    return square(square(n))
+end
+print(square_twice(3))
 
 use DLC:math
 set returnable pure func hypotenuse(a, b) do:
-    return sqrt(pow(a, 2) + pow(b, 2))
+    return math_sqrt(math_pow(a, 2) + math_pow(b, 2))
 end
 print(hypotenuse(3, 4))

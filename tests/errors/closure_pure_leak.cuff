@@ -1,0 +1,11 @@
+note: E4027
+set number g to 100
+set returnable pure func make_bad_closure() do:
+    set func leaky() do:
+        change g to global
+        change g to 999
+    end
+    leaky()
+    return 1
+end
+print(make_bad_closure())

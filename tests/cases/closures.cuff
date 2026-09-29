@@ -1,0 +1,89 @@
+note: 중첩 함수(클로저) 기능 회귀 테스트
+
+note: 1) 기본 중첩 함수 호출
+set func outer1() do:
+    set func inner1() do:
+        print("hello from inner1")
+    end
+    inner1()
+end
+outer1()
+
+note: 2) 클로저를 값으로 반환 + 캡처(값으로 캡처됨) 사용
+set returnable func make_adder(x) do:
+    set returnable func add_x(y) do:
+        return x + y
+    end
+    return add_x
+end
+set func add5 to make_adder(5)
+print(add5(3))
+print(add5(10))
+
+note: 3) 재귀 (자기 자신을 이름으로 호출)
+set returnable func outer_fact() do:
+    set returnable func fact(n) do:
+        if n <= 1 do:
+            return 1
+        end
+        return n * fact(n - 1)
+    end
+    return fact(5)
+end
+print(outer_fact())
+
+note: 4) 캡처는 "값으로" 이루어짐 -- 스칼라는 클로저 호출 사이에 상태가
+note: 유지되지 않습니다 (매 호출마다 캡처 당시 스냅샷에서 새로 시작).
+note: 이건 의도된 설계이며 JS/Lua식 공유 upvalue가 아닙니다.
+set returnable func make_counter() do:
+    set number count to 0
+    set returnable func bump() do:
+        change count to count + 1
+        return count
+    end
+    return bump
+end
+set func c1 to make_counter()
+print(c1())
+print(c1())
+print(c1())
+
+note: 5) 리스트/맵은 참조로 공유됨 (기존 값 의미 그대로 유지)
+set returnable func make_list_adder(shared_list) do:
+    set returnable func add_item(x) do:
+        add x to shared_list
+        return shared_list
+    end
+    return add_item
+end
+set list mylist to [1, 2]
+set func adder to make_list_adder(mylist)
+print(adder(3))
+print(mylist)
+
+note: 6) 고차 함수 (클로저를 인자로 전달)
+set returnable func apply_twice(f, x) do:
+    return f(f(x))
+end
+set returnable func make_doubler() do:
+    set returnable func doubler(x) do:
+        return x * 2
+    end
+    return doubler
+end
+set func d to make_doubler()
+print(apply_twice(d, 3))
+
+note: 7) 다단계 중첩
+set returnable func level1(a) do:
+    set returnable func level2(b) do:
+        set returnable func level3(c) do:
+            return a + b + c
+        end
+        return level3
+    end
+    return level2
+end
+set func l2 to level1(1)
+set func l3 to l2(2)
+print(l3(3))

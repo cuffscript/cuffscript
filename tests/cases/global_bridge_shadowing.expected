@@ -1,0 +1,8 @@
+loop i = 1
+loop i = 2
+loop i = 3
+after loop, local i = 3
+global i untouched = 100
+inside fallback, local counter = 999
+after or_else, function-scope counter = empty
+global counter untouched = 0

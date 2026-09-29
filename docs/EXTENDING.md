@@ -3,7 +3,7 @@
 이 문서는 엔진에 새 기능을 추가할 때 "어느 파일을 건드려야 하는가"를 빠르게 찾기 위한
 안내입니다. 각 항목은 실제로 동작을 검증한 최소 절차입니다.
 
-## 1. 새로운 내장 함수 추가하기 (예: `print`, `sqrt`)
+## 1. 새로운 내장 함수 추가하기 (예: `print`, `math_sqrt`)
 
 `engine/interpreter/NativeFunctions.h`에 함수를 추가합니다. 시그니처는 항상
 `Value(std::vector<Value>& args, const SourceLocation& loc)`입니다.
@@ -20,6 +20,18 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 - 항상 존재해야 하면 `registerBuiltins()`에 추가하세요.
 - 특정 `use DLC:이름`으로만 활성화되어야 하면 새 `registerXxxDLC()` 함수를 만들고
   `registerDLC()`의 분기에 추가하세요 (기존 라이브러리 이름과 충돌하지 않는지 확인).
+- DLC 함수 이름은 `라이브러리_동사` 형태(`math_sqrt`, `str_upper`, `list_sort`,
+  `file_read`, ...)로 짓습니다 — 어느 라이브러리 소속인지 이름만으로 알 수 있고, 모든
+  라이브러리가 하나의 `natives_` 맵을 공유하므로 다른 라이브러리와 이름이 겹칠 위험도
+  줄어듭니다. 여러 자료형에 걸쳐 의도적으로 같은 구현을 공유하는 다형 함수
+  (`length`/`contains`/`index_of`)만 예외입니다.
+- 파일 시스템에 접근하는 DLC 함수는 경로를 직접 열지 말고 `resolveSandboxedPath()`
+  (`NativeFunctions.h`, 내부적으로 `engine/common/PathSandbox.h`의 `isInsideRoot()` 사용)를
+  거치게 하세요 — 모듈 로딩과 `DLC:filesystem`이 같은 샌드박스 루트를 공유합니다.
+- 호스트가 통째로 끌 수 있어야 하는 위험한 라이브러리(네트워크/파일 시스템처럼)는
+  `NetworkDLCOptions`/`FilesystemDLCOptions`와 같은 패턴으로 옵션 구조체를 만들고,
+  `CuffEngine::Options` → `Interpreter::Config` → `execUse()` → `registerDLC()`로 값을
+  전달하세요 (CLI 플래그는 `main.cpp`).
 - `expectArgCount`/`expectArgRange`/`expectNumber`/`expectStr`는 인자 검증과 함께
   일관된 `ArgumentError`/`TypeError` 메시지를 만들어 줍니다 — 새 함수도 이걸 재사용하세요.
   정수 인자는 `expectWhole`(±2^53 범위 검사 포함)을 쓰세요.
@@ -33,7 +45,11 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 1. `ValueType`에 새 항목을 추가하고 `valueTypeName()`에 이름을 추가합니다.
 2. `Value::Storage` variant에 저장 타입을 추가하고, `make*`/`as*`/`is*` 헬퍼를 추가합니다.
 3. `truthy()`, `appendDisplay()`, `strictEquals()`(`equalsImpl`/`scalarEquals`)의 switch에 새 case를 추가합니다
-   (컴파일러가 `-Wswitch`로 누락된 case를 잡아 줍니다).
+   (컴파일러가 `-Wswitch`로 누락된 case를 잡아 줍니다). `NativeFunctions.h`의
+   `jsonStringifyInto()`처럼 `ValueType`으로 분기하는 다른 switch도 마찬가지입니다.
+4. `Value.h`는 파서의 AST 타입에 의존하지 않도록 유지하세요 — 새 값이 `FunctionDecl` 같은
+   파서 타입을 가리켜야 하면 `Closure`처럼 전방 선언 + 포인터로만 들고, 표시/에러 메시지에
+   필요한 정보(이름 등)는 값 안에 복사해 두세요 (`Closure::name`).
 
 ## 3. 새로운 문(statement) 또는 표현식(expression) 추가하기
 
@@ -89,7 +105,10 @@ implementations" 섹션에 (양쪽 클래스가 모두 완전한 타입이 된 �
 
 1. `FunctionDecl`에 불리언 필드를 추가하고 파서(주로 `FunctionParser.h`의 수식어
    반복문)에서 채웁니다. `DeclarationParser::isFunctionDecl`의 미리보기 조건에도 새
-   키워드를 추가해야 `set 새키워드 func ...`가 함수 선언으로 인식됩니다.
+   키워드를 추가해야 `set 새키워드 func ...`가 함수 선언으로 인식됩니다 (수식어 키워드는
+   `func`가 뒤따르는지와 상관없이 무조건 선언으로 취급됩니다 — 반면 수식어 없이 바로
+   `set func NAME`인 경우에만 뒤에 `(`가 오는지 `to`가 오는지 한 토큰 더 미리 봅니다:
+   `(`이면 함수 선언, `to`이면 클로저를 담는 변수 선언).
 2. `Interpreter`에 `bool current제어_ = false;` 멤버를 추가하고, `FrameGuard`가 호출
    진입/종료 시 이전 값을 저장했다가 복원하도록 합니다 (재귀 호출에서도 각 프레임이
    자기 자신의 값을 갖도록). 이 상태는 `Environment`가 아니라 `Interpreter`가 갖습니다 —
@@ -98,9 +117,14 @@ implementations" 섹션에 (양쪽 클래스가 모두 완전한 타입이 된 �
    (`evalExpr`의 식별자 조회, `execChange`, `execCollectionOp`)에서 `look.owner ==
 &globalEnv_`인지 확인하는 방식으로 구현했습니다 — 새 제약이 다른 조건이라면 그에 맞는
    지점을 고르세요.
-4. 이 플래그는 **그 함수 자신의 본문에만** 적용되고, 호출된 다른 함수로는 전파되지
-   않습니다 (그 함수가 호출을 마치면 `FrameGuard`가 자동으로 이전 값을 복원하기 때문).
-   호출 그래프 전체에 전파되는 제약이 필요하다면 별도로 설계해야 합니다.
+4. 이 플래그는 기본적으로 **그 함수 자신의 본문에만** 적용되고, 호출된 다른 함수로는
+   전파되지 않습니다 (그 함수가 호출을 마치면 `FrameGuard`가 자동으로 이전 값을
+   복원하기 때문). `pure`는 이 기본 동작으로는 우회가 너무 쉬워서(전역을 만지는 일반
+   함수를 한 겹 감싸서 호출하면 그만) 호출 지점(`evalCall`/`invokeAwaited`)에서
+   `checkPureCallAllowed()`로 "pure 함수는 순수하지 않은 사용자 함수/클로저를 호출할 수
+   없다"를 추가로 강제합니다 — 호출 그래프 전체에 전파되는 제약이 필요하면 이 패턴을
+   따르세요. 클로저도 만들어지는 순간의 플래그를 물려받아야 같은 우회가 생기지 않습니다
+   (`Closure::forcedPure`).
 
 ## 7. 정규식 패턴에 새 토큰 추가하기 (예: `[새토큰]`)
 
@@ -130,3 +154,49 @@ bash tests/run.sh              # 전체 회귀 테스트 (기존 기능이 안 �
 새 기능이면 `tests/cases/`(성공 케이스)나 `tests/errors/`(에러 케이스)에 테스트를 하나
 같이 추가하세요 — `tests/README.md` 참고. 나중에 리팩토링할 때 이 테스트가 그대로 안전망이
 됩니다.
+
+## 9. 이름 자리에 예약어를 허용하기 (파서)
+
+새로운 문장/선언 문법에서 "여기에 이름이 온다"는 자리를 만들 때는 `p.check(TokenType::IDENTIFIER)`
+대신 `isWordLikeToken(p.current())`(`ParserCore.h`)를 쓰세요. 그러지 않으면 `add`, `count`,
+`find`처럼 다른 곳에서 예약어로 쓰이는 단어가 이름으로 거부됩니다. 이름 자리는 문법상 "정확히
+한 단어가 오고 그 다음 토큰이 정해져 있는" 고정 위치라서 예약어를 받아도 모호하지 않습니다.
+
+표현식 위치에서 이름을 다시 읽어오는 경우(`LiteralParser::parsePrimary`)는 다릅니다 — 그
+토큰 타입으로 "무엇을 파싱할지"를 결정하는 유일한 곳이라, 그 키워드가 표현식 문법에서 다른
+뜻을 갖는지에 따라 처리가 갈립니다:
+- 표현식 문법에서 아무 뜻도 없는 커넥터(`add`/`to`/`in`/`by`/`global`/`not`/`from`)는
+  `isBareIdentifierKeyword()`에 추가하면 그대로 식별자가 됩니다.
+- 이미 자기만의 표현식 구문이 있는 키워드(`match`/`find`/`replace`/`split`/`count`)는 한
+  토큰 미리보기(`looksLikeConstructContinuation()`)로 "그 구문이 시작되는가 / 그냥 이름인가"를
+  구분합니다 — 이때 `(`와 `[`는 일부러 뺍니다. 후위 파싱이 `이름(...)`을 호출로,
+  `이름[...]`을 인덱싱으로 바꾸므로, 여기서 이 둘을 "구문 시작"으로 취급하면 그 이름의
+  함수/변수를 호출하거나 인덱싱할 방법이 없어집니다.
+- 블록/제어 흐름 키워드(`end`, `do`, `if`, ...)와 리터럴(`true`/`false`/`empty`)은 일부러
+  예약어로 남겨 둡니다 — 이런 토큰이 표현식 자리에 나타난다는 건 대개 피연산자가 빠진
+  진짜 문법 오류라서, 이름으로 받아주면 명확한 "unexpected token" 대신 엉뚱한 런타임
+  에러로 바뀌기 때문입니다.
+
+## 10. 에러 메시지의 소스 줄/캐럿 (`^`)
+
+`CuffError`는 소스 텍스트를 모릅니다 — `what()`은 메시지와 힌트만 렌더링합니다. 사용자에게
+보이는 최종 메시지의 소스 줄과 `^`는 `CuffEngine::execute()`/`run()`이 `CuffError`를 잡는
+지점(원본 소스가 아직 스코프 안에 있는 곳)에서 `renderErrorWithSnippet()`으로 붙입니다. 새
+에러를 던지는 코드는 정확한 `SourceLocation`(특히 `offset`, 바이트 오프셋)만 채워 주면 되고,
+캐럿 표시는 자동입니다 — 캐럿의 가로 위치는 바이트가 아니라 코드포인트 단위로 계산되므로 같은
+줄에 한글 등이 앞서 있어도 정렬이 맞습니다. 이 동작을 바꾸면 `tests/unit/error_snippet_test.cpp`가
+알려 줍니다.
+
+## 11. 함수를 값으로 다루는 새 기능 (클로저) — 건드리게 되는 곳
+
+중첩 함수/클로저(`ValueType::Function`, `Closure`)를 확장하려면:
+1. `Value.h`의 `Closure`가 캡처 데이터와 `decl`(함수 선언 포인터)을 가집니다. 캡처는 **값으로**,
+   정의되는 시점에 한 번 이루어집니다 (`Environment::collectCapturable()`).
+2. 생성은 `Interpreter::execStatement`의 `StmtKind::FunctionDecl` 케이스, 호출은
+   `callClosure()`(`evalCall`/`invokeAwaited`가 `findUser()` → `findClosure()` → `findNative()`
+   순서로 찾습니다).
+3. 캡처를 "공유 가능한 변수"(JS/Lua식 upvalue)로 바꾸려면 `Environment`가 스택에 할당되고
+   복사/이동이 막혀 있다는 전제(그 파일 맨 위 주석)와 부딪힙니다 — 지역 변수 저장소를 힙
+   기반으로 바꾸는 변경이 필요하므로 `IMPLEMENTATION_NOTES.md` 33번의 설계 결정을 먼저
+   읽어보세요.
+

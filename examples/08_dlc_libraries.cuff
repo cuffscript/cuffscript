@@ -6,11 +6,11 @@ use DLC:random
 use DLC:list
 use DLC:convert
 
-print(sqrt(16))
-print(abs(-5))
-print(max(3, 7, 2))
-print(upper("hello"))
-print(trim("  padded  "))
+print(math_sqrt(16))
+print(math_abs(-5))
+print(math_max(3, 7, 2))
+print(str_upper("hello"))
+print(str_trim("  padded  "))
 print(contains("hello world", "world"))
 
 set number roll to random_int(1, 6)
@@ -18,16 +18,16 @@ print(f"주사위: {roll} (1~6 사이여야 함)")
 
 note: DLC:list — 원본을 바꾸지 않고 새 리스트를 반환하는 함수형 스타일
 set list scores to [5, 2, 8, 1, 9, 2]
-print(sort(scores))
-print(reverse(scores))
-print(unique(scores))
+print(list_sort(scores))
+print(list_reverse(scores))
+print(list_unique(scores))
 
-note: join()은 문자열 리스트만 받으므로, 숫자 리스트는 to_str()로 먼저 변환
+note: list_join()은 문자열 리스트만 받으므로, 숫자 리스트는 to_str()로 먼저 변환
 set list score_strs to []
 loop repeat i to 1 ~ 5 do:
     add to_str(scores[i]) to score_strs
 end
-print(join(score_strs, ", "))
+print(list_join(score_strs, ", "))
 
 note: DLC:convert — 명시적 타입 변환
 set number n to to_number("42.5")

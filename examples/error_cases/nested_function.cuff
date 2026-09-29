@@ -1,6 +1,7 @@
-note: 함수 안에 함수 정의는 지원하지 않음 -> NestedFunctionNotSupported
+note: 함수 안에 async 함수 정의는 아직 지원하지 않음 -> NestedAsyncFunctionNotSupported
+note: (일반 중첩 함수/클로저는 지원합니다 -- examples의 클로저 예제 참고)
 set func outer() do:
-    set func inner() do:
+    set async func inner() do:
         print("hi")
     end
     inner()

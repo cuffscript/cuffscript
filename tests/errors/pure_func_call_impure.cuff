@@ -1,0 +1,16 @@
+note: E4029
+set number counter to 0
+
+set func bump() do:
+    change counter to global
+    change counter to counter + 1
+end
+
+set returnable pure func trigger_bump() do:
+    note: pure 함수는 이제 순수하지 않은 사용자 함수를 호출할 수 없습니다 --
+    note: 이전에는 이 호출이 허용되어, pure의 전역 접근 차단을 일반 헬퍼
+    note: 함수 호출로 우회할 수 있었습니다.
+    bump()
+    return 1
+end
+print(trigger_bump())

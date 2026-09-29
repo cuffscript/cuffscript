@@ -20,6 +20,8 @@ namespace cuff
     struct ValueList;
     class ValueMap;
     struct MatchResult;
+    struct Closure;
+    struct FunctionDecl; // defined in ../parser/ASTNodes.h
 
     enum class ValueType
     {
@@ -29,7 +31,8 @@ namespace cuff
         Boolean,
         List,
         Map,
-        Match
+        Match,
+        Function
     };
 
     inline std::string valueTypeName(ValueType t)
@@ -50,6 +53,8 @@ namespace cuff
             return "map";
         case ValueType::Match:
             return "match";
+        case ValueType::Function:
+            return "function";
         }
         return "unknown";
     }
@@ -77,7 +82,8 @@ namespace cuff
             bool,
             std::shared_ptr<ValueList>,
             std::shared_ptr<ValueMap>,
-            std::shared_ptr<MatchResult>>;
+            std::shared_ptr<MatchResult>,
+            std::shared_ptr<Closure>>;
 
         Value() : storage_(std::monostate{}) {}
 
@@ -130,6 +136,12 @@ namespace cuff
             v.storage_.emplace<6>(std::move(m));
             return v;
         }
+        static Value makeFunction(std::shared_ptr<Closure> c)
+        {
+            Value v;
+            v.storage_.emplace<7>(std::move(c));
+            return v;
+        }
 
         ValueType type() const { return static_cast<ValueType>(storage_.index()); }
 
@@ -140,6 +152,7 @@ namespace cuff
         bool isList() const { return storage_.index() == 4; }
         bool isMap() const { return storage_.index() == 5; }
         bool isMatch() const { return storage_.index() == 6; }
+        bool isFunction() const { return storage_.index() == 7; }
 
         double asNumber() const { return std::get<1>(storage_); }
         const std::string &asStr() const { return std::get<2>(storage_)->text(); }
@@ -149,6 +162,7 @@ namespace cuff
         const std::shared_ptr<ValueList> &asList() const { return std::get<4>(storage_); }
         const std::shared_ptr<ValueMap> &asMap() const { return std::get<5>(storage_); }
         const std::shared_ptr<MatchResult> &asMatch() const { return std::get<6>(storage_); }
+        const std::shared_ptr<Closure> &asFunction() const { return std::get<7>(storage_); }
 
         // Moves the current contents out, leaving this Value empty.
         Value takeOut()
@@ -288,6 +302,51 @@ namespace cuff
         std::unordered_map<std::string, std::string> named;
     };
 
+    // A closure value: a nested `set func` declaration (see
+    // Interpreter::execStatement's StmtKind::FunctionDecl case) captured as a
+    // first-class Value the moment it's declared, so it can be assigned,
+    // passed as an argument, returned, and called through a variable exactly
+    // like a top-level function (see Interpreter::evalCall). Top-level
+    // functions are unaffected — they still live in their own name-indexed
+    // registry (see the comment on Interpreter::userById_) for speed; this
+    // exists only for functions declared *inside* another function's body.
+    struct Closure
+    {
+        const FunctionDecl *decl = nullptr;
+        // Copied out of decl->name at creation time rather than read through
+        // decl on demand, since FunctionDecl is only forward-declared here —
+        // Value.h deliberately doesn't depend on the parser's AST types, so
+        // display/error-message code in this file can't reach decl->name.
+        std::string name;
+
+        // Snapshot of every name visible in the defining scope, from the
+        // point of definition up through (and including) the nearest
+        // enclosing function scope — captured *by value*, once, at closure-
+        // creation time, then declared into the closure's own funcEnv ahead
+        // of its parameters on each call (see Interpreter::callClosure).
+        // Because scalars are copied like anywhere else in this language, a
+        // captured number/str/boolean is an independent copy from here on;
+        // a captured list/map is still the same shared_ptr-backed object as
+        // everywhere else, so mutating its *contents* stays visible through
+        // any other alias, same as passing it as an ordinary argument would.
+        // This is a deliberate, documented scope decision (see
+        // IMPLEMENTATION_NOTES.md) rather than JS/Lua-style shared upvalues:
+        // it needs no change to Environment's lifetime model, since nothing
+        // here ever outlives its own funcEnv the way a captured-by-reference
+        // enclosing scope would have to.
+        std::vector<std::pair<uint32_t, Value>> captured;
+
+        // True when the enclosing function's body was executing under
+        // `pure` at the moment this closure was declared. Forces this
+        // closure to behave as pure regardless of its own `pure` keyword (or
+        // lack of one) — otherwise a `pure` function could manufacture a
+        // nested, nominally non-pure closure as a side door to the exact
+        // global access `pure` exists to block.
+        bool forcedPure = false;
+
+        bool effectivePure() const { return forcedPure || (decl && decl->isPure); }
+    };
+
     // Destroying a deeply nested list/map through shared_ptr destructors would
     // recurse once per level. Nested containers are unhooked into a worklist
     // and released one at a time, so teardown depth stays constant.
@@ -347,6 +406,8 @@ namespace cuff
             return asMap()->size() > 0;
         case ValueType::Match:
             return asMatch()->matched;
+        case ValueType::Function:
+            return true;
         }
         return false;
     }
@@ -487,6 +548,13 @@ namespace cuff
             case ValueType::Match:
                 return a.asMatch()->matched == b.asMatch()->matched &&
                        a.asMatch()->wholeMatch == b.asMatch()->wholeMatch;
+            case ValueType::Function:
+                // Identity, not structural: two closures are `is`-equal only
+                // when they're literally the same captured instance — even
+                // two closures made from the same nested `set func` in two
+                // different calls are distinct (each call captures its own
+                // snapshot).
+                return a.asFunction().get() == b.asFunction().get();
             default:
                 return false;
             }
@@ -612,6 +680,11 @@ namespace cuff
             out += "<match \"";
             out += asMatch()->wholeMatch;
             out += "\">";
+            return;
+        case ValueType::Function:
+            out += "<function ";
+            out += asFunction() ? asFunction()->name : std::string("?");
+            out += ">";
             return;
         }
     }

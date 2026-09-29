@@ -495,8 +495,7 @@ namespace cuff
         enum class LoopKind
         {
             Repeat,
-            While,
-            Match
+            While
         };
         LoopKind kind;
 
@@ -506,7 +505,7 @@ namespace cuff
         std::unique_ptr<Expr> repeatStart;
         std::unique_ptr<Expr> repeatEnd;
 
-        // while / match: condition expr
+        // while: condition expr
         std::unique_ptr<Expr> condition;
 
         std::vector<std::unique_ptr<Stmt>> body;

@@ -155,22 +155,36 @@ namespace cuff
         // Used for both reads and change-writes: walks block scopes up to
         // the nearest function-scope environment, then (if not found there
         // and not explicitly global-declared) falls back to true global.
+        //
+        // A real local binding at any level ALWAYS wins over `globalDeclared_`
+        // at the function-scope level — checked here in that order — so that
+        // a loop variable, parameter, or plain `set` local can shadow a
+        // `change name to global` bridge of the same name exactly the way a
+        // local shadows an implicit-fallback global everywhere else in the
+        // language. Checking `globalDeclared_` first (as an earlier version
+        // of this method did) let a bridge silently and permanently hide any
+        // same-named local declared anywhere in the same call — most visibly
+        // with a loop variable reusing a bridged name, where every read
+        // inside the loop body kept returning the stale global value instead
+        // of the loop's own counter.
         Lookup resolve(uint32_t nameId)
         {
             Environment *e = this;
             while (true)
             {
-                if (e->isFunctionScope_ && !e->globalDeclared_.empty() &&
-                    std::find(e->globalDeclared_.begin(), e->globalDeclared_.end(), nameId) != e->globalDeclared_.end())
-                {
-                    if (Value *v = e->global_->findLocal(nameId))
-                        return {v, e->global_};
-                    return {nullptr, nullptr};
-                }
                 if (Value *v = e->findLocal(nameId))
                     return {v, e};
                 if (e->isFunctionScope_)
+                {
+                    if (!e->globalDeclared_.empty() &&
+                        std::find(e->globalDeclared_.begin(), e->globalDeclared_.end(), nameId) != e->globalDeclared_.end())
+                    {
+                        if (Value *v = e->global_->findLocal(nameId))
+                            return {v, e->global_};
+                        return {nullptr, nullptr};
+                    }
                     break;
+                }
                 e = e->parent_;
             }
             // Implicit read fallback to true global (Python-like).
@@ -198,6 +212,44 @@ namespace cuff
         bool isConstantHere(uint32_t nameId) const
         {
             return std::find(constants_.begin(), constants_.end(), nameId) != constants_.end();
+        }
+
+        // Collects every name visible from this environment up through (and
+        // including) the nearest enclosing function-scope environment —
+        // i.e. everything a nested `set func` declared right here could
+        // capture into a Closure (see Interpreter::execStatement's
+        // StmtKind::FunctionDecl case). Values are copied out, matching this
+        // language's capture-by-value design (see the comment on
+        // Closure::captured in Value.h). Innermost declarations win on a
+        // name collision, so a local shadowing an outer one keeps the
+        // local's value. True global-scope names are deliberately excluded
+        // — a closure still reaches those normally through its own
+        // funcEnv's global_ pointer, exactly like an ordinary function call.
+        void collectCapturable(std::vector<std::pair<uint32_t, Value>> &out) const
+        {
+            std::vector<const Environment *> chain;
+            for (const Environment *e = this;; e = e->parent_)
+            {
+                chain.push_back(e);
+                if (e->isFunctionScope_ || !e->parent_)
+                    break;
+            }
+            for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+            {
+                for (const auto &kv : (*it)->vars_)
+                {
+                    bool replaced = false;
+                    for (auto &o : out)
+                        if (o.first == kv.first)
+                        {
+                            o.second = kv.second;
+                            replaced = true;
+                            break;
+                        }
+                    if (!replaced)
+                        out.emplace_back(kv.first, kv.second);
+                }
+            }
         }
 
     private:

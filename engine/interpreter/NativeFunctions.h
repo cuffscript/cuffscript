@@ -6,7 +6,10 @@
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
 #include "../net/HttpClient.h"
+#include "../common/PathSandbox.h"
 #include <functional>
+#include <filesystem>
+#include <fstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
@@ -430,42 +433,42 @@ namespace cuff
             };
         };
 
-        reg["sqrt"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_sqrt"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("sqrt", args, 1, loc);
-            double v = expectNumber("sqrt", args, 0, loc);
+            expectArgCount("math_sqrt", args, 1, loc);
+            double v = expectNumber("math_sqrt", args, 0, loc);
             if (v < 0)
-                throw ValueError("sqrt() cannot take the square root of a negative number", loc);
+                throw ValueError("math_sqrt() cannot take the square root of a negative number", loc);
             return Value::makeNumber(std::sqrt(v));
         };
-        reg["abs"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_abs"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("abs", args, 1, loc);
-            return Value::makeNumber(std::fabs(expectNumber("abs", args, 0, loc)));
+            expectArgCount("math_abs", args, 1, loc);
+            return Value::makeNumber(std::fabs(expectNumber("math_abs", args, 0, loc)));
         };
-        reg["pow"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_pow"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("pow", args, 2, loc);
-            double base = expectNumber("pow", args, 0, loc);
-            double exponent = expectNumber("pow", args, 1, loc);
+            expectArgCount("math_pow", args, 2, loc);
+            double base = expectNumber("math_pow", args, 0, loc);
+            double exponent = expectNumber("math_pow", args, 1, loc);
             if (base == 0.0 && exponent < 0)
-                throw DivisionByZeroError("pow() cannot raise 0 to a negative power (division by zero)", loc);
+                throw DivisionByZeroError("math_pow() cannot raise 0 to a negative power (division by zero)", loc);
             if (base < 0 && exponent != std::floor(exponent))
-                throw ValueError("pow() cannot raise a negative number to a fractional power", loc);
+                throw ValueError("math_pow() cannot raise a negative number to a fractional power", loc);
             double r = std::pow(base, exponent);
             if (std::isfinite(base) && std::isfinite(exponent) && !std::isfinite(r))
-                throw ValueError("pow() result is too large to represent", loc);
+                throw ValueError("math_pow() result is too large to represent", loc);
             return Value::makeNumber(r);
         };
-        reg["round"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_round"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgRange("round", args, 1, 2, loc);
-            double x = expectNumber("round", args, 0, loc);
+            expectArgRange("math_round", args, 1, 2, loc);
+            double x = expectNumber("math_round", args, 0, loc);
             if (args.size() == 1)
                 return Value::makeNumber(std::round(x));
-            long long digits = expectWhole("round", args, 1, loc);
+            long long digits = expectWhole("math_round", args, 1, loc);
             if (digits < 0 || digits > 15)
-                throw ValueError("round()'s digits must be a whole number from 0 to 15", loc);
+                throw ValueError("math_round()'s digits must be a whole number from 0 to 15", loc);
             if (!std::isfinite(x))
                 return Value::makeNumber(x);
             double scale = std::pow(10.0, static_cast<double>(digits));
@@ -474,27 +477,27 @@ namespace cuff
                 return Value::makeNumber(x);
             return Value::makeNumber(std::round(scaled) / scale);
         };
-        reg["floor"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_floor"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("floor", args, 1, loc);
-            return Value::makeNumber(std::floor(expectNumber("floor", args, 0, loc)));
+            expectArgCount("math_floor", args, 1, loc);
+            return Value::makeNumber(std::floor(expectNumber("math_floor", args, 0, loc)));
         };
-        reg["ceil"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_ceil"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("ceil", args, 1, loc);
-            return Value::makeNumber(std::ceil(expectNumber("ceil", args, 0, loc)));
+            expectArgCount("math_ceil", args, 1, loc);
+            return Value::makeNumber(std::ceil(expectNumber("math_ceil", args, 0, loc)));
         };
-        reg["trunc"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_trunc"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("trunc", args, 1, loc);
-            return Value::makeNumber(std::trunc(expectNumber("trunc", args, 0, loc)));
+            expectArgCount("math_trunc", args, 1, loc);
+            return Value::makeNumber(std::trunc(expectNumber("math_trunc", args, 0, loc)));
         };
-        reg["sign"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_sign"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("sign", args, 1, loc);
-            double x = expectNumber("sign", args, 0, loc);
+            expectArgCount("math_sign", args, 1, loc);
+            double x = expectNumber("math_sign", args, 0, loc);
             if (std::isnan(x))
-                throw ValueError("sign() cannot take NaN", loc);
+                throw ValueError("math_sign() cannot take NaN", loc);
             return Value::makeNumber(x > 0 ? 1.0 : (x < 0 ? -1.0 : 0.0));
         };
 
@@ -532,89 +535,89 @@ namespace cuff
                 return Value::makeNumber(best);
             };
         };
-        extremum("min", false);
-        extremum("max", true);
+        extremum("math_min", false);
+        extremum("math_max", true);
 
-        reg["clamp"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_clamp"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("clamp", args, 3, loc);
-            double x = expectNumber("clamp", args, 0, loc);
-            double lo = expectNumber("clamp", args, 1, loc);
-            double hi = expectNumber("clamp", args, 2, loc);
+            expectArgCount("math_clamp", args, 3, loc);
+            double x = expectNumber("math_clamp", args, 0, loc);
+            double lo = expectNumber("math_clamp", args, 1, loc);
+            double hi = expectNumber("math_clamp", args, 2, loc);
             if (std::isnan(x) || std::isnan(lo) || std::isnan(hi))
-                throw ValueError("clamp() cannot take NaN", loc);
+                throw ValueError("math_clamp() cannot take NaN", loc);
             if (lo > hi)
-                throw ValueError("clamp() expects the lower bound to be <= the upper bound", loc);
+                throw ValueError("math_clamp() expects the lower bound to be <= the upper bound", loc);
             return Value::makeNumber(std::min(std::max(x, lo), hi));
         };
 
         // Floored modulo: the result takes the sign of the divisor (like Python's %).
-        reg["mod"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_mod"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("mod", args, 2, loc);
-            double a = expectNumber("mod", args, 0, loc);
-            double b = expectNumber("mod", args, 1, loc);
+            expectArgCount("math_mod", args, 2, loc);
+            double a = expectNumber("math_mod", args, 0, loc);
+            double b = expectNumber("math_mod", args, 1, loc);
             if (b == 0.0)
-                throw DivisionByZeroError("mod() cannot divide by zero", loc);
+                throw DivisionByZeroError("math_mod() cannot divide by zero", loc);
             double r = std::fmod(a, b);
             if (r != 0.0 && ((r < 0) != (b < 0)))
                 r += b;
-            return Value::makeNumber(checkedResult("mod", r, "result is not a finite number", loc));
+            return Value::makeNumber(checkedResult("math_mod", r, "result is not a finite number", loc));
         };
 
-        reg["log"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_log"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgRange("log", args, 1, 2, loc);
-            double x = expectNumber("log", args, 0, loc);
+            expectArgRange("math_log", args, 1, 2, loc);
+            double x = expectNumber("math_log", args, 0, loc);
             if (!(x > 0))
-                throw ValueError("log() requires a positive number", loc);
+                throw ValueError("math_log() requires a positive number", loc);
             if (args.size() == 1)
                 return Value::makeNumber(std::log(x));
-            double base = expectNumber("log", args, 1, loc);
+            double base = expectNumber("math_log", args, 1, loc);
             if (!(base > 0) || base == 1.0)
-                throw ValueError("log()'s base must be positive and not 1", loc);
+                throw ValueError("math_log()'s base must be positive and not 1", loc);
             return Value::makeNumber(std::log(x) / std::log(base));
         };
-        reg["log10"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_log10"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("log10", args, 1, loc);
-            double x = expectNumber("log10", args, 0, loc);
+            expectArgCount("math_log10", args, 1, loc);
+            double x = expectNumber("math_log10", args, 0, loc);
             if (!(x > 0))
-                throw ValueError("log10() requires a positive number", loc);
+                throw ValueError("math_log10() requires a positive number", loc);
             return Value::makeNumber(std::log10(x));
         };
-        reg["log2"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_log2"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("log2", args, 1, loc);
-            double x = expectNumber("log2", args, 0, loc);
+            expectArgCount("math_log2", args, 1, loc);
+            double x = expectNumber("math_log2", args, 0, loc);
             if (!(x > 0))
-                throw ValueError("log2() requires a positive number", loc);
+                throw ValueError("math_log2() requires a positive number", loc);
             return Value::makeNumber(std::log2(x));
         };
 
-        unary("exp", [](double x) { return std::exp(x); }, "result is too large to represent");
-        unary("sin", [](double x) { return std::sin(x); }, "requires a finite number");
-        unary("cos", [](double x) { return std::cos(x); }, "requires a finite number");
-        unary("tan", [](double x) { return std::tan(x); }, "requires a finite number");
-        unary("asin", [](double x) { return std::asin(x); }, "requires a number between -1 and 1");
-        unary("acos", [](double x) { return std::acos(x); }, "requires a number between -1 and 1");
-        unary("atan", [](double x) { return std::atan(x); }, "requires a number");
+        unary("math_exp", [](double x) { return std::exp(x); }, "result is too large to represent");
+        unary("math_sin", [](double x) { return std::sin(x); }, "requires a finite number");
+        unary("math_cos", [](double x) { return std::cos(x); }, "requires a finite number");
+        unary("math_tan", [](double x) { return std::tan(x); }, "requires a finite number");
+        unary("math_asin", [](double x) { return std::asin(x); }, "requires a number between -1 and 1");
+        unary("math_acos", [](double x) { return std::acos(x); }, "requires a number between -1 and 1");
+        unary("math_atan", [](double x) { return std::atan(x); }, "requires a number");
 
-        reg["atan2"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_atan2"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("atan2", args, 2, loc);
-            double y = expectNumber("atan2", args, 0, loc);
-            double x = expectNumber("atan2", args, 1, loc);
-            return Value::makeNumber(checkedResult("atan2", std::atan2(y, x), "requires finite numbers", loc));
+            expectArgCount("math_atan2", args, 2, loc);
+            double y = expectNumber("math_atan2", args, 0, loc);
+            double x = expectNumber("math_atan2", args, 1, loc);
+            return Value::makeNumber(checkedResult("math_atan2", std::atan2(y, x), "requires finite numbers", loc));
         };
-        reg["pi"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_pi"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("pi", args, 0, loc);
+            expectArgCount("math_pi", args, 0, loc);
             return Value::makeNumber(3.14159265358979323846);
         };
-        reg["e"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["math_e"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("e", args, 0, loc);
+            expectArgCount("math_e", args, 0, loc);
             return Value::makeNumber(2.71828182845904523536);
         };
     }
@@ -622,16 +625,16 @@ namespace cuff
     // ---- DLC:string ----
     inline void registerStringDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
-        reg["upper"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_upper"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("upper", args, 1, loc);
-            expectStr("upper", args, 0, loc);
+            expectArgCount("str_upper", args, 1, loc);
+            expectStr("str_upper", args, 0, loc);
             return textutil::mapCase(args[0], true);
         };
-        reg["lower"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_lower"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("lower", args, 1, loc);
-            expectStr("lower", args, 0, loc);
+            expectArgCount("str_lower", args, 1, loc);
+            expectStr("str_lower", args, 0, loc);
             return textutil::mapCase(args[0], false);
         };
 
@@ -650,38 +653,38 @@ namespace cuff
                 return Value::makeStr(s.substr(a, b - a + 1));
             };
         };
-        trimmer("trim", true, true);
-        trimmer("trim_start", true, false);
-        trimmer("trim_end", false, true);
+        trimmer("str_trim", true, true);
+        trimmer("str_trim_start", true, false);
+        trimmer("str_trim_end", false, true);
 
         reg["length"] = nativeLength;
         reg["contains"] = nativeContains;
         reg["index_of"] = nativeIndexOf;
 
-        reg["starts_with"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_starts_with"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("starts_with", args, 2, loc);
-            const std::string &s = expectStr("starts_with", args, 0, loc);
-            const std::string &pre = expectStr("starts_with", args, 1, loc);
+            expectArgCount("str_starts_with", args, 2, loc);
+            const std::string &s = expectStr("str_starts_with", args, 0, loc);
+            const std::string &pre = expectStr("str_starts_with", args, 1, loc);
             return Value::makeBool(s.compare(0, pre.size(), pre) == 0);
         };
-        reg["ends_with"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_ends_with"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("ends_with", args, 2, loc);
-            const std::string &s = expectStr("ends_with", args, 0, loc);
-            const std::string &suf = expectStr("ends_with", args, 1, loc);
+            expectArgCount("str_ends_with", args, 2, loc);
+            const std::string &s = expectStr("str_ends_with", args, 0, loc);
+            const std::string &suf = expectStr("str_ends_with", args, 1, loc);
             if (suf.size() > s.size())
                 return Value::makeBool(false);
             return Value::makeBool(s.compare(s.size() - suf.size(), suf.size(), suf) == 0);
         };
 
-        reg["repeat_str"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_repeat"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("repeat_str", args, 2, loc);
-            const std::string &s = expectStr("repeat_str", args, 0, loc);
-            long long n = expectWhole("repeat_str", args, 1, loc);
+            expectArgCount("str_repeat", args, 2, loc);
+            const std::string &s = expectStr("str_repeat", args, 0, loc);
+            long long n = expectWhole("str_repeat", args, 1, loc);
             if (n < 0)
-                throw ValueError("repeat_str() expects a count of 0 or more", loc);
+                throw ValueError("str_repeat() expects a count of 0 or more", loc);
             if (s.empty() || n == 0)
                 return Value::makeStr(std::string());
             if (static_cast<unsigned long long>(n) > limits::kMaxStringBytes / s.size())
@@ -725,27 +728,27 @@ namespace cuff
                 return Value::makeStr(std::move(out));
             };
         };
-        padder("pad_left", true);
-        padder("pad_right", false);
+        padder("str_pad_left", true);
+        padder("str_pad_right", false);
 
-        reg["char_code"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_char_code"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("char_code", args, 1, loc);
-            const std::string &s = expectStr("char_code", args, 0, loc);
+            expectArgCount("str_char_code", args, 1, loc);
+            const std::string &s = expectStr("str_char_code", args, 0, loc);
             if (s.empty())
-                throw ValueError("char_code() cannot take an empty string", loc);
+                throw ValueError("str_char_code() cannot take an empty string", loc);
             unsigned int cp;
             size_t len;
             if (!textutil::decodeAt(s, 0, cp, len))
-                throw ValueError("char_code() found invalid UTF-8", loc);
+                throw ValueError("str_char_code() found invalid UTF-8", loc);
             return Value::makeNumber(static_cast<double>(cp));
         };
-        reg["from_char_code"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["str_from_char_code"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("from_char_code", args, 1, loc);
-            long long cp = expectWhole("from_char_code", args, 0, loc);
+            expectArgCount("str_from_char_code", args, 1, loc);
+            long long cp = expectWhole("str_from_char_code", args, 0, loc);
             if (cp < 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
-                throw ValueError("from_char_code() expects a valid Unicode code point (0-1114111, excluding surrogates)", loc);
+                throw ValueError("str_from_char_code() expects a valid Unicode code point (0-1114111, excluding surrogates)", loc);
             std::string out;
             textutil::appendUtf8(static_cast<unsigned int>(cp), out);
             return Value::makeStr(std::move(out));
@@ -757,13 +760,13 @@ namespace cuff
     {
         auto nowFn = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("now", args, 0, loc);
+            expectArgCount("time_now", args, 0, loc);
             auto now = std::chrono::system_clock::now().time_since_epoch();
             double secs = std::chrono::duration<double>(now).count();
             return Value::makeNumber(secs);
         };
-        reg["now"] = nowFn;
-        reg["timestamp"] = nowFn;
+        reg["time_now"] = nowFn;
+        reg["time_timestamp"] = nowFn;
     }
 
     // ---- DLC:random ----
@@ -774,9 +777,9 @@ namespace cuff
         static const std::shared_ptr<std::mt19937_64> rng =
             std::make_shared<std::mt19937_64>(std::random_device{}());
 
-        reg["random"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["random_float"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("random", args, 0, loc);
+            expectArgCount("random_float", args, 0, loc);
             std::uniform_real_distribution<double> dist(0.0, 1.0);
             return Value::makeNumber(dist(*rng));
         };
@@ -797,20 +800,20 @@ namespace cuff
             rng->seed(static_cast<unsigned long long>(seed));
             return Value::makeEmpty();
         };
-        reg["choice"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["random_choice"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("choice", args, 1, loc);
-            const auto &items = expectList("choice", args, 0, loc).items;
+            expectArgCount("random_choice", args, 1, loc);
+            const auto &items = expectList("random_choice", args, 0, loc).items;
             if (items.empty())
-                throw ValueError("choice() cannot pick from an empty list", loc);
+                throw ValueError("random_choice() cannot pick from an empty list", loc);
             std::uniform_int_distribution<size_t> dist(0, items.size() - 1);
             return items[dist(*rng)];
         };
-        reg["shuffle"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["random_shuffle"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("shuffle", args, 1, loc);
+            expectArgCount("random_shuffle", args, 1, loc);
             auto out = std::make_shared<ValueList>();
-            out->items = expectList("shuffle", args, 0, loc).items;
+            out->items = expectList("random_shuffle", args, 0, loc).items;
             std::shuffle(out->items.begin(), out->items.end(), *rng);
             return Value::makeList(std::move(out));
         };
@@ -827,10 +830,10 @@ namespace cuff
         reg["contains"] = nativeContains;
         reg["index_of"] = nativeIndexOf;
 
-        reg["sort"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_sort"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("sort", args, 1, loc);
-            const auto &src = expectList("sort", args, 0, loc).items;
+            expectArgCount("list_sort", args, 1, loc);
+            const auto &src = expectList("list_sort", args, 0, loc).items;
             auto out = std::make_shared<ValueList>();
             out->items = src;
             bool allNumbers = std::all_of(src.begin(), src.end(), [](const Value &v)
@@ -841,7 +844,7 @@ namespace cuff
             {
                 if (std::any_of(src.begin(), src.end(), [](const Value &v)
                                 { return std::isnan(v.asNumber()); }))
-                    throw ValueError("sort() cannot order a list that contains NaN", loc);
+                    throw ValueError("list_sort() cannot order a list that contains NaN", loc);
                 std::sort(out->items.begin(), out->items.end(), [](const Value &a, const Value &b)
                           { return a.asNumber() < b.asNumber(); });
             }
@@ -852,30 +855,30 @@ namespace cuff
             }
             else
             {
-                throw TypeError("sort() requires a list of all numbers or all strings (mixed/other types aren't orderable)", loc);
+                throw TypeError("list_sort() requires a list of all numbers or all strings (mixed/other types aren't orderable)", loc);
             }
             return Value::makeList(std::move(out));
         };
 
-        reg["reverse"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_reverse"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("reverse", args, 1, loc);
+            expectArgCount("list_reverse", args, 1, loc);
             auto out = std::make_shared<ValueList>();
-            out->items = expectList("reverse", args, 0, loc).items;
+            out->items = expectList("list_reverse", args, 0, loc).items;
             std::reverse(out->items.begin(), out->items.end());
             return Value::makeList(std::move(out));
         };
 
-        reg["join"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_join"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("join", args, 2, loc);
-            const auto &items = expectList("join", args, 0, loc).items;
-            const std::string &sep = expectStr("join", args, 1, loc);
+            expectArgCount("list_join", args, 2, loc);
+            const auto &items = expectList("list_join", args, 0, loc).items;
+            const std::string &sep = expectStr("list_join", args, 1, loc);
             size_t total = items.empty() ? 0 : sep.size() * (items.size() - 1);
             for (size_t i = 0; i < items.size(); ++i)
             {
                 if (!items[i].isStr())
-                    throw TypeError("join() requires every element to be a str (index " + std::to_string(i + 1) +
+                    throw TypeError("list_join() requires every element to be a str (index " + std::to_string(i + 1) +
                                         " is a " + valueTypeName(items[i].type()) + ") — use convert:to_str() first",
                                     loc);
                 total += items[i].asStr().size();
@@ -892,10 +895,10 @@ namespace cuff
             return Value::makeStr(std::move(out));
         };
 
-        reg["unique"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_unique"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("unique", args, 1, loc);
-            const auto &src = expectList("unique", args, 0, loc).items;
+            expectArgCount("list_unique", args, 1, loc);
+            const auto &src = expectList("list_unique", args, 0, loc).items;
             auto out = std::make_shared<ValueList>();
             bool allNumbers = std::all_of(src.begin(), src.end(), [](const Value &v)
                                           { return v.isNumber(); });
@@ -928,41 +931,41 @@ namespace cuff
             return Value::makeList(std::move(out));
         };
 
-        reg["sum"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_sum"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("sum", args, 1, loc);
+            expectArgCount("list_sum", args, 1, loc);
             double total = 0;
-            for (const auto &v : expectList("sum", args, 0, loc).items)
+            for (const auto &v : expectList("list_sum", args, 0, loc).items)
             {
                 if (!v.isNumber())
-                    throw TypeError("sum() requires a list of numbers, found a " + valueTypeName(v.type()), loc);
+                    throw TypeError("list_sum() requires a list of numbers, found a " + valueTypeName(v.type()), loc);
                 total += v.asNumber();
             }
             return Value::makeNumber(total);
         };
 
-        reg["average"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_average"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("average", args, 1, loc);
-            const auto &items = expectList("average", args, 0, loc).items;
+            expectArgCount("list_average", args, 1, loc);
+            const auto &items = expectList("list_average", args, 0, loc).items;
             if (items.empty())
-                throw ValueError("average() cannot take an empty list", loc);
+                throw ValueError("list_average() cannot take an empty list", loc);
             double total = 0;
             for (const auto &v : items)
             {
                 if (!v.isNumber())
-                    throw TypeError("average() requires a list of numbers, found a " + valueTypeName(v.type()), loc);
+                    throw TypeError("list_average() requires a list of numbers, found a " + valueTypeName(v.type()), loc);
                 total += v.asNumber();
             }
             return Value::makeNumber(total / static_cast<double>(items.size()));
         };
 
         // Expands one level of nesting; non-list elements are kept as they are.
-        reg["flatten"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_flatten"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("flatten", args, 1, loc);
+            expectArgCount("list_flatten", args, 1, loc);
             auto out = std::make_shared<ValueList>();
-            for (const auto &v : expectList("flatten", args, 0, loc).items)
+            for (const auto &v : expectList("list_flatten", args, 0, loc).items)
             {
                 if (v.isList())
                 {
@@ -979,19 +982,19 @@ namespace cuff
         };
 
         // Inclusive on both ends, like `loop repeat`; counts down when start > end.
-        reg["range"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["list_range"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgRange("range", args, 2, 3, loc);
-            double start = expectNumber("range", args, 0, loc);
-            double end = expectNumber("range", args, 1, loc);
+            expectArgRange("list_range", args, 2, 3, loc);
+            double start = expectNumber("list_range", args, 0, loc);
+            double end = expectNumber("list_range", args, 1, loc);
             if (!std::isfinite(start) || !std::isfinite(end))
-                throw ValueError("range() requires finite numbers", loc);
+                throw ValueError("list_range() requires finite numbers", loc);
             double step = start <= end ? 1.0 : -1.0;
             if (args.size() == 3)
             {
-                step = expectNumber("range", args, 2, loc);
+                step = expectNumber("list_range", args, 2, loc);
                 if (!std::isfinite(step) || step == 0.0)
-                    throw ValueError("range()'s step must be a non-zero finite number", loc);
+                    throw ValueError("list_range()'s step must be a non-zero finite number", loc);
             }
             auto out = std::make_shared<ValueList>();
             if ((step > 0 && start > end) || (step < 0 && start < end))
@@ -1013,33 +1016,33 @@ namespace cuff
         reg["length"] = nativeLength;
         reg["contains"] = nativeContains;
 
-        reg["keys"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["map_keys"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("keys", args, 1, loc);
-            const ValueMap &m = expectMap("keys", args, 0, loc);
+            expectArgCount("map_keys", args, 1, loc);
+            const ValueMap &m = expectMap("map_keys", args, 0, loc);
             auto out = std::make_shared<ValueList>();
             out->items.reserve(m.size());
             for (const auto &k : m.keys())
                 out->items.push_back(Value::makeStr(k));
             return Value::makeList(std::move(out));
         };
-        reg["values"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["map_values"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("values", args, 1, loc);
+            expectArgCount("map_values", args, 1, loc);
             auto out = std::make_shared<ValueList>();
-            out->items = expectMap("values", args, 0, loc).values();
+            out->items = expectMap("map_values", args, 0, loc).values();
             return Value::makeList(std::move(out));
         };
-        reg["has_key"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["map_has_key"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("has_key", args, 2, loc);
-            const ValueMap &m = expectMap("has_key", args, 0, loc);
-            return Value::makeBool(m.has(expectStr("has_key", args, 1, loc)));
+            expectArgCount("map_has_key", args, 2, loc);
+            const ValueMap &m = expectMap("map_has_key", args, 0, loc);
+            return Value::makeBool(m.has(expectStr("map_has_key", args, 1, loc)));
         };
-        reg["entries"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["map_entries"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("entries", args, 1, loc);
-            const ValueMap &m = expectMap("entries", args, 0, loc);
+            expectArgCount("map_entries", args, 1, loc);
+            const ValueMap &m = expectMap("map_entries", args, 0, loc);
             auto out = std::make_shared<ValueList>();
             out->items.reserve(m.size());
             for (size_t i = 0; i < m.size(); ++i)
@@ -1052,11 +1055,11 @@ namespace cuff
             return Value::makeList(std::move(out));
         };
         // Returns a new map; on duplicate keys the second map wins.
-        reg["merge"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["map_merge"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("merge", args, 2, loc);
-            const ValueMap &a = expectMap("merge", args, 0, loc);
-            const ValueMap &b = expectMap("merge", args, 1, loc);
+            expectArgCount("map_merge", args, 2, loc);
+            const ValueMap &a = expectMap("map_merge", args, 0, loc);
+            const ValueMap &b = expectMap("map_merge", args, 1, loc);
             ensureItemCount(a.size() + b.size(), loc);
             auto out = std::make_shared<ValueMap>();
             out->reserve(a.size() + b.size());
@@ -1141,34 +1144,215 @@ namespace cuff
 
     inline void registerNetworkDLC(std::unordered_map<std::string, NativeFn> &reg, NetworkDLCOptions opts)
     {
-        reg["get"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["network_get"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgCount("get", args, 1, loc);
+            expectArgCount("network_get", args, 1, loc);
             if (!opts.enabled)
-                throwNetworkDisabled("get", loc);
-            const std::string &url = expectStr("get", args, 0, loc);
+                throwNetworkDisabled("network_get", loc);
+            const std::string &url = expectStr("network_get", args, 0, loc);
             net::HttpOptions httpOpts;
             httpOpts.allowPrivateTargets = opts.allowPrivateTargets;
             net::HttpResponse resp = net::get(url, httpOpts);
             if (!resp.ok)
-                throwNetworkFailed("get", resp.errorMessage, loc);
+                throwNetworkFailed("network_get", resp.errorMessage, loc);
             return makeHttpResultMap(resp);
         };
 
-        reg["post"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        reg["network_post"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
-            expectArgRange("post", args, 2, 3, loc);
+            expectArgRange("network_post", args, 2, 3, loc);
             if (!opts.enabled)
-                throwNetworkDisabled("post", loc);
-            const std::string &url = expectStr("post", args, 0, loc);
-            const std::string &body = expectStr("post", args, 1, loc);
-            std::string contentType = args.size() == 3 ? expectStr("post", args, 2, loc) : std::string();
+                throwNetworkDisabled("network_post", loc);
+            const std::string &url = expectStr("network_post", args, 0, loc);
+            const std::string &body = expectStr("network_post", args, 1, loc);
+            std::string contentType = args.size() == 3 ? expectStr("network_post", args, 2, loc) : std::string();
             net::HttpOptions httpOpts;
             httpOpts.allowPrivateTargets = opts.allowPrivateTargets;
             net::HttpResponse resp = net::post(url, body, contentType, httpOpts);
             if (!resp.ok)
-                throwNetworkFailed("post", resp.errorMessage, loc);
+                throwNetworkFailed("network_post", resp.errorMessage, loc);
             return makeHttpResultMap(resp);
+        };
+    }
+
+    // ---- DLC:filesystem ----
+    // Every path is resolved relative to, and confined inside, the sandbox
+    // root the host configured (CuffEngine::Options::rootDir, defaulting to
+    // the running script's own directory) — the exact same root `use ... from
+    // ...` module imports are confined to (Interpreter::moduleRoot_). An
+    // absolute path, or a relative path that escapes the root (e.g.
+    // `../../etc/passwd`), is rejected with a loud FilesystemAccessDenied
+    // error rather than silently failing, since that's a script trying to
+    // reach outside its sandbox — worth surfacing clearly, unlike an ordinary
+    // "file not found". Once a path clears that check, ordinary OS-level
+    // failures (missing file, permission denied, ...) are reported the quiet
+    // way each function's own table entry promises (`empty`/`false`), not by
+    // throwing — a missing file is a completely normal thing for a script to
+    // check for with `file_exist()` first.
+    struct FilesystemDLCOptions
+    {
+        bool enabled = true;
+        std::filesystem::path root;
+    };
+
+    [[noreturn]] inline void throwFilesystemDisabled(const char *fn, const SourceLocation &loc)
+    {
+        throw ModuleError(ErrorCode::DLCFeatureUnavailable,
+                          std::string("DLC:filesystem's ") + fn + "() is disabled for this run (filesystem access was turned off by the host)",
+                          loc, "the host embedding this engine controls this — see CuffEngine::Options::filesystemEnabled");
+    }
+
+    [[noreturn]] inline void throwFilesystemAccessDenied(const char *fn, const std::string &rawPath, const SourceLocation &loc)
+    {
+        throw ModuleError(ErrorCode::FilesystemAccessDenied,
+                          std::string("DLC:filesystem's ") + fn + "(\"" + rawPath + "\") reaches outside the sandboxed root",
+                          loc, "use a path relative to, and inside, the script's directory (or the host's configured rootDir)");
+    }
+
+    // Resolves `rawPath` against opts.root and rejects anything that would
+    // escape it. Returns the resolved (not-necessarily-existing) path.
+    inline std::filesystem::path resolveSandboxedPath(const char *fn, const std::string &rawPath,
+                                                       const FilesystemDLCOptions &opts, const SourceLocation &loc)
+    {
+        namespace fs = std::filesystem;
+        fs::path rel(rawPath);
+        if (rel.has_root_name() || rel.has_root_directory())
+            throwFilesystemAccessDenied(fn, rawPath, loc);
+        fs::path full = opts.root / rel;
+        std::error_code ec;
+        fs::path canon = fs::weakly_canonical(full, ec);
+        if (ec)
+            canon = full.lexically_normal();
+        if (!isInsideRoot(canon, opts.root))
+            throwFilesystemAccessDenied(fn, rawPath, loc);
+        return canon;
+    }
+
+    inline void registerFilesystemDLC(std::unordered_map<std::string, NativeFn> &reg, FilesystemDLCOptions opts)
+    {
+        reg["file_exist"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_exist", args, 1, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_exist", loc);
+            auto resolved = resolveSandboxedPath("file_exist", expectStr("file_exist", args, 0, loc), opts, loc);
+            std::error_code ec;
+            bool exists = std::filesystem::is_regular_file(resolved, ec) && !ec;
+            return Value::makeBool(exists);
+        };
+
+        reg["file_size"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_size", args, 1, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_size", loc);
+            auto resolved = resolveSandboxedPath("file_size", expectStr("file_size", args, 0, loc), opts, loc);
+            std::error_code ec;
+            auto sz = std::filesystem::file_size(resolved, ec);
+            if (ec)
+                return Value::makeEmpty();
+            return Value::makeNumber(static_cast<double>(sz));
+        };
+
+        reg["file_read"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_read", args, 1, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_read", loc);
+            auto resolved = resolveSandboxedPath("file_read", expectStr("file_read", args, 0, loc), opts, loc);
+            std::error_code ec;
+            auto sz = std::filesystem::file_size(resolved, ec);
+            if (ec)
+                return Value::makeEmpty();
+            // Checked against the file's stat'd size *before* allocating or
+            // reading anything, unlike slurping the whole thing first — a
+            // multi-gigabyte file on the sandboxed filesystem shouldn't be
+            // able to force a multi-gigabyte allocation just to get rejected.
+            if (sz > limits::kMaxStringBytes)
+                throw CuffRuntimeError(ErrorCode::SizeLimitExceeded,
+                                       "file_read(): file exceeds the maximum allowed string size", loc);
+            std::ifstream in(resolved, std::ios::binary);
+            if (!in)
+                return Value::makeEmpty();
+            std::string content(static_cast<size_t>(sz), '\0');
+            if (sz > 0)
+                in.read(&content[0], static_cast<std::streamsize>(sz));
+            if (!in)
+                return Value::makeEmpty();
+            return Value::makeStr(std::move(content));
+        };
+
+        reg["file_readlines"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_readlines", args, 1, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_readlines", loc);
+            auto resolved = resolveSandboxedPath("file_readlines", expectStr("file_readlines", args, 0, loc), opts, loc);
+            std::error_code ec;
+            auto sz = std::filesystem::file_size(resolved, ec);
+            if (ec)
+                return Value::makeEmpty();
+            if (sz > limits::kMaxStringBytes)
+                throw CuffRuntimeError(ErrorCode::SizeLimitExceeded,
+                                       "file_readlines(): file exceeds the maximum allowed string size", loc);
+            std::ifstream in(resolved, std::ios::binary);
+            if (!in)
+                return Value::makeEmpty();
+            auto list = std::make_shared<ValueList>();
+            std::string line;
+            while (std::getline(in, line))
+            {
+                if (!line.empty() && line.back() == '\r')
+                    line.pop_back(); // tolerate CRLF line endings
+                if (list->items.size() >= limits::kMaxCollectionItems)
+                    throw CuffRuntimeError(ErrorCode::SizeLimitExceeded,
+                                           "file_readlines(): file has too many lines", loc);
+                list->items.push_back(Value::makeStr(line));
+            }
+            if (!in.eof())
+                return Value::makeEmpty();
+            return Value::makeList(list);
+        };
+
+        reg["file_write"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_write", args, 2, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_write", loc);
+            auto resolved = resolveSandboxedPath("file_write", expectStr("file_write", args, 0, loc), opts, loc);
+            const std::string &text = expectStr("file_write", args, 1, loc);
+            std::ofstream out(resolved, std::ios::binary | std::ios::trunc);
+            if (!out)
+                return Value::makeBool(false);
+            out << text;
+            out.flush();
+            return Value::makeBool(static_cast<bool>(out));
+        };
+
+        reg["file_add"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_add", args, 2, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_add", loc);
+            auto resolved = resolveSandboxedPath("file_add", expectStr("file_add", args, 0, loc), opts, loc);
+            const std::string &text = expectStr("file_add", args, 1, loc);
+            std::ofstream out(resolved, std::ios::binary | std::ios::app);
+            if (!out)
+                return Value::makeBool(false);
+            out << text;
+            out.flush();
+            return Value::makeBool(static_cast<bool>(out));
+        };
+
+        reg["file_remove"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_remove", args, 1, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_remove", loc);
+            auto resolved = resolveSandboxedPath("file_remove", expectStr("file_remove", args, 0, loc), opts, loc);
+            std::error_code ec;
+            bool removed = std::filesystem::remove(resolved, ec);
+            return Value::makeBool(removed && !ec);
         };
     }
 
@@ -1286,6 +1470,8 @@ namespace cuff
         case ValueType::Match:
             throw TypeError("to_json() cannot serialize a match result", loc,
                             "pull the captures you need out of it first");
+        case ValueType::Function:
+            throw TypeError("to_json() cannot serialize a function", loc);
         }
     }
 
@@ -1533,7 +1719,8 @@ namespace cuff
 
     // Dispatches `use DLC:<name>` to the right registration function.
     inline void registerDLC(const std::string &libName, std::unordered_map<std::string, NativeFn> &reg, const SourceLocation &loc,
-                            NetworkDLCOptions networkOpts = NetworkDLCOptions())
+                            NetworkDLCOptions networkOpts = NetworkDLCOptions(),
+                            FilesystemDLCOptions filesystemOpts = FilesystemDLCOptions())
     {
         if (libName == "math")
             registerMathDLC(reg);
@@ -1553,9 +1740,11 @@ namespace cuff
             registerJsonDLC(reg);
         else if (libName == "network")
             registerNetworkDLC(reg, networkOpts);
+        else if (libName == "filesystem")
+            registerFilesystemDLC(reg, filesystemOpts);
         else
             throw ModuleError(ErrorCode::UnknownDLC, "unknown DLC library 'DLC:" + libName + "'", loc,
-                               "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:list, DLC:map, DLC:convert, DLC:json, DLC:network");
+                               "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:list, DLC:map, DLC:convert, DLC:json, DLC:network, DLC:filesystem");
     }
 
 } // namespace cuff

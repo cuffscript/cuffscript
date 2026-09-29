@@ -60,7 +60,11 @@ run_error_case() {
     if [ -f "$expected_code_file" ]; then
         local expected_code
         expected_code=$(cat "$expected_code_file")
-        if ! echo "$actual" | grep -q "\[$expected_code\]"; then
+        # Here-string, not `echo | grep -q`: under `set -o pipefail`, grep -q exits at
+        # its first match and can make the upstream echo die of SIGPIPE, which the
+        # pipeline then reports as "no match" -- a rare, timing-dependent false failure
+        # (measured ~1 in 1500 on ~450-byte messages) that grows with message length.
+        if ! grep -q "\[$expected_code\]" <<<"$actual"; then
             echo "FAIL (expected $expected_code not found): $cuff"
             echo "$actual"
             FAIL=$((FAIL + 1))

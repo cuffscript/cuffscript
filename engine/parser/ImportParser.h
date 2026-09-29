@@ -7,32 +7,12 @@
 #include "../common/CuffError.h"
 #include <memory>
 #include <string>
-#include <cctype>
 
 namespace cuff
 {
-
-    // True for tokens that carry a plain "word" as their raw text —
-    // IDENTIFIER, plus any reserved keyword (which is lexically still just a
-    // word; it only means something special elsewhere in the grammar).
-    // Needed so a DLC/module name or path segment that happens to collide
-    // with a keyword (`use DLC:list`, `use count from ./x`) still parses,
-    // instead of confusingly rejecting a perfectly reasonable name. String
-    // and number literals are excluded explicitly since their `.value` could
-    // coincidentally look word-shaped (e.g. the string literal "list").
-    inline bool isWordLikeToken(const Token &t)
-    {
-        if (t.is(TokenType::STRING) || t.is(TokenType::FSTRING) || t.is(TokenType::NUMBER))
-            return false;
-        if (t.value.empty())
-            return false;
-        if (!(std::isalpha(static_cast<unsigned char>(t.value[0])) || t.value[0] == '_'))
-            return false;
-        for (char c : t.value)
-            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
-                return false;
-        return true;
-    }
+    // isWordLikeToken() now lives in ParserCore.h, shared by every parser
+    // that needs to accept a keyword-shaped name (declarations, references,
+    // DLC/module names here).
 
     // Parses import statements:
     //   use DLC:[name]          — built-in library load

@@ -17,7 +17,6 @@ namespace cuff
     // Parses loop statements:
     //   loop repeat [var] to [start] ~ [end] do: ... end
     //   loop while [cond] do: ... end
-    //   loop match [expr] is/IS [target] do: ... end
     class LoopParser
     {
     public:
@@ -34,7 +33,7 @@ namespace cuff
                 loop.kind = LoopStmt::LoopKind::Repeat;
 
                 // Parse loop variable
-                if (p.check(TokenType::IDENTIFIER))
+                if (isWordLikeToken(p.current()))
                 {
                     loop.repeatVar = p.current().value;
                     loop.repeatVarId = internName(loop.repeatVar);
@@ -67,21 +66,9 @@ namespace cuff
 
                 loop.body = parseLoopBody(p);
             }
-            else if (p.match(TokenType::MATCH))
-            {
-                loop.kind = LoopStmt::LoopKind::Match;
-                // match [expr] is/IS [target]
-                // The condition is a comparison expression
-                loop.condition = ExpressionParser::parse(p);
-
-                p.consume(TokenType::DO, "expected 'do' for match loop");
-                p.consume(TokenType::COLON, "expected ':' after 'do'");
-
-                loop.body = parseLoopBody(p);
-            }
             else
             {
-                throw SyntaxError("expected 'repeat', 'while', or 'match' after 'loop'",
+                throw SyntaxError("expected 'repeat' or 'while' after 'loop'",
                                   p.current().location);
             }
 

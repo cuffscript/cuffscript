@@ -1,0 +1,70 @@
+note: 중첩 함수와 클로저 -- 함수 안에 함수를 정의하고, 값처럼 넘기고 반환할 수 있습니다.
+
+use DLC:list
+
+note: 1) 함수 안의 함수
+set func greet_twice(name) do:
+    set func hello() do:
+        print(f"안녕, {name}!")
+    end
+    hello()
+    hello()
+end
+greet_twice("CuffScript")
+
+note: 2) 클로저를 반환하기 -- 만들어질 때의 x 값이 클로저 안에 "복사"되어 따라갑니다
+set returnable func make_adder(x) do:
+    set returnable func add_x(y) do:
+        return x + y
+    end
+    return add_x
+end
+set func add5 to make_adder(5)
+set func add100 to make_adder(100)
+print(add5(1))
+print(add100(1))
+
+note: 3) 클로저를 인자로 넘기기 (고차 함수)
+set returnable func apply_twice(f, value) do:
+    return f(f(value))
+end
+print(apply_twice(add5, 0))
+
+note: 4) 클로저는 자기 자신의 이름으로 재귀할 수 있습니다
+set returnable func factorial_of(n) do:
+    set returnable func fact(k) do:
+        if k <= 1 do:
+            return 1
+        end
+        return k * fact(k - 1)
+    end
+    return fact(n)
+end
+print(factorial_of(6))
+
+note: 5) 주의 -- 캡처는 "값 복사"라서, 숫자 같은 값은 호출 사이에 누적되지 않습니다
+note:    (매 호출이 만들어질 때의 값에서 다시 시작). 누적이 필요하면 리스트처럼
+note:    "참조로 공유되는" 값을 캡처하세요.
+set returnable func make_counter() do:
+    set number count to 0
+    set returnable func bump() do:
+        change count to count + 1
+        return count
+    end
+    return bump
+end
+set func counter to make_counter()
+print(counter())
+print(counter())
+
+set returnable func make_log() do:
+    set list entries to []
+    set returnable func record(item) do:
+        add item to entries
+        return length(entries)
+    end
+    return record
+end
+set func log to make_log()
+print(log("a"))
+print(log("b"))

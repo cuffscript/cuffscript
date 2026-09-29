@@ -25,7 +25,7 @@ CuffScript source
 
 By default, `./cuffc program.cuff` **runs** the program. Pass `--ast` to instead dump the tokenizer/lexer/parser stages without executing anything (useful when working on the engine itself).
 
-Other options: `--root <dir>` (where `use ... from` may load modules; default is the script's directory), `--max-steps <n>` (stop after n loop iterations + function calls) and `--timeout <ms>` (stop after that much run time). The last two are off by default.
+Other options: `--root <dir>` (where `use ... from` may load modules; default is the script's directory), `--max-steps <n>` (stop after n loop iterations + function calls) and `--timeout <ms>` (stop after that much run time). The last two are off by default. `--no-network` and `--no-filesystem` turn `DLC:network` / `DLC:filesystem` off entirely (recommended when hosting untrusted scripts), and `--allow-private-network` lets `DLC:network` reach loopback/private addresses.
 
 Errors at every stage (lexical, syntax, pattern, runtime, module) are raised through a single, systematically-coded exception hierarchy — see [Error handling](#error-handling) below — so failures are consistent and easy to add to.
 
@@ -69,7 +69,7 @@ loop repeat i to 1 ~ 3 do:
 end
 ```
 
-The loop forms are `loop repeat`, `loop while`, and `loop match`. Inside a loop, `stop` terminates the nearest enclosing loop.
+The loop forms are `loop repeat` and `loop while`. Inside a loop, `stop` terminates the nearest enclosing loop.
 
 ### Expressions and Collections
 
@@ -119,7 +119,7 @@ end
 set number result to double(21)
 ```
 
-`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). `DLC:network`'s `get`/`post` speak plain HTTP only (no TLS) and refuse loopback/private addresses by default — see `SECURITY.md` before pointing it at anything sensitive. `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope. Modules must live inside the script's directory unless you widen the sandbox with `--root <dir>`.
+`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network`, `filesystem` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). Library functions are named `library_verb` (`math_sqrt`, `str_upper`, `list_sort`, `file_read`, ...). `DLC:network`'s `network_get`/`network_post` speak plain HTTP only (no TLS) and refuse loopback/private addresses by default; `DLC:filesystem` (`file_exist`, `file_read`, `file_write`, ...) is confined to the script's directory (or `--root`) — see `SECURITY.md` before pointing either at anything sensitive, and use `--no-network` / `--no-filesystem` when hosting untrusted scripts. `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope. Modules must live inside the script's directory unless you widen the sandbox with `--root <dir>`.
 
 The error-handling composition syntax is `or_else do: ... end`, which catches any recoverable runtime error (not syntax errors) raised by the statement it follows:
 

@@ -37,7 +37,9 @@ Logic issues in user-written CuffScript code and vulnerabilities in external bui
 The engine is designed so that a script can fail but not crash the host: nesting, recursion,
 value depth, string/collection size and regex work are all bounded and reported as ordinary
 error codes, and `use ... from` cannot read outside the script's directory (or the `--root`
-you choose). No built-in performs file access. Two things are deliberately left
+you choose). The engine's only two features that touch the real filesystem — module loading
+and, as of this release, `DLC:filesystem` (see below) — share that same sandboxed root; nothing
+else performs file access. Two things are deliberately left
 to the embedder: an execution budget (`--max-steps`, `--timeout`, or `CuffEngine::Options`) is
 off by default, and process-level memory and CPU limits should still be applied when hosting
 untrusted code. Details and numbers are in `docs/IMPLEMENTATION_NOTES.md`, sections 22-23.
@@ -72,6 +74,45 @@ its own:
   a slow or oversized response can't hang or exhaust memory, but a script can still make many
   requests in a loop — the execution budget above (`--max-steps`/`--timeout`) is what bounds
   that, and it's off by default too.
+
+## DLC:filesystem
+
+`use DLC:filesystem` gives a script real local file access — `file_exist`, `file_size`,
+`file_read`, `file_readlines`, `file_write`, `file_add`, `file_remove`. Unlike `DLC:network`,
+this one follows the *same* sandbox-by-default model module loading already uses, not a
+separate, more permissive one:
+
+- **Confined to the same root as `use ... from`.** Every path is resolved relative to, and
+  checked against, the script's own directory (or `--root` / `Options::rootDir`, whichever
+  the host configured) — an absolute path or a `../`-style escape is rejected with
+  `FilesystemAccessDenied` (`E5008`) before anything is touched. There is no separate
+  filesystem-specific root to configure; widening `--root` widens both module loading and
+  `DLC:filesystem` together, deliberately.
+- **On by default, like `DLC:network` — for the same reason.** A script you run yourself
+  should be able to read and write files next to it without extra configuration. If you embed
+  this engine to run scripts you did not write, set `CuffEngine::Options::filesystemEnabled =
+  false` (or run `cuffc --no-filesystem`) before that script runs, not after — exactly the same
+  caution as `networkEnabled` above.
+- **No special-casing of "sensitive" files inside the root.** Anything the sandbox root
+  contains — including, say, a `.env` file a script itself was never given the name of — is
+  readable and writable if a script can guess or enumerate the path. Don't point `--root` at a
+  directory containing anything you wouldn't want an untrusted script to read, write, or
+  delete.
+- **Symlinks that point outside the root are rejected; deleting is permanent.** Every path
+  is resolved with `std::filesystem::weakly_canonical` before the containment check, so a
+  symlink inside the root whose target lies outside it (a file link *or* a directory link
+  you'd write through) is rejected with `E5008` — verified by hand for both read and write.
+  Symlinks that stay inside the root are followed normally. The one gap is inherent to
+  check-then-use: something *other than the script* (another process) creating or swapping a
+  symlink between the check and the open could still redirect an access — scripts have no
+  way to create symlinks themselves, but don't expose a root that untrusted processes can
+  write to. `file_remove` calls `std::filesystem::remove` directly — there is no trash/undo.
+- **No size cap dedicated to `DLC:filesystem` beyond the language's own string limit** — a
+  `file_read`/`file_readlines` on a file larger than the engine's normal string size ceiling
+  (`engine/common/Limits.h`'s `kMaxStringBytes`) fails cleanly with `SizeLimitExceeded` (`E4026`)
+  rather than exhausting memory, but there's no separate, smaller default for files specifically;
+  set one at the host/OS level (disk quotas, a size-limited mount) if that's not enough for your
+  deployment.
 
 ---
 

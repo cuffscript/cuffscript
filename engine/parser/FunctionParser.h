@@ -56,7 +56,7 @@ namespace cuff
             p.consume(TokenType::FUNCTION, "expected 'func' keyword");
 
             std::string name;
-            if (p.check(TokenType::IDENTIFIER))
+            if (isWordLikeToken(p.current()))
             {
                 name = p.current().value;
                 p.advance();
@@ -66,13 +66,15 @@ namespace cuff
                 throw SyntaxError("expected function name after 'func'", p.current().location);
             }
 
-            // Parse parameter list
+            // Parse parameter list. Names here accept any word-shaped token
+            // (same reasoning as the function name above) — `(add, count)`
+            // is an unambiguous "a name goes here, then ',' or ')'" slot.
             p.consume(TokenType::LPAREN, "expected '(' for function parameters");
 
             std::vector<std::string> params;
             if (!p.check(TokenType::RPAREN))
             {
-                if (p.check(TokenType::IDENTIFIER))
+                if (isWordLikeToken(p.current()))
                 {
                     params.push_back(p.current().value);
                     p.advance();
@@ -83,7 +85,7 @@ namespace cuff
                 }
                 while (p.match(TokenType::COMMA))
                 {
-                    if (p.check(TokenType::IDENTIFIER))
+                    if (isWordLikeToken(p.current()))
                     {
                         params.push_back(p.current().value);
                         p.advance();

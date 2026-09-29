@@ -84,7 +84,7 @@ namespace cuff
         ElementNotFound = 4015,
         UnsupportedOperation = 4016,
         StackOverflow = 4017,
-        NestedFunctionNotSupported = 4018,
+        NestedAsyncFunctionNotSupported = 4018,
         AwaitOnNonAsync = 4019,
         DeclarationTypeMismatch = 4020,
         InvalidGlobalDeclaration = 4021,
@@ -95,6 +95,7 @@ namespace cuff
         SizeLimitExceeded = 4026,
         PureFunctionGlobalAccess = 4027,
         NetworkRequestFailed = 4028,
+        PureFunctionImpureCall = 4029,
 
         // ---- Module (5000s) ----
         ModuleNotFound = 5001,
@@ -104,6 +105,7 @@ namespace cuff
         DLCFeatureUnavailable = 5005,
         ModuleAccessDenied = 5006,
         ModuleLimitExceeded = 5007,
+        FilesystemAccessDenied = 5008,
 
         // ---- Resource limits (6000s) ----
         ExecutionStepLimit = 6001,

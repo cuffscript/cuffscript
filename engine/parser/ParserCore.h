@@ -7,12 +7,38 @@
 #include "../common/Limits.h"
 #include "ASTNodes.h"
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <vector>
 #include <string>
 
 namespace cuff
 {
+
+    // True for tokens that carry a plain "word" as their raw text —
+    // IDENTIFIER, plus any reserved keyword (which is lexically still just a
+    // word; it only means something special in the specific grammar spot(s)
+    // that check for it by exact TokenType). Any spot that just needs "a
+    // name" — a variable/function/parameter/loop-variable being declared, or
+    // a name being referenced back — should accept this instead of requiring
+    // TokenType::IDENTIFIER outright, so a name that happens to collide with
+    // a keyword (`set number add to 5`, `use DLC:list`) still parses instead
+    // of confusingly rejecting an otherwise reasonable name. String and
+    // number literals are excluded explicitly since their `.value` could
+    // coincidentally look word-shaped (e.g. the string literal "list").
+    inline bool isWordLikeToken(const Token &t)
+    {
+        if (t.is(TokenType::STRING) || t.is(TokenType::FSTRING) || t.is(TokenType::NUMBER))
+            return false;
+        if (t.value.empty())
+            return false;
+        if (!(std::isalpha(static_cast<unsigned char>(t.value[0])) || t.value[0] == '_'))
+            return false;
+        for (char c : t.value)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+                return false;
+        return true;
+    }
 
     // Lowest real stack address the parser's own recursion may reach; 0 =
     // no floor (unknown/not yet primed). Kept separate from the

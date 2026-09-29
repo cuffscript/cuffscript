@@ -332,6 +332,101 @@ namespace cuff
         return std::make_unique<Expr>(ExprKind::Map, MapLiteral(std::move(pairs), loc));
     }
 
+    // A handful of keywords (`add`, `to`, `in`, `by`, `global`, `not`, `from`)
+    // are pure grammar connectors — every existing use of them is consumed
+    // via an explicit p.consume(...) at a fixed point, never dispatched on
+    // from primary-expression position (see the comment on the `default:`
+    // case below) — so treating one as a plain identifier reference here can
+    // never collide with its connector role. `match`/`find`/`replace`/
+    // `split`/`count` are different: each already has its own primary-
+    // position construct (`match X from Y`, `count "p" in y`, ...), so
+    // reusing one of those names as a variable requires telling "the
+    // construct" from "the bare name" apart — see canStartExpressionToken().
+    inline bool isBareIdentifierKeyword(TokenType t)
+    {
+        switch (t)
+        {
+        case TokenType::ADD:
+        case TokenType::TO:
+        case TokenType::IN:
+        case TokenType::BY:
+        case TokenType::GLOBAL:
+        case TokenType::NOT:
+        case TokenType::FROM:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // Coarse "could an expression plausibly start here" check, used only to
+    // decide whether match/find/replace/split/count should be parsed as
+    // their regex construct (target/pattern sub-expression follows) or as a
+    // bare identifier reference (nothing expression-shaped follows). Doesn't
+    // need to be exhaustive — a false positive just means we attempt the
+    // construct and get its own, still-clear parse error instead of an
+    // identifier; a false negative just means a rarer expression shape isn't
+    // unreserved yet.
+    inline bool canStartExpressionToken(TokenType t)
+    {
+        switch (t)
+        {
+        case TokenType::IDENTIFIER:
+        case TokenType::NUMBER:
+        case TokenType::STRING:
+        case TokenType::FSTRING:
+        case TokenType::TRUE:
+        case TokenType::FALSE:
+        case TokenType::EMPTY:
+        case TokenType::LPAREN:
+        case TokenType::LBRACKET:
+        case TokenType::LBRACE:
+        case TokenType::AWAIT:
+        case TokenType::MATCH:
+        case TokenType::FIND:
+        case TokenType::REPLACE:
+        case TokenType::SPLIT:
+        case TokenType::COUNT:
+        case TokenType::MINUS:
+        case TokenType::BANG:
+            return true;
+        default:
+            return isBareIdentifierKeyword(t);
+        }
+    }
+
+    // Like canStartExpressionToken(), but for deciding whether match/find/
+    // replace/split/count is starting its own construct versus just being a
+    // bare name — LPAREN and LBRACKET are deliberately excluded here. Postfix
+    // parsing (IndexParser::parsePostfix) turns `identifier(...)` into a call
+    // and `identifier[...]` into an index *after* parsePrimary returns a
+    // plain identifier, so `split(a, b)` or `count[0]` must come back here as
+    // bare identifiers too, or a variable/function named `split`/`count`
+    // could never be called or indexed again.
+    inline bool looksLikeConstructContinuation(TokenType t)
+    {
+        if (t == TokenType::LPAREN || t == TokenType::LBRACKET)
+            return false;
+        return canStartExpressionToken(t);
+    }
+
+    // Builds an IdentifierExpr for the current token and consumes it. Kept
+    // out of line on purpose: parsePrimary is on the recursion path of every
+    // nested expression, so its stack frame size directly bounds how deep
+    // `((((...))))` can go before the parser's stack guard trips (see the
+    // depth tests in tests/unit/limits_test.cpp) — an inlined copy of this
+    // (a std::string plus a heap Expr temporary) made that frame measurably
+    // larger under AddressSanitizer's redzones, which showed up as ~4% fewer
+    // levels of nesting than before. Shared by the ordinary IDENTIFIER case
+    // and the keyword-used-as-a-name fallbacks below.
+    CUFF_NOINLINE inline std::unique_ptr<Expr> makeIdentifierExpr(ParserCore &p)
+    {
+        const SourceLocation loc = p.current().location;
+        std::string name = p.current().value;
+        p.advance();
+        return std::make_unique<Expr>(ExprKind::Identifier, IdentifierExpr(std::move(name), loc));
+    }
+
     inline std::unique_ptr<Expr> LiteralParser::parsePrimary(ParserCore &p)
     {
         const Token &tok = p.current();
@@ -373,11 +468,7 @@ namespace cuff
             return std::make_unique<Expr>(ExprKind::Empty, EmptyLiteral(tok.location));
         }
         case TokenType::IDENTIFIER:
-        {
-            std::string name = tok.value;
-            p.advance();
-            return std::make_unique<Expr>(ExprKind::Identifier, IdentifierExpr(std::move(name), tok.location));
-        }
+            return makeIdentifierExpr(p);
         case TokenType::LBRACKET:
             return parseList(p);
         case TokenType::LBRACE:
@@ -403,19 +494,49 @@ namespace cuff
             auto callPtr = std::make_unique<FunctionCall>(std::move(fc));
             return std::make_unique<Expr>(ExprKind::Await, AwaitExpr(std::move(callPtr), tok.location));
         }
+        // Each of these five keywords already has its own primary-position
+        // construct with a required sub-expression right after it — but
+        // none of them require ANYTHING to immediately follow if used as a
+        // bare name instead (`print(count)`, `x is count`, `[match, find]`).
+        // canStartExpressionToken() peeks one token ahead to tell "the
+        // construct is starting" from "this is just a name" without the
+        // backtracking a fully general disambiguation would need.
         case TokenType::MATCH:
+            if (!looksLikeConstructContinuation(p.peek(1).type))
+                goto bareIdentifier;
             return RegexExprParser::parseMatchFrom(p);
         case TokenType::FIND:
+            if (!looksLikeConstructContinuation(p.peek(1).type))
+                goto bareIdentifier;
             return RegexExprParser::parseFind(p);
         case TokenType::REPLACE:
+            if (!looksLikeConstructContinuation(p.peek(1).type))
+                goto bareIdentifier;
             return RegexExprParser::parseReplace(p);
         case TokenType::SPLIT:
+            if (!looksLikeConstructContinuation(p.peek(1).type))
+                goto bareIdentifier;
             return RegexExprParser::parseSplit(p);
         case TokenType::COUNT:
+            if (!looksLikeConstructContinuation(p.peek(1).type))
+                goto bareIdentifier;
             return RegexExprParser::parseCount(p);
         default:
+            // `add`/`to`/`in`/`by`/`global`/`not`/`from` are grammar
+            // connectors elsewhere but a perfectly fine variable/function
+            // name here (see isBareIdentifierKeyword()'s comment above) —
+            // every other keyword (block/control-flow keywords, type
+            // keywords, literals already handled above, ...) stays reserved,
+            // so a genuinely malformed expression still fails with a clear
+            // "unexpected token" here instead of silently naming a variable
+            // after whatever keyword happens to follow it.
+            if (isBareIdentifierKeyword(tok.type))
+                goto bareIdentifier;
             throw SyntaxError("unexpected token '" + tok.value + "' in expression", tok.location);
         }
+
+    bareIdentifier:
+        return makeIdentifierExpr(p);
     }
 
     inline std::unique_ptr<Expr> LiteralParser::parseEmbeddedExpression(

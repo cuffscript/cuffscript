@@ -114,8 +114,8 @@ int main()
 
     // ---- size limits ----
     expectError("string doubling", "set str s to \"aaaaaaaa\"\nloop repeat i to 1 ~ 40 do:\n    change s to s + s\nend\n", "E4026");
-    expectError("oversized range", "use DLC:list\nprint(range(1, 1000000000))\n", "E4026");
-    expectError("repeat_str too large", "use DLC:string\nprint(repeat_str(\"abcdefgh\", 1000000000))\n", "E4026");
+    expectError("oversized range", "use DLC:list\nprint(list_range(1, 1000000000))\n", "E4026");
+    expectError("repeat_str too large", "use DLC:string\nprint(str_repeat(\"abcdefgh\", 1000000000))\n", "E4026");
     expectError("index beyond exact range", "set list a to [1]\nprint(a[1000000000000000000000000000000])\n", "E4025");
 
     // ---- legitimate large inputs must keep working ----

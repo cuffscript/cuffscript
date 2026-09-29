@@ -143,11 +143,7 @@ namespace cuff
             case StmtKind::LoopStmt:
             {
                 const auto &loop = std::get<LoopStmt>(stmt.data);
-                const char *kindStr = "repeat";
-                if (loop.kind == LoopStmt::LoopKind::While)
-                    kindStr = "while";
-                else if (loop.kind == LoopStmt::LoopKind::Match)
-                    kindStr = "match";
+                const char *kindStr = loop.kind == LoopStmt::LoopKind::While ? "while" : "repeat";
                 os << "Loop [" << kindStr << "]\n";
                 if (loop.kind == LoopStmt::LoopKind::Repeat)
                 {
