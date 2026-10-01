@@ -27,19 +27,8 @@ namespace cuff
         {
             if (!p.check(TokenType::SET))
                 return false;
-            if (p.peek(1).is(TokenType::RETURNABLE) || p.peek(1).is(TokenType::ASYNC) || p.peek(1).is(TokenType::PURE))
-                return true;
-            if (p.peek(1).is(TokenType::FUNCTION))
-            {
-                // `set func NAME ( ... ) do: ...` declares a function;
-                // `set func NAME to ...` instead declares a variable of
-                // function (closure) type — see parseSet's "function" type
-                // keyword case. Distinguished by whether '(' or 'to' follows
-                // the name, since only a real declaration's modifiers
-                // (returnable/async/pure, handled above) can precede 'func'.
-                return p.peek(3).is(TokenType::LPAREN);
-            }
-            return false;
+            return p.peek(1).is(TokenType::FUNCTION) || p.peek(1).is(TokenType::RETURNABLE) ||
+                   p.peek(1).is(TokenType::ASYNC) || p.peek(1).is(TokenType::PURE);
         }
 
         // Parse a set declaration (non-function). Caller should check isFunctionDecl first.
@@ -93,19 +82,9 @@ namespace cuff
                 varType = "match";
                 p.advance();
             }
-            else if (p.check(TokenType::FUNCTION))
-            {
-                // `set func add5 to make_adder(5)` — a variable holding a
-                // closure value (see Value.h's Closure). isFunctionDecl()
-                // above already ruled out this being a function declaration
-                // (no '(' follows the name) before StatementParser ever
-                // routed here.
-                varType = "function";
-                p.advance();
-            }
             else
             {
-                throw SyntaxError("expected a type (number, str, list, map, boolean, empty, match, function) after 'set'",
+                throw SyntaxError("expected a type (number, str, list, map, boolean, empty, match) after 'set'",
                                   p.current().location);
             }
 

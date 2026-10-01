@@ -5,6 +5,16 @@ make
 bash tests/run.sh
 ```
 
+On Windows, without WSL/Git Bash:
+
+```powershell
+mingw32-make -f Makefile.win
+powershell -File tests\run.ps1
+```
+
+`run.ps1` mirrors `run.sh` exactly (same section headers, same pass/fail summary line,
+same exit code convention) — use whichever fits your platform.
+
 Runs, in order: `tests/unit/` (standalone C++ unit tests, compiled and run directly —
 currently the regex engine's own test suite, which can exercise it without going through
 the whole language pipeline), `tests/cases/` (exact output diff), `tests/errors/` (must fail

@@ -1,8 +1,0 @@
-note: E4018
-set func outer() do:
-    set async func inner() do:
-        print("hi")
-    end
-    inner()
-end
-outer()

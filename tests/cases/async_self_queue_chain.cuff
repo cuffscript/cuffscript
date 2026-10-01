@@ -1,0 +1,18 @@
+note: 큐에 쌓인 async 작업이 자기 안에서 또 다른 async 작업을 큐잉하면,
+note: 그 작업도 (먼저 쌓인 순서대로) 같은 드레인 과정에서 처리되어야 합니다.
+
+set async func level_c() do:
+    print("C ran")
+end
+set async func level_b() do:
+    print("B ran")
+    level_c()
+end
+set async func level_a() do:
+    print("A ran")
+    level_b()
+end
+
+print("sync start")
+level_a()
+print("sync end")

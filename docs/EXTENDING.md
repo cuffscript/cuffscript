@@ -5,8 +5,11 @@
 
 ## 1. 새로운 내장 함수 추가하기 (예: `print`, `math_sqrt`)
 
-`engine/interpreter/NativeFunctions.h`에 함수를 추가합니다. 시그니처는 항상
-`Value(std::vector<Value>& args, const SourceLocation& loc)`입니다.
+항상 있는 내장 함수는 `engine/interpreter/NativeFunctions.h`의 `registerBuiltins()`에,
+`use DLC:이름`으로만 활성화되는 라이브러리 함수는 `engine/dlc/` 아래 그 라이브러리의
+파일(`MathDLC.h`, `StringDLC.h`, `FilesystemDLC.h`, ...)에 추가합니다. 여러 라이브러리가
+공유하는 인자 검증 헬퍼(`expectArgCount` 등)와 UTF-8 텍스트 유틸은 `engine/dlc/DLCCommon.h`에
+있습니다. 시그니처는 항상 `Value(std::vector<Value>& args, const SourceLocation& loc)`입니다.
 
 ```cpp
 reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -18,7 +21,8 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 ```
 
 - 항상 존재해야 하면 `registerBuiltins()`에 추가하세요.
-- 특정 `use DLC:이름`으로만 활성화되어야 하면 새 `registerXxxDLC()` 함수를 만들고
+- 완전히 새로운 라이브러리라면 `engine/dlc/`에 새 파일(`DLCCommon.h`만 include)을 만들고,
+  `registerXxxDLC()` 함수를 작성한 뒤, `NativeFunctions.h`에 그 파일을 `#include`하고
   `registerDLC()`의 분기에 추가하세요 (기존 라이브러리 이름과 충돌하지 않는지 확인).
 - DLC 함수 이름은 `라이브러리_동사` 형태(`math_sqrt`, `str_upper`, `list_sort`,
   `file_read`, ...)로 짓습니다 — 어느 라이브러리 소속인지 이름만으로 알 수 있고, 모든
@@ -26,7 +30,7 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
   줄어듭니다. 여러 자료형에 걸쳐 의도적으로 같은 구현을 공유하는 다형 함수
   (`length`/`contains`/`index_of`)만 예외입니다.
 - 파일 시스템에 접근하는 DLC 함수는 경로를 직접 열지 말고 `resolveSandboxedPath()`
-  (`NativeFunctions.h`, 내부적으로 `engine/common/PathSandbox.h`의 `isInsideRoot()` 사용)를
+  (`engine/dlc/FilesystemDLC.h`, 내부적으로 `engine/common/PathSandbox.h`의 `isInsideRoot()` 사용)를
   거치게 하세요 — 모듈 로딩과 `DLC:filesystem`이 같은 샌드박스 루트를 공유합니다.
 - 호스트가 통째로 끌 수 있어야 하는 위험한 라이브러리(네트워크/파일 시스템처럼)는
   `NetworkDLCOptions`/`FilesystemDLCOptions`와 같은 패턴으로 옵션 구조체를 만들고,
@@ -45,11 +49,9 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 1. `ValueType`에 새 항목을 추가하고 `valueTypeName()`에 이름을 추가합니다.
 2. `Value::Storage` variant에 저장 타입을 추가하고, `make*`/`as*`/`is*` 헬퍼를 추가합니다.
 3. `truthy()`, `appendDisplay()`, `strictEquals()`(`equalsImpl`/`scalarEquals`)의 switch에 새 case를 추가합니다
-   (컴파일러가 `-Wswitch`로 누락된 case를 잡아 줍니다). `NativeFunctions.h`의
+   (컴파일러가 `-Wswitch`로 누락된 case를 잡아 줍니다). `engine/dlc/JsonDLC.h`의
    `jsonStringifyInto()`처럼 `ValueType`으로 분기하는 다른 switch도 마찬가지입니다.
-4. `Value.h`는 파서의 AST 타입에 의존하지 않도록 유지하세요 — 새 값이 `FunctionDecl` 같은
-   파서 타입을 가리켜야 하면 `Closure`처럼 전방 선언 + 포인터로만 들고, 표시/에러 메시지에
-   필요한 정보(이름 등)는 값 안에 복사해 두세요 (`Closure::name`).
+
 
 ## 3. 새로운 문(statement) 또는 표현식(expression) 추가하기
 
@@ -105,10 +107,7 @@ implementations" 섹션에 (양쪽 클래스가 모두 완전한 타입이 된 �
 
 1. `FunctionDecl`에 불리언 필드를 추가하고 파서(주로 `FunctionParser.h`의 수식어
    반복문)에서 채웁니다. `DeclarationParser::isFunctionDecl`의 미리보기 조건에도 새
-   키워드를 추가해야 `set 새키워드 func ...`가 함수 선언으로 인식됩니다 (수식어 키워드는
-   `func`가 뒤따르는지와 상관없이 무조건 선언으로 취급됩니다 — 반면 수식어 없이 바로
-   `set func NAME`인 경우에만 뒤에 `(`가 오는지 `to`가 오는지 한 토큰 더 미리 봅니다:
-   `(`이면 함수 선언, `to`이면 클로저를 담는 변수 선언).
+   키워드를 추가해야 `set 새키워드 func ...`가 함수 선언으로 인식됩니다.
 2. `Interpreter`에 `bool current제어_ = false;` 멤버를 추가하고, `FrameGuard`가 호출
    진입/종료 시 이전 값을 저장했다가 복원하도록 합니다 (재귀 호출에서도 각 프레임이
    자기 자신의 값을 갖도록). 이 상태는 `Environment`가 아니라 `Interpreter`가 갖습니다 —
@@ -121,10 +120,8 @@ implementations" 섹션에 (양쪽 클래스가 모두 완전한 타입이 된 �
    전파되지 않습니다 (그 함수가 호출을 마치면 `FrameGuard`가 자동으로 이전 값을
    복원하기 때문). `pure`는 이 기본 동작으로는 우회가 너무 쉬워서(전역을 만지는 일반
    함수를 한 겹 감싸서 호출하면 그만) 호출 지점(`evalCall`/`invokeAwaited`)에서
-   `checkPureCallAllowed()`로 "pure 함수는 순수하지 않은 사용자 함수/클로저를 호출할 수
-   없다"를 추가로 강제합니다 — 호출 그래프 전체에 전파되는 제약이 필요하면 이 패턴을
-   따르세요. 클로저도 만들어지는 순간의 플래그를 물려받아야 같은 우회가 생기지 않습니다
-   (`Closure::forcedPure`).
+   `checkPureCallAllowed()`로 "pure 함수는 순수하지 않은 사용자 함수를 호출할 수 없다"를
+   추가로 강제합니다 — 호출 그래프 전체에 전파되는 제약이 필요하면 이 패턴을 따르세요.
 
 ## 7. 정규식 패턴에 새 토큰 추가하기 (예: `[새토큰]`)
 
@@ -186,17 +183,4 @@ bash tests/run.sh              # 전체 회귀 테스트 (기존 기능이 안 �
 캐럿 표시는 자동입니다 — 캐럿의 가로 위치는 바이트가 아니라 코드포인트 단위로 계산되므로 같은
 줄에 한글 등이 앞서 있어도 정렬이 맞습니다. 이 동작을 바꾸면 `tests/unit/error_snippet_test.cpp`가
 알려 줍니다.
-
-## 11. 함수를 값으로 다루는 새 기능 (클로저) — 건드리게 되는 곳
-
-중첩 함수/클로저(`ValueType::Function`, `Closure`)를 확장하려면:
-1. `Value.h`의 `Closure`가 캡처 데이터와 `decl`(함수 선언 포인터)을 가집니다. 캡처는 **값으로**,
-   정의되는 시점에 한 번 이루어집니다 (`Environment::collectCapturable()`).
-2. 생성은 `Interpreter::execStatement`의 `StmtKind::FunctionDecl` 케이스, 호출은
-   `callClosure()`(`evalCall`/`invokeAwaited`가 `findUser()` → `findClosure()` → `findNative()`
-   순서로 찾습니다).
-3. 캡처를 "공유 가능한 변수"(JS/Lua식 upvalue)로 바꾸려면 `Environment`가 스택에 할당되고
-   복사/이동이 막혀 있다는 전제(그 파일 맨 위 주석)와 부딪힙니다 — 지역 변수 저장소를 힙
-   기반으로 바꾸는 변경이 필요하므로 `IMPLEMENTATION_NOTES.md` 33번의 설계 결정을 먼저
-   읽어보세요.
 

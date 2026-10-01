@@ -1,0 +1,14 @@
+note: E4001 -- 큐에 쌓인 작업 하나가 에러를 던지면, 동기 코드 중간에 에러가
+note: 나는 것과 똑같이 그 뒤에 남은 작업들은 실행되지 않아야 합니다.
+set async func task_a() do:
+    print("A ran")
+end
+set async func task_b() do:
+    change undeclared_var to 5
+end
+set async func task_c() do:
+    print("C ran (should not happen)")
+end
+task_a()
+task_b()
+task_c()

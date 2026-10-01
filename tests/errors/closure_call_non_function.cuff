@@ -1,3 +1,0 @@
-note: E4002
-set number x to 5
-print(x())

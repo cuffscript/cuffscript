@@ -214,43 +214,6 @@ namespace cuff
             return std::find(constants_.begin(), constants_.end(), nameId) != constants_.end();
         }
 
-        // Collects every name visible from this environment up through (and
-        // including) the nearest enclosing function-scope environment —
-        // i.e. everything a nested `set func` declared right here could
-        // capture into a Closure (see Interpreter::execStatement's
-        // StmtKind::FunctionDecl case). Values are copied out, matching this
-        // language's capture-by-value design (see the comment on
-        // Closure::captured in Value.h). Innermost declarations win on a
-        // name collision, so a local shadowing an outer one keeps the
-        // local's value. True global-scope names are deliberately excluded
-        // — a closure still reaches those normally through its own
-        // funcEnv's global_ pointer, exactly like an ordinary function call.
-        void collectCapturable(std::vector<std::pair<uint32_t, Value>> &out) const
-        {
-            std::vector<const Environment *> chain;
-            for (const Environment *e = this;; e = e->parent_)
-            {
-                chain.push_back(e);
-                if (e->isFunctionScope_ || !e->parent_)
-                    break;
-            }
-            for (auto it = chain.rbegin(); it != chain.rend(); ++it)
-            {
-                for (const auto &kv : (*it)->vars_)
-                {
-                    bool replaced = false;
-                    for (auto &o : out)
-                        if (o.first == kv.first)
-                        {
-                            o.second = kv.second;
-                            replaced = true;
-                            break;
-                        }
-                    if (!replaced)
-                        out.emplace_back(kv.first, kv.second);
-                }
-            }
-        }
 
     private:
         Environment *parent_;

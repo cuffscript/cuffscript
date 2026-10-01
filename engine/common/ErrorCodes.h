@@ -84,7 +84,7 @@ namespace cuff
         ElementNotFound = 4015,
         UnsupportedOperation = 4016,
         StackOverflow = 4017,
-        NestedAsyncFunctionNotSupported = 4018,
+        NestedFunctionNotSupported = 4018,
         AwaitOnNonAsync = 4019,
         DeclarationTypeMismatch = 4020,
         InvalidGlobalDeclaration = 4021,

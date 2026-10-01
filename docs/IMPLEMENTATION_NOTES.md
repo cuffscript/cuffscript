@@ -150,15 +150,20 @@ f-string은 바깥쪽 큰따옴표(`"`)로 감싸입니다. `{...}` 표현식 �
 복사되지 않고 같은 저장소를 공유합니다 (Python/JS와 동일). 숫자·문자열·불리언·`empty`는
 값으로 복사됩니다.
 
-## 12. 최상위 함수는 여전히 값이 아님 (중첩 함수/클로저는 33번 항목 참고)
+## 12. 함수는 값이 아님
 
-최상위(top-level) 함수 선언은 여전히 `Value`의 한 종류가 아니라 인터프리터 안의
-별도 이름 테이블(`userFunctions_`)로 관리됩니다 — 호출 빈도가 가장 높은 경로라서
-얻는 속도 이점이 크고, 기존 스크립트와의 호환성도 그대로 유지됩니다. 다른 함수
-**안에 중첩된** 함수 선언은 이제 지원되며(클로저로 취급됨), 33번 항목에서 다룹니다.
-`NestedFunctionNotSupported`라는 에러 코드 이름은 이제 존재하지 않습니다 — 같은
-번호(E4018)가 `NestedAsyncFunctionNotSupported`(중첩된 `async` 함수만 아직 미지원)로
-재사용되고 있습니다.
+명세가 명시적으로 클로저/중첩 함수를 지원하지 않는다고 밝히고 있으므로, 함수는
+`Value`의 한 종류가 아니라 인터프리터 안의 별도 이름 테이블(`userFunctions_`)로
+관리됩니다. 최상위에 있지 않은 함수 선언(다른 함수 안에 중첩된 경우)은
+`NestedFunctionNotSupported` 오류를 던집니다.
+
+(v1.7.1 개발 중 한때 이 제약을 풀고 값으로 취급되는 클로저를 도입했었지만,
+캡처를 "값으로, 정의 시점에 한 번" 방식으로 구현한 결과 — 스택 기반
+`Environment`를 힙 기반으로 바꾸는 훨씬 큰 변경 없이 안전하게 구현할 수 있는
+유일한 방식이었음 — 숫자/문자열 같은 스칼라를 캡처한 클로저는 호출 사이에
+상태가 누적되지 않는 문제가 있었습니다. 클로저의 "국민 예제"인 카운터 패턴이
+동작하지 않는 절반짜리 기능은 이 언어의 방향성(초보자용, 쉽고 가볍게)에
+맞지 않는다고 판단해서 제거하고 이 항목으로 되돌렸습니다.)
 
 ## 13. `return`/`stop`은 C++ 예외가 아님 (성능 + 정확성)
 
@@ -553,14 +558,14 @@ escape hatch: `set pure func f() do: g() end` where `g` touches globals — `f` 
 touches a global *directly*, so the old check passed, but calling `f` still reached a
 global through `g`. `checkPureCallAllowed()` (`Interpreter.h`) now runs at every call
 site (`evalCall`, `invokeAwaited`) and rejects a pure caller invoking a non-pure
-*user-defined* function or closure, with a new error, `PureFunctionImpureCall` (E4029).
+*user-defined* function, with a new error, `PureFunctionImpureCall` (E4029).
 Native/DLC functions are still exempt — they never touch a CuffScript `Environment` at
 all, so they can't reach a global through this route regardless. Recursion and
 pure-calling-pure remain unrestricted, since `decl.isPure` is checked per callee, not
 per call depth. This is a **behavior change**: `tests/cases/pure_functions.cuff`'s old
 "pure calling non-pure is fine" example no longer holds and was rewritten; the same
 scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4029 case.
-Closures interact with this too — see 33번.
+
 
 ## 27. Global-bridge bug: `Environment::resolve()` checked the bridge before the local
 
@@ -648,7 +653,7 @@ the error's offset is measured with `utf8::length()` instead. Regression test:
 ## 30. `DLC:filesystem`
 
 Real local file access: `file_exist`, `file_size`, `file_read`, `file_readlines`,
-`file_write`, `file_add`, `file_remove` (`registerFilesystemDLC`, `NativeFunctions.h`).
+`file_write`, `file_add`, `file_remove` (`registerFilesystemDLC`, `engine/dlc/FilesystemDLC.h`).
 Every path is resolved relative to, and confined inside, the exact same sandbox root
 `use ... from` module imports already use (`Interpreter::moduleRoot_`, i.e.
 `CuffEngine::Options::rootDir` or the script's own directory) — there's no separate,
@@ -702,95 +707,7 @@ repository's examples or tests, so it was removed outright rather than kept as s
 ("expected 'repeat' or 'while' after 'loop'"), and `ASTPrinter`'s debug dump for loops
 was simplified to match. `loop while [condition] do: ... end` covers the exact same case.
 
-## 33. Nested functions / closures
-
-`set func` inside another function's body — previously a hard `NestedFunctionNotSupported`
-error (12번) — now creates a **closure**: a first-class `Value` (`ValueType::Function`,
-backed by `shared_ptr<Closure>`, `Value.h`) that can be assigned to a variable, passed as
-an argument, returned, and called through a variable name exactly like a top-level
-function. Top-level function declarations are completely unaffected — they still use the
-separate `userFunctions_` registry for speed (12번); this is purely additive, for
-functions declared *inside* another function's body.
-
-**Design decisions made independently** (the spec text this replaces deliberately left
-these unspecified — see `SPEC.md` §11 before this change):
-
-- **Capture strategy: by value, once, at definition time — not shared upvalues.** The
-  moment a nested `set func` statement executes, `Environment::collectCapturable()` walks
-  from the current scope up through (and including) the nearest enclosing function scope,
-  copying out every visible name's *current value* into the `Closure`. On each call,
-  `callClosure()` declares those captured pairs into the callee's own fresh `Environment`
-  ahead of its parameters (a parameter of the same name still wins — `declare()`
-  overwrites). This was chosen specifically to avoid the alternative (capturing the
-  enclosing `Environment` itself, by reference, the way JS/Lua closures share a mutable
-  cell): `Environment` is stack-allocated per call and explicitly non-copyable/non-movable
-  for exactly this reason (see its own header comment), so keeping a live reference to a
-  caller's `Environment` past that call's return would need converting it to a heap
-  object with reference-counted or GC'd lifetime — a change to the performance-critical
-  core of every function call, not just the ones that happen to have nested functions.
-  Capture-by-value needs no such change: nothing here outlives its own `funcEnv`.
-  **Concrete, user-visible consequence:** a closure over a *scalar* does not accumulate
-  state across separate calls to that same closure — each call starts from the snapshot
-  taken at the closure's creation, not from what a previous call last set it to. The
-  textbook "counter closure" (`bump()` returning 1, 2, 3, ... on successive calls) does
-  **not** work here; every call returns the same first value. A closure over a *list or
-  map* behaves as it always has in this language — captured by the same shared_ptr as an
-  ordinary argument would be, so mutating its *contents* is visible through any other
-  alias, including between separate calls. This is a real, deliberate limitation, not an
-  oversight; see the closing note in this section and the answer given directly to the
-  user alongside this release for the reasoning.
-- **Functions as values: yes, but narrowly** — only for a name introduced by a nested
-  `set func`. There is no function-literal/lambda expression syntax, and top-level
-  functions still aren't values (12번); a closure is created only at the point a nested
-  declaration statement executes.
-- **Scope/lifetime:** a closure's captured data lives in the `Closure` object itself
-  (heap-allocated, ref-counted via `shared_ptr`, exactly like a list or map value), so it
-  outlives the call that created it for as long as something holds the closure value —
-  no different from any other returned value.
-- **Self-recursion without a reference cycle.** A closure's own name is deliberately
-  *not* part of its captured snapshot (it doesn't exist yet at capture time) — instead,
-  `callClosure()` binds the closure's own name to itself in its own `funcEnv` on every
-  call, using the `shared_ptr` already passed in for that call. This makes ordinary
-  by-name recursion (`fact` calling `fact`) work, while keeping the extra self-reference
-  scoped to one call's `funcEnv` lifetime — never stored inside the `Closure`'s own
-  permanent state, which would be a `shared_ptr` cycle that leaks for the closure's
-  entire lifetime (verified leak-free under AddressSanitizer's LeakSanitizer; see 34번 for
-  a case that does leak, unrelated to this).
-- **Purity propagates into closures too.** A closure created while `currentFunctionPure_`
-  is true is forced pure regardless of its own `pure` keyword (`Closure::forcedPure`,
-  checked via `effectivePure()`) — otherwise a `pure` function could manufacture a nested,
-  nominally non-pure closure as a side door around the exact global-access restriction
-  26번 exists to close.
-- **Lookup order / a documented, low-risk shadowing quirk.** A call site checks
-  `findUser()` (top-level registry) first, then a local-variable closure lookup, then
-  natives (`findClosure()`, checked last specifically so an ordinary/recursive top-level
-  call — the hot path — never pays for the extra scope-chain walk). This means a
-  top-level function always wins over a same-named local closure, the one case where this
-  differs from ordinary lexical shadowing elsewhere in the language. Calling something
-  that resolves to neither a function/closure/native now says so specifically (`'x' is a
-  number, not a function`, `throwNotCallable()`) instead of the more confusing "undefined
-  function" it would otherwise get.
-- **`async` nested functions are explicitly rejected, not silently wrong.** A queued
-  (non-awaited) async call is deferred onto `taskQueue_` and replayed later by
-  `drainTaskQueue()`, which only knows how to invoke a plain `FunctionDecl` by pointer —
-  teaching it to also carry and replay a closure's captured bindings is real additional
-  scope this change doesn't take on. Rather than either running a nested `async` function
-  synchronously despite the keyword, or silently dropping its capture, declaring one
-  raises a clear, explicit error (`NestedAsyncFunctionNotSupported`, E4018 — the same
-  numeric code the old blanket nested-function restriction used, since nothing else uses
-  it anymore).
-
-New type keyword: `set func NAME to EXPR` declares a variable of function/closure type
-(`DeclarationParser`'s `isFunctionDecl()` now looks one token further ahead when it sees
-`func` specifically — `(` after the name means a function declaration, `to` means a
-closure-typed variable — since `returnable`/`async`/`pure` before `func` are
-unambiguous declaration modifiers either way). Regression tests: `tests/cases/closures.cuff`
-(nested calls, capture-by-value including the scalar-vs-container distinction above,
-recursion, higher-order functions, multi-level nesting), `tests/errors/closure_pure_leak.cuff`
-(E4027), `tests/errors/closure_call_non_function.cuff` (E4002),
-`tests/errors/nested_async_not_supported.cuff` (E4018).
-
-## 34. Async concurrency: reasoned decision not to add OS threads
+## 33. Async: reasoned decision not to add OS threads, plus a light pass
 
 The brief for this release asked for "real" async concurrency and left the choice between
 non-blocking I/O and multithreading — and the resulting thread-safety work — to be
@@ -824,5 +741,43 @@ strictly in FIFO order, once the top-level script's synchronous code finishes (s
 tasks included, see `examples/10_async_ordering.cuff`); `await f()` runs it immediately,
 synchronously, and returns its value. This is cooperative scheduling, not concurrency —
 useful for controlling *when* code runs relative to the rest of the script, not for
-making two things run at the same wall-clock time. No code changed for this item; it's
-recorded here so the decision and its reasoning aren't lost.
+making two things run at the same wall-clock time.
+
+A later, smaller pass over this same area (after the architectural question above was
+already settled) found two real, if minor, bugs and locked in two behaviors that were
+already correct but untested:
+- Two error hints quoted the wrong keyword — `'set async function NAME(...) do:'` and
+  `'set returnable function'` — when the actual declaration keyword is `func`, not
+  `function` (`throwAwaitOnNonAsync`, `throwReturnInVoidFunction`). Fixed; these are the
+  only two spots that quoted the syntax literally rather than using "function" as the
+  English word for it.
+- An error thrown by a queued task now has a regression test confirming it stops the
+  drain the same way an error mid-script stops synchronous execution — tasks queued after
+  the failing one don't run (`tests/errors/async_error_stops_queue.cuff`) — this was
+  already the behavior (an uncaught exception simply unwinds out of `drainTaskQueue`), just
+  previously unverified by a test.
+- Self-queuing chains (a queued task queuing another queued task queuing another, `A` →
+  `B` → `C`) already drained correctly in the documented FIFO order; now has a permanent
+  regression test (`tests/cases/async_self_queue_chain.cuff`).
+
+## 34. `NativeFunctions.h` split into `engine/dlc/`
+
+Every DLC's implementation used to live together in one 1,748-line
+`engine/interpreter/NativeFunctions.h`. Split into `engine/dlc/`, one file per
+library (`MathDLC.h`, `StringDLC.h`, `TimeDLC.h`, `RandomDLC.h`, `ListDLC.h`, `MapDLC.h`,
+`ConvertDLC.h`, `NetworkDLC.h`, `FilesystemDLC.h`, `JsonDLC.h`), plus `DLCCommon.h` for
+what several of them share: the `expectArgCount`/`expectNumber`/`expectStr`/`expectList`/
+`expectMap`/`expectWhole` argument-checking helpers, `ensureStringSize`/`ensureItemCount`,
+and the `textutil` UTF-8 namespace (used by both `StringDLC.h` and `JsonDLC.h`).
+`NativeFunctions.h` itself is now ~100 lines: the always-on core builtins
+(`registerBuiltins` — `print`/`input`/`type_of`, no `use` needed) and `registerDLC()`,
+the single dispatcher every `use DLC:name` calls into, which now just `#include`s all
+eleven files. `nativeLength`/`nativeContains`/`nativeIndexOf` (the three polymorphic
+functions shared across str/list/map, see 9번/31번) live in `DLCCommon.h` rather than
+being duplicated per file, for the same reason they were never split by library to begin
+with. Every new file compiles standalone (checked by hand, one `#include "X.h"` +
+empty `main()` per file) rather than silently depending on include order from whatever
+happened to be pulled in first — the kind of hidden coupling splitting a file is supposed
+to remove, not just relocate. Purely a file-organization change: no declaration moved
+namespace, gained a new name, or changed behavior, and the full suite (unit tests,
+`tests/cases`, `tests/errors`, `examples`) passes unchanged before and after.
