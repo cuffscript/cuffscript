@@ -1,2 +1,3 @@
+* text=auto
 CHANGELOG.md -text
 Makefile.win linguist-language=Makefile
