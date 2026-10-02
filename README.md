@@ -1,209 +1,99 @@
 <p align="center">
-    <img src="https://raw.githubusercontent.com/cuffscript/cuffscript/refs/heads/main/assets/cuffscript_horiz.svg" alt="CuffScript logo" width="360" />
+  <img src="https://raw.githubusercontent.com/cuffscript/cuffscript/refs/heads/main/assets/cuffscript_horiz.svg" alt="CuffScript" width="360" />
 </p>
 
----
+<h1 align="center">The CuffScript programming language</h1>
 
-# The CuffScript Programming Language
+<p align="center">
+  <img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white" alt="C++17" />
+  <img src="https://img.shields.io/badge/License-Apache%202.0-red?style=flat" alt="Apache 2.0 license" />
+</p>
 
-![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white)
-![License](https://img.shields.io/badge/License-Apache%202.0-red?style=flat)
+CuffScript is a scripting language that is as easy as a game, as light as a feather, and as fast as a flash. This repository includes its language engine, command-line runner, built-in libraries, and runnable examples.
 
-CuffScript is a scripting language that uses natural-language keywords and concise syntax. This repository contains a complete engine: a tokenizer, lexer, parser, a custom regular-expression engine, and a tree-walking interpreter that actually runs CuffScript programs.
+The engine can be used through the command-line interpreter or embedded in a C++ application.
 
-## Current Status
+## Quick Start
 
-The engine implements the full pipeline described in [docs/SPEC.md](docs/SPEC.md) and [docs/REGEX.md](docs/REGEX.md):
+### Install Requirements
 
-```text
-CuffScript source
-    -> Tokenizer
-    -> Lexer
-    -> Parser  -> AST
-    -> Interpreter (executes the AST)
-```
+Before building CuffScript, make sure you have:
 
-By default, `./cuffc program.cuff` **runs** the program. Pass `--ast` to instead dump the tokenizer/lexer/parser stages without executing anything (useful when working on the engine itself).
+- A C++17 compatible compiler
+- `make` available on your system
+- On Windows, MinGW or a similar toolchain that supports `mingw32-make`
 
-Other options: `--root <dir>` (where `use ... from` may load modules; default is the script's directory), `--max-steps <n>` (stop after n loop iterations + function calls) and `--timeout <ms>` (stop after that much run time). The last two are off by default. `--no-network` and `--no-filesystem` turn `DLC:network` / `DLC:filesystem` off entirely (recommended when hosting untrusted scripts), and `--allow-private-network` lets `DLC:network` reach loopback/private addresses.
+If you are using Linux or macOS, the standard system `make` should work. If you are on Windows, install MinGW and ensure it is on your `PATH` before running the build commands below.
 
-Errors at every stage (lexical, syntax, pattern, runtime, module) are raised through a single, systematically-coded exception hierarchy — see [Error handling](#error-handling) below — so failures are consistent and easy to add to.
+### Build
 
-## Syntax Overview
+On Linux or macOS:
 
-### Variable Declaration and Modification
-
-```cuff
-set number age to 25
-set str name to "Alice"
-set list colors to ["red", "green", "blue"]
-
-change age to 26
-```
-
-Constants use the `constant` keyword; their names must be written in ALL CAPS (checked at runtime — using a lowercase letter, or later trying to `change` one, raises a runtime error immediately). `constant` also works on `list`, giving a Python-tuple-style read-only list: adding, removing, or index-assigning into it (even through an alias or a function argument bound to the same list) is a runtime error, though a plain list found _inside_ a frozen one is still mutable — the same shallow immutability a Python tuple has.
-
-```cuff
-set constant number MAX_LEVEL to 99
-```
-
-Inside a function, a variable declared outside it can be modified (not just read) after bridging it once with `change name to global`:
-
-```cuff
-set number counter to 0
-set func increment() do:
-    change counter to global
-    change counter to counter + 1
-end
-```
-
-### Conditional Statements and Loops
-
-Control statements begin their execution block with `do:` and are closed with `end`. Both single-line shorthand syntax and multi-line block syntax are supported. Multi-line blocks use indentation.
-
-```cuff
-if score >= 90 do: print("excellent") end
-
-loop repeat i to 1 ~ 3 do:
-    print(i)
-end
-```
-
-The loop forms are `loop repeat` and `loop while`. Inside a loop, `stop` terminates the nearest enclosing loop.
-
-### Expressions and Collections
-
-- Comparison: `is` (case-sensitive), `IS` (case-insensitive); negate either with `is not` / `IS not`
-- Boolean negation: `!` — binds _looser_ than comparison, so `!lvl is MAX_LEVEL` means `!(lvl is MAX_LEVEL)`
-- Lists and maps: `[]`, `{}` (maps preserve insertion order)
-- 1-based indexing and inclusive range slicing: `[1]`, `[2~4]`, negative indices count from the end (`[-1]` is the last element)
-- f-strings: `f"Hello, {name}"` — use `'single quotes'` for any string literal _inside_ the `{...}`, since `"` would otherwise close the f-string early; `{{`/`}}` produce literal braces
-- Collection manipulation: `add`, `remove`, `replace`, or index-assignment via `change`
-
-```cuff
-set list items to ["sword", "shield"]
-add "potion" to items
-change items[1] to "magic_staff"
-remove 2 from items
-```
-
-### Pattern Matching (custom regex dialect)
-
-CuffScript's pattern syntax has no `\d`/`\w`/`^`/`$` — every atom is a plain character or a bracketed word like `[num]`, `<name:...>`, `[one:a|b|c]`. Full details: [docs/REGEX.md](docs/REGEX.md).
-
-```cuff
-if email is "[str]+@[str]2~10" do: print("looks like an email") end
-
-set match parsed to match log_line from "<date:[num]4-[num]2-[num]2> <msg:[any]+>"
-if parsed is not empty do:
-    print(f"date={parsed['date']} msg={parsed['msg']}")
-end
-
-set list codes to find "T-[num]3" from article g
-set str masked to replace "[num]4-[num]4" in phone to "****-****"
-set list parts to split "a,b,c" by ","
-set number n to count "[num]+" in text
-```
-
-Pattern matching is protected against catastrophic backtracking with a built-in step-count and time limit (raises a recoverable `RegexRuntimeError` instead of hanging).
-
-### Functions and Modules
-
-Function declarations combine the modifiers `returnable`, `async`, and `pure` freely (`set func`, `set returnable func`, `set async func`, `set pure func`, `set async returnable pure func`, ...). Calling an `async` function with `await` runs it immediately and returns its value; calling it _without_ `await` defers it to a queue that runs after the whole top-level script's synchronous code finishes (see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) section 1). A `pure` function's body cannot read or write any top-level global variable (a clear runtime error if it tries) — removing the keyword is the only way to lift that; the restriction is on that function's own body, not whatever it calls.
-
-```cuff
-set returnable func double(value) do:
-    return value * 2
-end
-
-set number result to double(21)
-```
-
-`use DLC:<name>` loads a built-in library (`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network`, `filesystem` — see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) for the full function list). Library functions are named `library_verb` (`math_sqrt`, `str_upper`, `list_sort`, `file_read`, ...). `DLC:network`'s `network_get`/`network_post` speak plain HTTP only (no TLS) and refuse loopback/private addresses by default; `DLC:filesystem` (`file_exist`, `file_read`, `file_write`, ...) is confined to the script's directory (or `--root`) — see `SECURITY.md` before pointing either at anything sensitive, and use `--no-network` / `--no-filesystem` when hosting untrusted scripts. `use <name> from <path>` loads another `.cuff` file relative to the running script and merges its top-level functions/variables into the current scope. Modules must live inside the script's directory unless you widen the sandbox with `--root <dir>`.
-
-The error-handling composition syntax is `or_else do: ... end`, which catches any recoverable runtime error (not syntax errors) raised by the statement it follows:
-
-```cuff
-set number result to risky_call() or_else do:
-    change result to -1
-end
-```
-
-## Error Handling
-
-Every error the engine raises derives from `CuffError` (`engine/common/CuffError.h`) and carries a stable numeric code (`engine/common/ErrorCodes.h`), a category, a source location, a message, and an optional hint, e.g.:
-
-```text
-[E4008] Runtime Error at line 12, column 5: index 10 is out of range (length 3)
-    hint: use 1 for the first element, or -1 for the last
-```
-
-Codes are grouped by range (1000s lexical, 2000s syntax, 3000s pattern syntax/runtime, 4000s interpreter runtime, 5000s modules, 9000s internal). Only Runtime/Regex-runtime/Module errors are `recoverable` — those are exactly the ones `or_else` can catch; a malformed program (lexical/syntax/pattern-syntax error) never is. Adding a new error kind is additive: add a code to `ErrorCodes.h` and, if useful, a small subclass in `CuffError.h` — nothing else needs to change.
-
-## Directory Structure
-
-```text
-engine/
-├── common/       Common types, tokens, the systematic error hierarchy, source locations
-├── tokenizer/    Conversion of source code into raw tokens
-├── lexer/        Keyword classification and colon-rule validation
-├── parser/       Parsing of expressions, declarations, control statements, functions, modules
-├── regex/        CuffScript's own pattern compiler + backtracking matcher (docs/REGEX.md)
-├── interpreter/  Tree-walking interpreter: Value model, scoping, execution
-└── debug/        Token and AST pretty-printing (used by --ast)
-```
-
-The main entry points are `CuffEngine::execute` (parse + run) and `CuffEngine::run` (parse only, for `--ast`) in `engine/CuffEngine.h`. For detailed language rules, see [docs/SPEC.md](docs/SPEC.md) and [docs/REGEX.md](docs/REGEX.md); for implementation decisions made where those specs are silent (async model, DLC functions, etc.), see [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md).
-
-## Build
-
-### Using Makefile
-
-Run the following command from the repository root with a C++17 compiler installed:
-
-```bash
+```sh
 make
 ```
 
-The generated executable is named `cuffc`.
+On Windows with MinGW:
 
-### Visual Studio
-
-Install the `Desktop development with C++` workload in Visual Studio, then create an empty C++ project and add `main.cpp` and the header files under `engine/`. Set the project's C++ standard to C++17.
-
-## Usage
-
-Run a script:
-
-```bash
-./cuffc path/to/program.cuff
+```powershell
+mingw32-make -f Makefile.win
 ```
 
-Or pipe source from standard input:
+The executable is `cuffc` on Linux/macOS and `cuffc.exe` on Windows.
 
-```bash
-echo 'print("Hello, CuffScript!")' | ./cuffc
+### Run a Script
+
+```sh
+./cuffc examples/01_hello.cuff
 ```
 
-Dump tokens + AST instead of running (development/debugging):
+On Windows:
 
-```bash
-./cuffc --ast path/to/program.cuff
+```powershell
+.\cuffc.exe examples\01_hello.cuff
 ```
 
-On success the program's output appears on stdout and the process exits 0. On any error (lexical, syntax, pattern, runtime, or module), a single formatted error line is printed to stderr and the process exits 1.
+To read a script from standard input, run `cuffc` without a file. Use `--help` to see available command-line options.
 
-## Specification
+## A Small Example
 
-The official language specification is in [docs/SPEC.md](docs/SPEC.md), and the pattern-matching dialect in [docs/REGEX.md](docs/REGEX.md). Together they cover:
+```cuff
+set str name to "World"
 
-- Declaration rules using `set`, `change`, and `constant`
-- Colon spacing rules and `note` / `endnote` comments
-- Comparisons, negation, indexing, slicing, and the custom regex dialect
-- List and map manipulation
-- Conditionals, loops, functions, `await`, and `or_else`
-- Input, output, and module loading syntax
+set returnable func greet(person) do:
+    return f"Hello, {person}!"
+end
 
-Where either spec leaves the runtime behavior unspecified (this happens by design for `async`/`await` — the spec explicitly defers that to "a separate implementation spec"), [docs/IMPLEMENTATION_NOTES.md](docs/IMPLEMENTATION_NOTES.md) documents the choice this engine makes and why.
+print(greet(name))
+```
 
----
+## What It Includes
+
+- Variables, constants, functions, conditionals, and loops
+- Lists, ordered maps, indexing, and slicing
+- A built-in pattern-matching language
+- Async functions, modules, and recoverable runtime errors
+- Built-in libraries for math, strings, collections, time, JSON, and more
+- A C++ API for embedding the engine, plus a WebAssembly build target
+
+## Documentation
+
+- [Language specification](docs/SPEC.md)
+- [Pattern syntax](docs/REGEX.md)
+- [Security policy](SECURITY.md)
+- [Runnable examples](examples/README.md)
+- [Contributing](CONTRIBUTING.md)
+- [WebAssembly package](npm/README.md)
+
+## Tests
+
+```sh
+make
+bash tests/run.sh
+```
+
+On Windows, use `mingw32-make -f Makefile.win` followed by `powershell -File tests\run.ps1`.
+
+## License
+
+CuffScript is licensed under the [Apache License 2.0](LICENSE).
