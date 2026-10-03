@@ -3,6 +3,7 @@ cuffc
 *.o
 *.exe
 .vscode/
+__pycache__/
 testfile.cuff
 
 *.log
