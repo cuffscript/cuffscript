@@ -2,8 +2,6 @@
   <img src="https://raw.githubusercontent.com/cuffscript/cuffscript/refs/heads/main/assets/cuffscript_horiz.svg" alt="CuffScript" width="360" />
 </p>
 
----
-
 <h1 align="center">The CuffScript programming language</h1>
 
 <p align="center">
