@@ -1,3 +1,3 @@
-note: E4026
+note: E4-026
 use DLC:string
 print(str_repeat("abcdefgh", 100000000))

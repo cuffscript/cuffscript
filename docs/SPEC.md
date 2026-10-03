@@ -258,7 +258,7 @@ end
 
 - **설명:** 함수의 정의 영역은 가독성 보존을 위해 **한 줄 뭉치기 작성을 문법적으로 절대 금지**하며, 반드시 물리적인 줄바꿈 처리를 이행해야 합니다.
 
-    변수 선언 일관성에 따라 함수 정의는 항상 `set` 키워드로 시작하며, 파라미터는 Python처럼 자유로운 동적 타입 스타일(타입 생략 가능)을 채택합니다.
+    변수 선언 일관성에 따라 함수 정의는 항상 `set` 키워드로 시작합니다. 각 파라미터에는 `number`, `str`, `list`, `map`, `boolean`, `empty`, `match` 타입을 선택적으로 지정할 수 있습니다. 타입이 지정된 파라미터는 호출 시 전달된 값의 타입을 검사하며, 타입을 생략한 기존 정의도 계속 사용할 수 있습니다.
 
     비동기 함수는 `async`, 반환값이 있는 함수는 `returnable`을 선언하며 값을 실제로 반환할 때는 `return`을 사용합니다.
 
@@ -273,6 +273,7 @@ end
 - **문법:**
     - 순수 보이드 함수 정의: `set func [함수명]([매개변수]) do: [줄바꿈] [실행코드] end`
     - 결괏값 리턴 함수 정의: `set returnable func [함수명](...) do: [줄바꿈] return [출력값] end`
+    - 타입 지정 매개변수: `set func add_num(number n1, number n2) do: ... end`
     - 비동기 함수 정의: `set async func [함수명](...) do: [줄바꿈] [실행코드] end`
     - 전역 접근 차단 함수 정의: `set pure func [함수명](...) do: [줄바꿈] [실행코드] end`
     - 비동기 함수 호출 대기: `await [비동기함수명]()`
@@ -280,10 +281,11 @@ end
     `async`, `returnable`, `pure`는 서로 독립적인 수식어라 순서에 상관없이 자유롭게 조합할 수 있습니다 (`set returnable pure func`, `set async pure func` 등 모두 가능).
 
     `pure`가 붙은 함수는 함수 본문에서 파라미터·지역 변수·`use DLC:...`로 불러온 내장 함수는 평소처럼 자유롭게 쓸 수 있지만, 함수 바깥의 최상위 전역 변수를 읽거나(`change ... to global`로 다리를 놓는 것 포함) 쓰려고 하면 그 즉시 런타임 에러(`PureFunctionGlobalAccess`)가 발생합니다. 이 제약은 호출 그래프 전체로 전파됩니다: `pure` 함수는 자기 자신, 다른 `pure` 함수, 그리고 내장/DLC 함수만 호출할 수 있고, **순수하지 않은 사용자 정의 함수를 호출하면** 그 즉시 런타임 에러(`PureFunctionImpureCall`)가 발생합니다 — 그렇지 않으면 전역을 만지는 일반 함수를 한 겹 감싸서 호출하는 것만으로 `pure`의 전역 접근 차단을 우회할 수 있기 때문입니다. 제약을 풀고 싶으면 `pure` 키워드만 지우면 됩니다.
+
 - **예시:**
 
 ```cuff
-set returnable func calculate_bonus(base_pay) do:
+set returnable func calculate_bonus(number base_pay) do:
     set constant number MULTIPLIER to 2
     return base_pay * MULTIPLIER
 end
@@ -296,7 +298,7 @@ set number final_reward to calculate_bonus(5000)
 await download_graphics()
 
 use DLC:math
-set returnable pure func hypotenuse(a, b) do:
+set returnable pure func hypotenuse(number a, number b) do:
     return math_sqrt(math_pow(a, 2) + math_pow(b, 2))
 end
 print(hypotenuse(3, 4))
@@ -350,6 +352,8 @@ print(local_var)     note: Undefined Variable Error (로컬 변수는 함수 외
 
 - **문법:** `[위험한구문] or_else do: [에러시실행코드] end`
 
+    엔진 오류는 `[E4-005]`처럼 `E<그룹>-<세 자리 코드>` 형식으로 표시됩니다. 예를 들어 `E4-005`는 런타임 오류 그룹의 다섯 번째 코드입니다. 그룹별 코드는 독립적으로 확장할 수 있어 `E10-001`과 같은 두 자리 그룹도 사용할 수 있습니다.
+
 - **예시:**
 
 ```cuff
@@ -396,11 +400,13 @@ print(f"JSON: {{\"name\": \"Alice\"}}")
 
 - **문법:**
     - 내장 공식 라이브러리 흡수: `use DLC:[코어라이브러리명]`
+    - 내장 라이브러리 여러 개 흡수: `use DLC:[라이브러리명], DLC:[라이브러리명]`
     - 커스텀 로컬 모듈 부품 흡수: `use [모듈파일명] from [상대폴더경로]`
 - **예시:**
 
 ```cuff
 use DLC:network
+use DLC:string, DLC:json
 use dlc_graphic_pack from ./assets/plugins
 ```
 
@@ -412,16 +418,15 @@ use dlc_graphic_pack from ./assets/plugins
 
 - **`DLC:filesystem`:** 스크립트가 있는 폴더(또는 호스트가 지정한 `--root`) 안의 파일을 읽고 쓰는 라이브러리입니다.
 
-    | 함수 | 반환 타입 | 설명 |
-    | :--- | :--- | :--- |
-    | `file_exist(path)` | boolean | 파일이 존재하는지 확인합니다. |
-    | `file_size(path)` | number | 파일의 크기를 바이트 단위 숫자로 돌려줍니다. (실패 시 `empty`) |
-    | `file_read(path)` | str | 파일의 모든 글자를 읽어옵니다. (실패 시 `empty`) |
-    | `file_readlines(path)` | list | 파일을 줄바꿈 기준으로 나누어 리스트로 읽어옵니다. (실패 시 `empty`) |
-    | `file_write(path, text)` | boolean | 파일이 있으면 덮어쓰고, 없으면 새로 생성하여 작성합니다. |
-    | `file_add(path, text)` | boolean | 파일 내용 끝에 글을 덧붙입니다. 없으면 새로 생성합니다. |
-    | `file_remove(path)` | boolean | 파일을 완전히 삭제합니다. 성공 여부를 반환합니다. |
-
+    | 함수                     | 반환 타입 | 설명                                                                 |
+    | :----------------------- | :-------- | :------------------------------------------------------------------- |
+    | `file_exist(path)`       | boolean   | 파일이 존재하는지 확인합니다.                                        |
+    | `file_size(path)`        | number    | 파일의 크기를 바이트 단위 숫자로 돌려줍니다. (실패 시 `empty`)       |
+    | `file_read(path)`        | str       | 파일의 모든 글자를 읽어옵니다. (실패 시 `empty`)                     |
+    | `file_readlines(path)`   | list      | 파일을 줄바꿈 기준으로 나누어 리스트로 읽어옵니다. (실패 시 `empty`) |
+    | `file_write(path, text)` | boolean   | 파일이 있으면 덮어쓰고, 없으면 새로 생성하여 작성합니다.             |
+    | `file_add(path, text)`   | boolean   | 파일 내용 끝에 글을 덧붙입니다. 없으면 새로 생성합니다.              |
+    | `file_remove(path)`      | boolean   | 파일을 완전히 삭제합니다. 성공 여부를 반환합니다.                    |
     - 모든 경로는 스크립트가 있는 폴더(또는 `--root`)를 기준으로 해석되며, 그 밖으로 벗어나는 경로(절대경로, `../` 탈출 등)는 `FilesystemAccessDenied` 에러로 즉시 거절됩니다. `use ... from`으로 모듈을 불러올 때와 완전히 같은 샌드박스 루트를 공유합니다.
     - 파일이 없거나 권한이 없는 등 일반적인 OS 수준 실패는 에러가 아니라 표에 적힌 대로 조용히 `empty`/`false`를 돌려줍니다 — 존재 여부는 `file_exist()`로 먼저 확인하세요.
     - 호스트 실행 옵션(`--no-filesystem`)으로 이 라이브러리를 통째로 끌 수 있습니다 — 자세한 내용과 위험성은 `SECURITY.md`를 참고하세요.

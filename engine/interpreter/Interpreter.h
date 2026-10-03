@@ -76,13 +76,13 @@ namespace cuff
     public:
         struct Config
         {
-            std::string rootDir;    // modules must resolve inside this directory (default: the script's directory)
-            uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
-            uint32_t timeoutMs = 0; // wall-clock budget for the whole run; 0 = unlimited
-            size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
-            bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
+            std::string rootDir;                     // modules must resolve inside this directory (default: the script's directory)
+            uint64_t maxSteps = 0;                   // loop iterations + user-function calls; 0 = unlimited
+            uint32_t timeoutMs = 0;                  // wall-clock budget for the whole run; 0 = unlimited
+            size_t stackBudgetBytes = 0;             // native stack the evaluator may use; 0 = derive from the real stack size
+            bool networkEnabled = true;              // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
             bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
-            bool filesystemEnabled = true; // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
+            bool filesystemEnabled = true;           // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
         };
 
         Interpreter() { registerBuiltins(natives_); }
@@ -123,7 +123,7 @@ namespace cuff
         Config config_;
         Environment globalEnv_;
         std::unordered_map<std::string, NativeFn> natives_;
-        std::vector<const FunctionDecl *> userById_;  // indexed by interned function name id
+        std::vector<const FunctionDecl *> userById_; // indexed by interned function name id
         // Recycled buffers for the two allocations every function call would
         // otherwise make from scratch: evalCall's argument vector and the
         // callee's Environment::vars_. Both are plain LIFO pools — a call
@@ -168,7 +168,7 @@ namespace cuff
             }
         };
 
-        std::vector<const NativeFn *> nativeById_;    // lazily filled cache into natives_ (node-stable)
+        std::vector<const NativeFn *> nativeById_;            // lazily filled cache into natives_ (node-stable)
         std::vector<std::unique_ptr<Program>> loadedModules_; // keeps imported-module ASTs alive
         std::unordered_set<std::string> importedPaths_;
         std::string scriptDir_ = ".";
@@ -249,11 +249,13 @@ namespace cuff
 
         [[noreturn]] CUFF_COLD void stackExhausted(const Expr &e) const
         {
-            throwStackExhausted(std::visit([](const auto &n) { return n.loc; }, e.data));
+            throwStackExhausted(std::visit([](const auto &n)
+                                           { return n.loc; }, e.data));
         }
         [[noreturn]] CUFF_COLD void stackExhausted(const Stmt &s) const
         {
-            throwStackExhausted(std::visit([](const auto &n) { return n.loc; }, s.data));
+            throwStackExhausted(std::visit([](const auto &n)
+                                           { return n.loc; }, s.data));
         }
         [[noreturn]] CUFF_COLD static void throwStackExhausted(const SourceLocation &loc)
         {
@@ -466,7 +468,7 @@ namespace cuff
         }
 
         [[noreturn]] CUFF_COLD static void throwDeclarationMismatch(const std::string &varType, const Value &v,
-                                                                       const std::string &name, const SourceLocation &loc)
+                                                                    const std::string &name, const SourceLocation &loc)
         {
             throw CuffRuntimeError(ErrorCode::DeclarationTypeMismatch,
                                    "cannot assign a " + valueTypeName(v.type()) + " value to " + varType + " variable '" + name + "'",
@@ -514,7 +516,7 @@ namespace cuff
         {
             std::string out = s;
             std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c)
-                            { return std::toupper(c); });
+                           { return std::toupper(c); });
             return out;
         }
 
@@ -775,7 +777,7 @@ namespace cuff
                     else
                     {
                         auto it = std::find_if(items.begin(), items.end(), [&](const Value &v)
-                                                { return valuesEqual(v, rv, co.loc); });
+                                               { return valuesEqual(v, rv, co.loc); });
                         if (it == items.end())
                             throw ElementNotFoundError("value not found in list — nothing to remove", co.loc);
                         items.erase(it);
@@ -1266,10 +1268,14 @@ namespace cuff
                 double a = l.asNumber(), c = r.asNumber();
                 switch (op)
                 {
-                case BinOp::Greater: return Value::makeBool(a > c);
-                case BinOp::Less: return Value::makeBool(a < c);
-                case BinOp::GreaterEq: return Value::makeBool(a >= c);
-                default: return Value::makeBool(a <= c);
+                case BinOp::Greater:
+                    return Value::makeBool(a > c);
+                case BinOp::Less:
+                    return Value::makeBool(a < c);
+                case BinOp::GreaterEq:
+                    return Value::makeBool(a >= c);
+                default:
+                    return Value::makeBool(a <= c);
                 }
             }
             if (l.isStr() && r.isStr())
@@ -1278,10 +1284,14 @@ namespace cuff
                 const std::string &c = r.asStr();
                 switch (op)
                 {
-                case BinOp::Greater: return Value::makeBool(a > c);
-                case BinOp::Less: return Value::makeBool(a < c);
-                case BinOp::GreaterEq: return Value::makeBool(a >= c);
-                default: return Value::makeBool(a <= c);
+                case BinOp::Greater:
+                    return Value::makeBool(a > c);
+                case BinOp::Less:
+                    return Value::makeBool(a < c);
+                case BinOp::GreaterEq:
+                    return Value::makeBool(a >= c);
+                default:
+                    return Value::makeBool(a <= c);
                 }
             }
             throw TypeError(std::string("cannot compare ") + valueTypeName(l.type()) + " and " +
@@ -1411,6 +1421,15 @@ namespace cuff
         {
             if (args.size() != decl.params.size())
                 throwArgumentCount(decl, args.size(), loc);
+            for (size_t i = 0; i < decl.paramTypes.size(); ++i)
+            {
+                const std::string &expected = decl.paramTypes[i];
+                if (!expected.empty() && expected != valueTypeName(args[i].type()))
+                    throw CuffRuntimeError(ErrorCode::TypeMismatch,
+                                           "argument '" + decl.params[i] + "' to " + decl.name +
+                                               "() expects " + expected + ", got " + valueTypeName(args[i].type()),
+                                           loc);
+            }
             if (callDepth_ >= kMaxCallDepth)
                 throwCallDepth(decl, loc);
             tick(loc);
@@ -1551,7 +1570,8 @@ namespace cuff
                 FilesystemDLCOptions fsOpts;
                 fsOpts.enabled = config_.filesystemEnabled;
                 fsOpts.root = moduleRoot_;
-                registerDLC(use.name, natives_, use.loc, netOpts, fsOpts);
+                for (const auto &name : use.dlcNames)
+                    registerDLC(name, natives_, use.loc, netOpts, fsOpts);
                 return;
             }
             loadCustomModule(use.name, use.path, use.loc, env);

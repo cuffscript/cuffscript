@@ -7,12 +7,51 @@
 # Usage:  powershell -File tests\run.ps1
 # (or, from inside PowerShell, just: .\tests\run.ps1)
 
+$OriginalLocation = Get-Location
+$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$DriveLetter = 90..68 | Where-Object { -not (Get-PSDrive -Name ([char]$_) -ErrorAction SilentlyContinue) } | Select-Object -First 1
+if ($null -eq $DriveLetter) { throw 'No free drive letter is available for the test runner' }
+$TestDrive = "$([char]$DriveLetter):"
+& subst $TestDrive $RepositoryRoot
+if ($LASTEXITCODE -ne 0) { throw 'Could not create a temporary test drive' }
+$TestRoot = "$TestDrive\"
+Set-Location $TestRoot
+
+try {
+$TestTempRoot = Join-Path $env:TEMP ("cuff-tests-" + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $TestTempRoot | Out-Null
 $ErrorActionPreference = 'Stop'
-Set-Location (Join-Path $PSScriptRoot '..')
 
 $Bin = '.\cuffc.exe'
 $Pass = 0
 $Fail = 0
+
+function ConvertTo-ProcessArgument {
+    param([string]$Argument)
+
+    if ($Argument.Length -gt 0 -and $Argument -notmatch '[\s"]') { return $Argument }
+    $builder = New-Object System.Text.StringBuilder
+    [void]$builder.Append('"')
+    $backslashes = 0
+    foreach ($character in $Argument.ToCharArray()) {
+        if ($character -eq [char]92) {
+            $backslashes++
+            continue
+        }
+        if ($character -eq '"') {
+            [void]$builder.Append([char]92, (2 * $backslashes + 1))
+            [void]$builder.Append('"')
+        }
+        else {
+            if ($backslashes -gt 0) { [void]$builder.Append([char]92, $backslashes) }
+            [void]$builder.Append($character)
+        }
+        $backslashes = 0
+    }
+    if ($backslashes -gt 0) { [void]$builder.Append([char]92, (2 * $backslashes)) }
+    [void]$builder.Append('"')
+    return $builder.ToString()
+}
 
 # Runs a process with a timeout, capturing combined stdout+stderr as a single
 # string and the exit code -- .NET's Process class rather than a built-in
@@ -26,10 +65,13 @@ function Invoke-WithTimeout {
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $FilePath
-    foreach ($a in $Arguments) { $psi.ArgumentList.Add($a) }
+    $psi.Arguments = (($Arguments | ForEach-Object { ConvertTo-ProcessArgument $_ }) -join ' ')
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     $psi.UseShellExecute = $false
+    $psi.WorkingDirectory = $TestRoot
 
     $proc = New-Object System.Diagnostics.Process
     $proc.StartInfo = $psi
@@ -67,13 +109,15 @@ function Invoke-SuccessCase {
         $script:Pass++
         return
     }
-    $expectedText = (Get-Content -Raw $expected).TrimEnd("`r", "`n")
-    if ($result.Output -ne $expectedText) {
+    $expectedText = [System.IO.File]::ReadAllText($expected, [System.Text.Encoding]::UTF8).TrimEnd([char[]]"`r`n")
+    $actualText = $result.Output.Replace("`r`n", "`n").Replace("`r", "`n")
+    $expectedText = $expectedText.Replace("`r`n", "`n").Replace("`r", "`n")
+    if (-not [string]::Equals($actualText, $expectedText, [StringComparison]::Ordinal)) {
         Write-Host "FAIL (output mismatch): $CuffFile"
         Write-Host "--- expected ---"
         Write-Host $expectedText
         Write-Host "--- actual ---"
-        Write-Host $result.Output
+        Write-Host $actualText
         $script:Fail++
         return
     }
@@ -88,7 +132,7 @@ function Invoke-ErrorCase {
     if (Test-Path $argsFile) {
         $extraArgs = (Get-Content -Raw $argsFile).Trim() -split '\s+' | Where-Object { $_ -ne '' }
     }
-    $result = Invoke-WithTimeout -FilePath $Bin -Arguments ($extraArgs + @($CuffFile))
+    $result = Invoke-WithTimeout -FilePath $Bin -Arguments (@($extraArgs) + @($CuffFile))
     if ($result.ExitCode -eq 0) {
         Write-Host "FAIL (expected nonzero exit): $CuffFile"
         $script:Fail++
@@ -111,10 +155,14 @@ Test-Binary
 Write-Host "== tests/unit (C++ unit tests) =="
 Get-ChildItem 'tests\unit\*.cpp' | ForEach-Object {
     $src = $_.FullName
-    $unitBin = Join-Path $env:TEMP "cuff_unit_$($_.BaseName).exe"
-    $buildLog = Join-Path $env:TEMP 'cuff_unit_build.log'
-    & g++ -std=c++17 -Wall -Wextra -O2 -I. $src -o $unitBin 2> $buildLog
-    if ($LASTEXITCODE -ne 0) {
+    $unitBin = Join-Path $TestTempRoot "cuff_unit_$($_.BaseName).exe"
+    $buildLog = Join-Path $TestTempRoot 'cuff_unit_build.log'
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & g++ -std=c++17 -Wall -Wextra -O2 -I. $src -o $unitBin '-Wl,--stack,8388608' -lws2_32 2> $buildLog
+    $buildExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorActionPreference
+    if ($buildExitCode -ne 0) {
         Write-Host "FAIL (build): $($_.Name)"
         Get-Content $buildLog | Write-Host
         $Fail++
@@ -127,7 +175,7 @@ Get-ChildItem 'tests\unit\*.cpp' | ForEach-Object {
         $Pass++
     }
     else {
-        Write-Host "FAIL: $($_.Name)"
+        Write-Host "FAIL (exit $($result.ExitCode)): $($_.Name)"
         Write-Host $result.Output
         $Fail++
     }
@@ -149,3 +197,11 @@ Get-ChildItem 'examples\error_cases\*.cuff' | ForEach-Object { Invoke-ErrorCase 
 Write-Host ""
 Write-Host "$Pass passed, $Fail failed"
 if ($Fail -eq 0) { exit 0 } else { exit 1 }
+}
+finally {
+    Set-Location $OriginalLocation
+    & subst $TestDrive /D
+    if ($TestTempRoot -and (Test-Path -LiteralPath $TestTempRoot)) {
+        Remove-Item -LiteralPath $TestTempRoot -Recurse -Force
+    }
+}

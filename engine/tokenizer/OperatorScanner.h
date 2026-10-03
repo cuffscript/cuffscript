@@ -78,6 +78,8 @@ namespace cuff
             return make(TokenType::COLON, ":");
         case '.':
             return make(TokenType::DOT, ".");
+        case '\\':
+            return make(TokenType::BACKSLASH, "\\");
         case '~':
             return make(TokenType::TILDE, "~");
         case '=':

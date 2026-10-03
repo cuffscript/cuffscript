@@ -1,2 +1,2 @@
-note: E5001
+note: E5-001
 use nonexistent_module from ./does_not_exist

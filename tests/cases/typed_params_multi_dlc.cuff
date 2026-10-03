@@ -1,0 +1,8 @@
+use DLC:string, DLC:json
+
+set returnable func add_num(number n1, number n2) do:
+    return n1 + n2
+end
+
+print(add_num(10, 32))
+print(to_json({"ok": true}))

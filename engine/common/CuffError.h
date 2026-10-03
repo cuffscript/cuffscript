@@ -21,7 +21,7 @@ namespace cuff
     //
     // what() renders this (message + hint only — no source line, since a raw
     // CuffError has no access to the original source text):
-    //   [E4008] Runtime Error at line 12, column 5: index out of range (got 5, length 3)
+    //   [E4-008] Runtime Error at line 12, column 5: index out of range (got 5, length 3)
     //           hint: CuffScript lists are 1-based; the last valid index here is 3.
     //
     // CuffEngine::execute()/run() catch CuffError right where the original
@@ -29,7 +29,7 @@ namespace cuff
     // renderErrorWithSnippet() (see CuffEngine.h) instead of what() — that
     // version splices in the offending source line with a `^` caret under the
     // exact column, e.g.:
-    //   [E2001] Syntax Error at line 4, column 10: unexpected token ')' in expression
+    //   [E2-001] Syntax Error at line 4, column 10: unexpected token ')' in expression
     //       print(x +)
     //                ^
     //       hint: ...

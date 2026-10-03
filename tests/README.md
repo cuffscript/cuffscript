@@ -12,8 +12,10 @@ mingw32-make -f Makefile.win
 powershell -File tests\run.ps1
 ```
 
-`run.ps1` mirrors `run.sh` exactly (same section headers, same pass/fail summary line,
-same exit code convention) — use whichever fits your platform.
+`run.ps1` follows the same test order and pass/fail summary as `run.sh`. It supports
+Windows PowerShell 5.1, uses an ASCII temporary drive for workspaces under non-ASCII
+paths, links unit tests with the Windows socket library, and removes its isolated
+temporary build directory when it exits.
 
 Runs, in order: `tests/unit/` (standalone C++ unit tests, compiled and run directly —
 currently the regex engine's own test suite, which can exercise it without going through
@@ -45,8 +47,8 @@ Drop a `.cuff` file in `tests/errors/` that's expected to fail, then record whic
 code it must produce:
 
 ```bash
-./cuffc tests/errors/my_error.cuff   # note the [E####] in the output
-echo "E####" > tests/errors/my_error.expected_code
+./cuffc tests/errors/my_error.cuff   # note the [E4-001] format in the output
+echo "E4-001" > tests/errors/my_error.expected_code
 ```
 
 `.expected_code` is optional — without one, the runner only checks that the script fails

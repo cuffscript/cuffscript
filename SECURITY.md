@@ -85,7 +85,7 @@ separate, more permissive one:
 - **Confined to the same root as `use ... from`.** Every path is resolved relative to, and
   checked against, the script's own directory (or `--root` / `Options::rootDir`, whichever
   the host configured) — an absolute path or a `../`-style escape is rejected with
-  `FilesystemAccessDenied` (`E5008`) before anything is touched. There is no separate
+  `FilesystemAccessDenied` (`E5-008`) before anything is touched. There is no separate
   filesystem-specific root to configure; widening `--root` widens both module loading and
   `DLC:filesystem` together, deliberately.
 - **On by default, like `DLC:network` — for the same reason.** A script you run yourself
@@ -101,7 +101,7 @@ separate, more permissive one:
 - **Symlinks that point outside the root are rejected; deleting is permanent.** Every path
   is resolved with `std::filesystem::weakly_canonical` before the containment check, so a
   symlink inside the root whose target lies outside it (a file link *or* a directory link
-  you'd write through) is rejected with `E5008` — verified by hand for both read and write.
+  you'd write through) is rejected with `E5-008` — verified by hand for both read and write.
   Symlinks that stay inside the root are followed normally. The one gap is inherent to
   check-then-use: something *other than the script* (another process) creating or swapping a
   symlink between the check and the open could still redirect an access — scripts have no
@@ -109,7 +109,7 @@ separate, more permissive one:
   write to. `file_remove` calls `std::filesystem::remove` directly — there is no trash/undo.
 - **No size cap dedicated to `DLC:filesystem` beyond the language's own string limit** — a
   `file_read`/`file_readlines` on a file larger than the engine's normal string size ceiling
-  (`engine/common/Limits.h`'s `kMaxStringBytes`) fails cleanly with `SizeLimitExceeded` (`E4026`)
+  (`engine/common/Limits.h`'s `kMaxStringBytes`) fails cleanly with `SizeLimitExceeded` (`E4-026`)
   rather than exhausting memory, but there's no separate, smaller default for files specifically;
   set one at the host/OS level (disk quotas, a size-limited mount) if that's not enough for your
   deployment.

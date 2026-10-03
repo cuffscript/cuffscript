@@ -1,4 +1,4 @@
-note: E4017
+note: E4-017
 set returnable func down(n) do:
     if n is 0 do:
         return 0

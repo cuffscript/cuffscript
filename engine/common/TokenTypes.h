@@ -32,16 +32,17 @@ namespace cuff
         BANG,  // ! (negation operator)
 
         // delimiters
-        LPAREN,   // (
-        RPAREN,   // )
-        LBRACKET, // [
-        RBRACKET, // ]
-        LBRACE,   // {
-        RBRACE,   // }
-        COMMA,    // ,
-        COLON,    // :
-        DOT,      // .
-        TILDE,    // ~
+        LPAREN,    // (
+        RPAREN,    // )
+        LBRACKET,  // [
+        RBRACKET,  // ]
+        LBRACE,    // {
+        RBRACE,    // }
+        COMMA,     // ,
+        COLON,     // :
+        DOT,       // .
+        BACKSLASH, // backslash
+        TILDE,     // ~
 
         // structural
         NEWLINE,
@@ -153,6 +154,8 @@ namespace cuff
             return ":";
         case TokenType::DOT:
             return ".";
+        case TokenType::BACKSLASH:
+            return "\\";
         case TokenType::TILDE:
             return "~";
         case TokenType::NEWLINE:

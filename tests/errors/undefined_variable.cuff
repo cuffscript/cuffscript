@@ -1,2 +1,2 @@
-note: E4001
+note: E4-001
 print(never_declared)

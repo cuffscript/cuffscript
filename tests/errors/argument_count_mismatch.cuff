@@ -1,4 +1,4 @@
-note: E4010
+note: E4-010
 set returnable func combine(a, b) do:
     return a + b
 end

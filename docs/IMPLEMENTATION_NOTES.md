@@ -234,7 +234,7 @@ build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
 근처에서 이미 발생해서 제가 만든 안전장치(예외 던지기)가 발동하기도 전에 진짜 스택이
 터진 것입니다. `depthLimit`을 3000으로 낮췄고(관측된 크래시 지점 대비 6배 이상 여유),
 100자부터 100만자까지 전 구간에서 크래시 없이 정상 종료 또는 `RegexRecursionLimitExceeded`
-(E3103)를 깔끔하게 던지는 것을 확인했습니다. 교훈: "충분히 보수적"이라고 생각한 숫자도
+(E3-103)를 깔끔하게 던지는 것을 확인했습니다. 교훈: "충분히 보수적"이라고 생각한 숫자도
 실측 없이는 믿으면 안 됩니다.
 
 **식별자로 예약어를 쓸 수 없는 범위가 생각보다 넓음 (미해결, 기록만 해둠).**
@@ -290,7 +290,7 @@ sequences) are likewise out of scope, same reasoning as section 14.
 ## 18. Indices and range bounds must be whole numbers
 
 `list[i]`, `str[i]`, `x[i~j]`, and `loop repeat i to A ~ B` all reject a fractional value
-with `FractionalIndex` (E4024) instead of silently rounding it, which is what the engine
+with `FractionalIndex` (E4-024) instead of silently rounding it, which is what the engine
 used to do. A computed index that lands on `2.5` almost always means the _calculation_ is
 wrong; rounding it hides the bug and produces a plausible-looking wrong answer.
 
@@ -325,9 +325,9 @@ Two conventions, both checked during a full audit of every throw site:
   always rendered after a `...at line N, column M: ` prefix. (Parser messages used to start
   uppercase while runtime messages started lowercase.)
 - **`ArgumentError` means the wrong _number_ of arguments; `ValueError`
-  (`InvalidArgumentValue`, E4025) means the right number but a value the function can't
+  (`InvalidArgumentValue`, E4-025) means the right number but a value the function can't
   use** — `sqrt(-1)`, `to_number("abc")`, malformed `from_json` input, `random_int(5, 1)`.
-  These previously all reported as E4010 `ArgumentCountMismatch`, which was simply the wrong
+  These previously all reported as E4-010 `ArgumentCountMismatch`, which was simply the wrong
   code for them.
 
 When adding a builtin, pick the code by what actually went wrong, and keep the message
@@ -377,33 +377,33 @@ process; hostile or accidental input ends in an ordinary error code instead. All
 limits live in one file, `engine/common/Limits.h`.
 
 **Parser.** `ParseDepthScope` (in `ParserCore.h`) counts native recursion across all parsers,
-including the nested parser used for f-string expressions, and fails with `E2008` beyond
+including the nested parser used for f-string expressions, and fails with `E2-008` beyond
 256 levels of nested parentheses, lists, maps, unary chains or blocks. Chains that the parser
 builds iteratively (`1+1+1+...`, `a[1][1]...`) are bounded by `Expr::height`, computed when
-each node is constructed (`E2008` beyond 10,000). Source larger than 16 MiB is rejected
-(`E2009`).
+each node is constructed (`E2-008` beyond 10,000). Source larger than 16 MiB is rejected
+(`E2-009`).
 
 **Evaluator.** A depth counter alone cannot bound stack use: a function body with many
 nested blocks uses far more stack per call than a flat one. So `evalExpr` and `execStatement`
 compare the real stack pointer with a budget derived from the actual stack size (on Linux,
 `pthread_getattr_np`; elsewhere a fixed default, `Interpreter::Config::stackBudgetBytes` to
-override). Exceeding it raises the catchable `E4017`, the same code as the call-depth limit
+override). Exceeding it raises the catchable `E4-017`, the same code as the call-depth limit
 (1,000 calls, unchanged). Regex matching checks a hard floor below that budget, so it fails
-with `E3103` rather than overflowing when the interpreter is already deep.
+with `E3-103` rather than overflowing when the interpreter is already deep.
 
 **Values.** Nested lists/maps are destroyed iteratively (`dismantleValues`), and `is` compares
 iteratively, so depth never matters; circular structures of the same shape compare equal.
 Printing marks cycles (`[...]`, `{...}`) and stops at depth 1,000. `to_json`/`from_json` stop at
 depth 200.
 
-**Sizes.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4026`), enforced where
+**Sizes.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4-026`), enforced where
 they can grow: `+`, f-strings, `join`, `repeat_str`, padding, `range`, `flatten`, `merge`,
 regex `replace`/`find`/`split` results and the async task queue. Running out of memory anyway
-is reported as `E6003` instead of terminating the process.
+is reported as `E6-003` instead of terminating the process.
 
 **Execution budget (opt-in).** `--max-steps N` and `--timeout MS` (or `CuffEngine::Options`)
 bound loop iterations plus function calls, and wall-clock time. Both are off by default. They
-raise `E6001`/`E6002`, which live in the 6000 range and are deliberately **not** catchable by
+raise `E6-001`/`E6-002`, which live in the 6000 range and are deliberately **not** catchable by
 `or_else`, so a script cannot swallow its own kill switch.
 
 **Regex.** Group nesting is capped at 64 and quantifier counts at 100,000; a pattern over
@@ -420,8 +420,8 @@ still work). Raise them in `Limits.h` if a workload needs more.
 `use name from path` may only load files inside a root directory: the running script's
 directory by default, or `--root <dir>` / `CuffEngine::Options::rootDir`. Absolute paths and
 paths that resolve outside the root (`..`, or a symlink pointing out, checked on the
-canonicalized path) fail with `E5006`. A module must be a regular file no larger than the source
-limit, and imports may nest 64 levels (`E5007`). Errors show the path as written in the script
+canonicalized path) fail with `E5-006`. A module must be a regular file no larger than the source
+limit, and imports may nest 64 levels (`E5-007`). Errors show the path as written in the script
 rather than the host's absolute path. A failed import no longer marks the module as loaded,
 and its AST is kept alive even if its body fails, so functions it registered can never dangle.
 
@@ -498,7 +498,7 @@ order): `set pure func f() do: ... end`. Enforcement lives entirely in `Interpre
 `Environment` — `FrameGuard` now also carries `isPure`, and the three places that resolve a
 name against an `Environment` (`evalExpr`'s identifier case, `execChange`, `execCollectionOp`)
 each check `currentFunctionPure_ && look.owner == &globalEnv_` and raise the new
-`PureFunctionGlobalAccess` (E4027) before the read/write happens; `change x to global` is
+`PureFunctionGlobalAccess` (E4-027) before the read/write happens; `change x to global` is
 rejected at the bridge itself, before it can even register. The restriction is on that
 function's own body, not the whole call graph: a pure function calling a non-pure one is fine,
 and the callee's own purity (or lack of it) governs its own body, exactly as `returnable` and
@@ -509,7 +509,7 @@ literal escape hatch, by construction — there's no separate override flag to k
 on Linux/macOS, Winsock2 on Windows (the one file in the engine with `#ifdef _WIN32` socket
 code). Plain HTTP only — no TLS, so `https://` fails with a clear error rather than silently
 talking plaintext to an HTTPS port. `get(url)` and `post(url, body[, content_type])` return
-`{"status", "ok", "body"}`; connection/DNS/timeout failures raise `NetworkRequestFailed` (E4028),
+`{"status", "ok", "body"}`; connection/DNS/timeout failures raise `NetworkRequestFailed` (E4-028),
 catchable via `or_else` like any other runtime error. Handles chunked transfer-encoding,
 `Content-Length` framing, and 301/302/303/307/308 redirects (303, and 301/302 for an original
 POST, downgrade to GET per common client behavior; 307/308 preserve method and body), each
@@ -558,13 +558,13 @@ escape hatch: `set pure func f() do: g() end` where `g` touches globals — `f` 
 touches a global *directly*, so the old check passed, but calling `f` still reached a
 global through `g`. `checkPureCallAllowed()` (`Interpreter.h`) now runs at every call
 site (`evalCall`, `invokeAwaited`) and rejects a pure caller invoking a non-pure
-*user-defined* function, with a new error, `PureFunctionImpureCall` (E4029).
+*user-defined* function, with a new error, `PureFunctionImpureCall` (E4-029).
 Native/DLC functions are still exempt — they never touch a CuffScript `Environment` at
 all, so they can't reach a global through this route regardless. Recursion and
 pure-calling-pure remain unrestricted, since `decl.isPure` is checked per callee, not
 per call depth. This is a **behavior change**: `tests/cases/pure_functions.cuff`'s old
 "pure calling non-pure is fine" example no longer holds and was rewritten; the same
-scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4029 case.
+scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4-029 case.
 
 
 ## 27. Global-bridge bug: `Environment::resolve()` checked the bridge before the local
@@ -631,7 +631,7 @@ in an `is not` comparison. Regression test: `tests/cases/reserved_words_as_ident
 Errors now show the offending source line with a `^` under the exact column, e.g.:
 
 ```
-[E2001] Syntax Error at line 4, column 10: unexpected token ')' in expression
+[E2-001] Syntax Error at line 4, column 10: unexpected token ')' in expression
     print(x +)
              ^
 ```
@@ -661,7 +661,7 @@ filesystem-specific root to configure. `isInsideRoot()` (the containment check m
 loading already had) moved from a private `Interpreter` method to a shared
 `engine/common/PathSandbox.h` so both features use the identical check rather than two
 copies that could drift. An absolute path, or a relative path that escapes the root
-(`../../etc/passwd`), is rejected with a new error, `FilesystemAccessDenied` (E5008),
+(`../../etc/passwd`), is rejected with a new error, `FilesystemAccessDenied` (E5-008),
 *before* touching the filesystem — a script trying to reach outside its sandbox is worth
 surfacing loudly. An ordinary OS-level failure once a path clears that check (file
 doesn't exist, permission denied) is reported the quiet way each function's own contract
@@ -673,8 +673,8 @@ filesystem can't force an oversized allocation just to get rejected. New host co
 mirroring `DLC:network`'s existing shape exactly: `CuffEngine::Options::filesystemEnabled`
 (default true) / `--no-filesystem`. See `SECURITY.md`'s "DLC:filesystem" section for the
 full trust-boundary discussion. Regression tests: `tests/cases/dlc_filesystem.cuff`
-(success paths, self-cleaning), `tests/errors/dlc_filesystem_disabled.cuff` (E5005),
-`tests/errors/filesystem_sandbox_escape.cuff` (E5008).
+(success paths, self-cleaning), `tests/errors/dlc_filesystem_disabled.cuff` (E5-005),
+`tests/errors/filesystem_sandbox_escape.cuff` (E5-008).
 
 ## 31. DLC function naming convention (`library_verb`)
 

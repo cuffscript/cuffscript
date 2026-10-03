@@ -1,0 +1,5 @@
+set func print_number(number value) do:
+    print(value)
+end
+
+print_number("not a number")

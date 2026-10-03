@@ -47,6 +47,19 @@ namespace cuff
                 UseStmt use;
                 use.isDLC = true;
                 use.name = libName;
+                use.dlcNames.push_back(std::move(libName));
+                while (p.match(TokenType::COMMA))
+                {
+                    if (!isWordLikeToken(p.current()) || p.current().value != "DLC" ||
+                        !p.peek(1).is(TokenType::COLON))
+                        throw SyntaxError("expected 'DLC:<name>' after ',' in DLC import", p.current().location);
+                    p.advance();
+                    p.advance();
+                    if (!isWordLikeToken(p.current()))
+                        throw SyntaxError("expected library name after 'DLC:'", p.current().location);
+                    use.dlcNames.push_back(p.current().value);
+                    p.advance();
+                }
                 use.loc = loc;
 
                 return std::make_unique<Stmt>(StmtKind::UseStmt, std::move(use));
@@ -78,6 +91,14 @@ namespace cuff
                 else if (t.is(TokenType::SLASH))
                 {
                     path += "/";
+                }
+                else if (t.is(TokenType::BACKSLASH))
+                {
+                    path += "/";
+                }
+                else if (t.is(TokenType::COLON))
+                {
+                    path += ":";
                 }
                 else if (t.is(TokenType::MINUS))
                 {

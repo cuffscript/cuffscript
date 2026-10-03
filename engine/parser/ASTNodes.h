@@ -103,42 +103,54 @@ namespace cuff
     // fib benchmark, the single largest cost in the profile).
     enum class BinOp
     {
-        Add,        // +
-        Sub,        // -
-        Mul,        // *
-        Div,        // /
-        Is,         // is      (exact equality)
-        IsCase,     // IS      (case-insensitive equality)
-        IsNot,      // is not
-        IsNotCase,  // IS not
-        Greater,    // >
-        Less,       // <
-        GreaterEq,  // >=
-        LessEq      // <=
+        Add,       // +
+        Sub,       // -
+        Mul,       // *
+        Div,       // /
+        Is,        // is      (exact equality)
+        IsCase,    // IS      (case-insensitive equality)
+        IsNot,     // is not
+        IsNotCase, // IS not
+        Greater,   // >
+        Less,      // <
+        GreaterEq, // >=
+        LessEq     // <=
     };
 
     enum class UnOp
     {
-        Not,    // !
-        Negate  // -
+        Not,   // !
+        Negate // -
     };
 
     inline const char *binOpName(BinOp op)
     {
         switch (op)
         {
-        case BinOp::Add: return "+";
-        case BinOp::Sub: return "-";
-        case BinOp::Mul: return "*";
-        case BinOp::Div: return "/";
-        case BinOp::Is: return "is";
-        case BinOp::IsCase: return "IS";
-        case BinOp::IsNot: return "is not";
-        case BinOp::IsNotCase: return "IS not";
-        case BinOp::Greater: return ">";
-        case BinOp::Less: return "<";
-        case BinOp::GreaterEq: return ">=";
-        case BinOp::LessEq: return "<=";
+        case BinOp::Add:
+            return "+";
+        case BinOp::Sub:
+            return "-";
+        case BinOp::Mul:
+            return "*";
+        case BinOp::Div:
+            return "/";
+        case BinOp::Is:
+            return "is";
+        case BinOp::IsCase:
+            return "IS";
+        case BinOp::IsNot:
+            return "is not";
+        case BinOp::IsNotCase:
+            return "IS not";
+        case BinOp::Greater:
+            return ">";
+        case BinOp::Less:
+            return "<";
+        case BinOp::GreaterEq:
+            return ">=";
+        case BinOp::LessEq:
+            return "<=";
         }
         return "?";
     }
@@ -229,8 +241,8 @@ namespace cuff
 
     struct PatternArg
     {
-        std::string literalPattern;         // used when isLiteral == true
-        std::unique_ptr<Expr> dynamicExpr;  // used when isLiteral == false
+        std::string literalPattern;        // used when isLiteral == true
+        std::unique_ptr<Expr> dynamicExpr; // used when isLiteral == false
         bool isLiteral = true;
     };
 
@@ -347,7 +359,8 @@ namespace cuff
                 throw SyntaxError(ErrorCode::NestingTooDeep,
                                   "expression is too long or too deeply nested (maximum depth is " +
                                       std::to_string(limits::kMaxExprHeight) + ")",
-                                  std::visit([](const auto &n) { return n.loc; }, data));
+                                  std::visit([](const auto &n)
+                                             { return n.loc; }, data));
             }
         }
 
@@ -474,6 +487,7 @@ namespace cuff
         std::string name;
         uint32_t nameId = 0; // interned `name`, set by the parser
         std::vector<std::string> params;
+        std::vector<std::string> paramTypes;
         std::vector<uint32_t> paramIds; // interned `params`, set by the parser
         std::vector<std::unique_ptr<Stmt>> body;
         SourceLocation loc;
@@ -538,6 +552,7 @@ namespace cuff
     {
         bool isDLC;
         std::string name;
+        std::vector<std::string> dlcNames;
         std::string path;
         SourceLocation loc;
     };

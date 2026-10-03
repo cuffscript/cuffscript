@@ -1,4 +1,4 @@
-note: E3004
+note: E3-004
 if "x" is "[num]5~2" do:
     print("unreachable")
 end

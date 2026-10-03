@@ -66,35 +66,35 @@ namespace cuff
                 throw SyntaxError("expected function name after 'func'", p.current().location);
             }
 
-            // Parse parameter list. Names here accept any word-shaped token
-            // (same reasoning as the function name above) — `(add, count)`
-            // is an unambiguous "a name goes here, then ',' or ')'" slot.
             p.consume(TokenType::LPAREN, "expected '(' for function parameters");
 
             std::vector<std::string> params;
-            if (!p.check(TokenType::RPAREN))
+            std::vector<std::string> paramTypes;
+            auto parseParameter = [&]()
             {
-                if (isWordLikeToken(p.current()))
+                std::string type;
+                const TokenType typeToken = p.current().type;
+                if ((typeToken == TokenType::NUMBER_TYPE || typeToken == TokenType::STR_TYPE ||
+                     typeToken == TokenType::LIST_TYPE || typeToken == TokenType::MAP_TYPE ||
+                     typeToken == TokenType::BOOLEAN_TYPE || typeToken == TokenType::EMPTY ||
+                     typeToken == TokenType::MATCH) &&
+                    isWordLikeToken(p.peek(1)))
                 {
-                    params.push_back(p.current().value);
+                    type = p.current().value;
                     p.advance();
                 }
-                else
-                {
+                if (!isWordLikeToken(p.current()))
                     throw SyntaxError("expected parameter name", p.current().location);
-                }
+                params.push_back(p.current().value);
+                paramTypes.push_back(std::move(type));
+                p.advance();
+            };
+
+            if (!p.check(TokenType::RPAREN))
+            {
+                parseParameter();
                 while (p.match(TokenType::COMMA))
-                {
-                    if (isWordLikeToken(p.current()))
-                    {
-                        params.push_back(p.current().value);
-                        p.advance();
-                    }
-                    else
-                    {
-                        throw SyntaxError("expected parameter name after ','", p.current().location);
-                    }
-                }
+                    parseParameter();
             }
             p.consume(TokenType::RPAREN, "expected ')' to close parameter list");
 
@@ -130,6 +130,7 @@ namespace cuff
             decl.name = name;
             decl.nameId = internName(name);
             decl.params = std::move(params);
+            decl.paramTypes = std::move(paramTypes);
             for (const auto &pn : decl.params)
                 decl.paramIds.push_back(internName(pn));
             decl.body = std::move(body);

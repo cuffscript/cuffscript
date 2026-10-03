@@ -191,7 +191,10 @@ namespace cuff
             {
                 const auto &use = std::get<UseStmt>(stmt.data);
                 if (use.isDLC)
-                    os << "Use DLC:" << use.name << "\n";
+                {
+                    for (const auto &name : use.dlcNames)
+                        os << "Use DLC:" << name << "\n";
+                }
                 else
                     os << "Use " << use.name << " from " << use.path << "\n";
                 break;

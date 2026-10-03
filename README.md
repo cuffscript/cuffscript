@@ -60,7 +60,7 @@ To read a script from standard input, run `cuffc` without a file. Use `--help` t
 ```cuff
 set str name to "World"
 
-set returnable func greet(person) do:
+set returnable func greet(str person) do:
     return f"Hello, {person}!"
 end
 

@@ -138,11 +138,14 @@ namespace cuff
         return "Internal Error";
     }
 
-    // Short machine-friendly tag, e.g. "E4005". Handy for grepping docs/tests
+    // Short machine-friendly tag, e.g. "E4-005". Handy for grepping docs/tests
     // and for issue reports (see CONTRIBUTING.md).
     inline std::string errorCodeTag(ErrorCode code)
     {
-        return "E" + std::to_string(static_cast<int>(code));
+        const int value = static_cast<int>(code);
+        const std::string suffix = std::to_string(value % 1000);
+        return "E" + std::to_string(value / 1000) + "-" +
+               std::string(3 - suffix.size(), '0') + suffix;
     }
 
     // Whether this category is, in principle, something an `or_else` block is
