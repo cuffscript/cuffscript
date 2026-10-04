@@ -1,6 +1,5 @@
 import os, pty, select, time, signal, struct, fcntl, termios
 import pyte
-
 import re, wcwidth
 
 class WideAwareScreen(pyte.Screen):
