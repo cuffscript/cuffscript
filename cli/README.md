@@ -1,4 +1,4 @@
-# cuffsh — CuffScript Interactive Shell
+# cuffsh — CuffScript Interactive Shell (REPL)
 
 An interactive REPL that sits next to `cuffc` (the script runner). Nothing
 under `engine/` (or anywhere else in the project) is modified — it uses the

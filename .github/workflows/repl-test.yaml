@@ -29,9 +29,9 @@ jobs:
                 working-directory: cli
                 shell: bash
                 run: |
-                    python3 -m pip install --quiet pyte wcwidth
+                    python3 -m pip install --quiet --break-system-packages pyte wcwidth
+                    perl -pi -e 's/"\$\{extra_args\[@\]\}"/\${extra_args[\@]+\"\${extra_args[\@]}\"}/g' tests/run.sh
                     
-                    sed -i.bak 's/"\${extra_args\[@\]}"/${extra_args[@]+"${extra_args[@]}"}/g' tests/run.sh
                     chmod +x build.sh run_tests.sh
                     ./build.sh
                     ./run_tests.sh
