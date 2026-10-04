@@ -1,21 +1,33 @@
 name: Build and Test
 
-'on':
+"on":
     push:
         branches:
             - main
-    pull_request:
+    pull_request: null
 
 permissions:
     contents: read
 
 jobs:
     build-and-test:
-        runs-on: ubuntu-latest
+        runs-on: '${{ matrix.os }}'
+        strategy:
+
+            fail-fast: false
+            matrix:
+                os:
+                    - ubuntu-latest
+                    - macos-latest
+
         steps:
             -
                 name: Checkout code
                 uses: actions/checkout@v4
+            -
+                name: Install Coreutils (macOS only)
+                if: matrix.os == 'macos-latest'
+                run: brew install coreutils
             -
                 name: Build
                 shell: bash

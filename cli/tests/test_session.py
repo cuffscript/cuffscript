@@ -158,5 +158,55 @@ for trial in range(trials):
     s.finish(.1)
 check(f"randomized editing: screen text + cursor match an independent model ({trials} trials)", fails == 0, f"{fails} mismatches")
 
+
+# ---- same idea for entries TALLER than the terminal: the visible rows must be a slice of the model ----
+random.seed(777)
+fails = 0; trials = 30
+for trial in range(trials):
+    cols = random.choice([14, 20, 30]); rows = 8
+    s = Session([BIN, "--no-banner"], cols=cols, rows=rows, history=True); s.pump(0.35)
+    lines = [[]]; li = 0; ci = 0; ops = []
+    for _ in range(random.randint(25, 60)):
+        op = random.choices(["type", "nl", "left", "right", "home", "end", "bs", "del"], [10, 6, 3, 3, 1, 1, 2, 1])[0]
+        if op == "type":
+            ch = random.choice(ALPHA); lines[li].insert(ci, ch); ci += 1; s.send(ch.encode(), .02)
+        elif op == "nl":
+            tail = lines[li][ci:]; lines[li] = lines[li][:ci]; lines.insert(li+1, tail); li += 1; ci = 0; s.send(SHIFT_ENTER, .02)
+        elif op == "left":
+            if ci > 0: ci -= 1
+            elif li > 0: li -= 1; ci = len(lines[li])
+            s.send(LEFT, .02)
+        elif op == "right":
+            if ci < len(lines[li]): ci += 1
+            elif li < len(lines)-1: li += 1; ci = 0
+            s.send(RIGHT, .02)
+        elif op == "home": ci = 0; s.send(b"\x1b[H", .02)
+        elif op == "end": ci = len(lines[li]); s.send(b"\x1b[F", .02)
+        elif op == "bs":
+            if ci > 0: del lines[li][ci-1]; ci -= 1
+            elif li > 0:
+                prev = lines[li-1]; ci = len(prev); lines[li-1] = prev + lines[li]; del lines[li]; li -= 1
+            s.send(b"\x7f", .02)
+        elif op == "del":
+            if ci < len(lines[li]): del lines[li][ci]
+            elif li < len(lines)-1: lines[li] += lines[li+1]; del lines[li+1]
+            s.send(b"\x1b[3~", .02)
+    s.pump(.4)
+    exp_rows, exp_cur = expected([''.join(l) for l in lines], cols, li, ci)
+    got = s.nonblank(); gc = s.cursor()
+    avail = max(3, rows - 1)
+    if len(exp_rows) <= avail:
+        ok = got == exp_rows and gc == exp_cur
+    else:
+        shown = got[:-1]
+        ok = got[-1].startswith("[rows") and len(shown) == avail - 1 and any(
+            exp_rows[k:k+len(shown)] == shown and gc == (exp_cur[0] - k, exp_cur[1]) for k in range(len(exp_rows) - len(shown) + 1))
+    ok = ok and len(s.screen.history.top) == 0       # nothing ever scrolled off: nothing stale can be left behind
+    if not ok:
+        fails += 1
+        if fails <= 3: print("  trial", trial, "cols", cols, "model rows", len(exp_rows), "\n   got", got, gc, "\n   exp cur", exp_cur)
+    s.finish(.1)
+check(f"randomized editing of TALL entries: view is a slice of the model, cursor visible, nothing stale ({trials} trials)", fails == 0, f"{fails} mismatches")
+
 bad = [n for n, ok in results if not ok]
 print(f"\n{len(results)-len(bad)}/{len(results)} passed"); sys.exit(1 if bad else 0)

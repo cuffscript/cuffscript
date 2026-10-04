@@ -12,6 +12,15 @@ class WideAwareScreen(pyte.Screen):
                 self.cursor.x = self.columns   # makes pyte perform its normal wrap first
             super().draw(ch)
 
+class WideAwareHistoryScreen(pyte.HistoryScreen):
+    """Same wrap fix, but keeps the lines that scroll off the top, so tests can see
+    stale copies of text left behind in the terminal's scrollback."""
+    def draw(self, data):
+        for ch in data:
+            if wcwidth.wcwidth(ch) == 2 and self.cursor.x == self.columns - 1:
+                self.cursor.x = self.columns
+            super().draw(ch)
+
 # Mode-setting sequences pyte doesn't implement (it would print them as text).
 _STRIP = re.compile(rb"\x1b\[[<>]1u|\x1b\[\?u|\x1b\[c")
 
@@ -19,10 +28,11 @@ class Session:
     """Test harness for cuffsh. Runs a program on a real pty with a given window size and feeds everything it
     prints into a pyte terminal emulator, so tests can assert on what a user would
     actually SEE (screen text + cursor), not just on raw escape bytes."""
-    def __init__(self, argv, cols=80, rows=24, env_extra=None, stdin_tty=True, kitty=True, answer_queries=True):
+    def __init__(self, argv, cols=80, rows=24, env_extra=None, stdin_tty=True, kitty=True, answer_queries=True, history=False):
         self.kitty, self.answer_queries = kitty, answer_queries
         self.cols, self.rows = cols, rows
-        self.screen = WideAwareScreen(cols, rows)
+        self.screen = WideAwareHistoryScreen(cols, rows, history=5000) if history else WideAwareScreen(cols, rows)
+        self.has_history = history
         self.stream = pyte.ByteStream(self.screen)
         self.raw = b""
         env = dict(os.environ); env["TERM"] = "xterm-256color"
@@ -78,6 +88,13 @@ class Session:
 
     def text(self):
         return [l.rstrip() for l in self.screen.display]
+
+    def transcript(self):
+        """everything the user could scroll back to: scrolled-off lines + the screen"""
+        top = []
+        if self.has_history:
+            top = ["".join(row[x].data for x in range(self.cols)).rstrip() for row in self.screen.history.top]
+        return top + self.text()
 
     def nonblank(self):
         t = self.text()

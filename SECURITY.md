@@ -79,7 +79,7 @@ its own:
 
 `use DLC:filesystem` gives a script real local file access — `file_exist`, `file_size`,
 `file_read`, `file_readlines`, `file_write`, `file_add`, `file_remove`. Unlike `DLC:network`,
-this one follows the *same* sandbox-by-default model module loading already uses, not a
+this one follows the _same_ sandbox-by-default model module loading already uses, not a
 separate, more permissive one:
 
 - **Confined to the same root as `use ... from`.** Every path is resolved relative to, and
@@ -91,7 +91,7 @@ separate, more permissive one:
 - **On by default, like `DLC:network` — for the same reason.** A script you run yourself
   should be able to read and write files next to it without extra configuration. If you embed
   this engine to run scripts you did not write, set `CuffEngine::Options::filesystemEnabled =
-  false` (or run `cuffc --no-filesystem`) before that script runs, not after — exactly the same
+false` (or run `cuffc --no-filesystem`) before that script runs, not after — exactly the same
   caution as `networkEnabled` above.
 - **No special-casing of "sensitive" files inside the root.** Anything the sandbox root
   contains — including, say, a `.env` file a script itself was never given the name of — is
@@ -100,10 +100,10 @@ separate, more permissive one:
   delete.
 - **Symlinks that point outside the root are rejected; deleting is permanent.** Every path
   is resolved with `std::filesystem::weakly_canonical` before the containment check, so a
-  symlink inside the root whose target lies outside it (a file link *or* a directory link
+  symlink inside the root whose target lies outside it (a file link _or_ a directory link
   you'd write through) is rejected with `E5008` — verified by hand for both read and write.
   Symlinks that stay inside the root are followed normally. The one gap is inherent to
-  check-then-use: something *other than the script* (another process) creating or swapping a
+  check-then-use: something _other than the script_ (another process) creating or swapping a
   symlink between the check and the open could still redirect an access — scripts have no
   way to create symlinks themselves, but don't expose a root that untrusted processes can
   write to. `file_remove` calls `std::filesystem::remove` directly — there is no trash/undo.
@@ -113,37 +113,3 @@ separate, more permissive one:
   rather than exhausting memory, but there's no separate, smaller default for files specifically;
   set one at the host/OS level (disk quotas, a size-limited mount) if that's not enough for your
   deployment.
-
----
-
-# 보안 정책 (한국어)
-
-## 지원 버전
-
-현재 CuffScript는 초기 개발 단계입니다. 보안 패치는 `main` 브랜치 최신 버전을 기준으로 제공됩니다.
-
----
-
-## 취약점 제보
-
-보안 취약점을 발견하셨다면 공개 이슈로 등록하거나 GitHub의 [Private Security Advisory](https://github.com/cuffscript/cuffscript/security/advisories/new) 기능을 통해 비공개로 제보해 주세요.
-
-제보 시 아래 내용을 포함해 주시면 빠른 처리에 도움이 됩니다.
-
-- 문제를 재현할 수 있는 최소한의 입력값 또는 코드
-- 발생하는 증상 및 예상되는 영향
-- OS, 컴파일러 버전 등 환경 정보
-
----
-
-## 처리 절차
-
-제보가 접수되면 내용을 검토한 뒤 가능한 한 빠르게 응답드립니다.  
-패치가 완료되면 Security Advisory, 릴리즈, changelog 등을 통해 내용을 공개하며, 원하시는 경우 제보자를 명시합니다.
-
----
-
-## 적용 범위
-
-이 정책은 본 저장소의 엔진 코드(`engine/`) 및 기타 주요 구성 파일들을 대상으로 합니다.  
-사용자가 직접 작성한 CuffScript 코드의 로직 문제나 외부 빌드 도구의 취약점은 적용 범위에 포함되지 않습니다.

@@ -368,6 +368,28 @@ namespace cuff::cli
             return w > 0 ? w : 80;
         }
 
+        // Height in rows of the UI terminal; 24 if it can't be determined.
+        int rows() const
+        {
+            int h = 0;
+#if defined(_WIN32)
+            const HANDLE hd = GetStdHandle(ui() == Ui::Stderr ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+            CONSOLE_SCREEN_BUFFER_INFO info;
+            if (GetConsoleScreenBufferInfo(hd, &info))
+                h = info.srWindow.Bottom - info.srWindow.Top + 1;
+#else
+            struct winsize ws;
+            if (ioctl(ui() == Ui::Stderr ? 2 : 1, TIOCGWINSZ, &ws) == 0)
+                h = ws.ws_row;
+            if (h <= 0)
+            {
+                if (const char *l = std::getenv("LINES"))
+                    h = std::atoi(l);
+            }
+#endif
+            return h > 0 ? h : 24;
+        }
+
     private:
         bool stdinTty_ = false;
         bool stdoutTty_ = false;

@@ -20,7 +20,7 @@ def piece():
 
 crashes = 0
 for t in range(N):
-    s = Session([BIN, "--no-banner", "--timeout", "500"], cols=random.choice([8, 20, 40, 80]), rows=24)
+    s = Session([BIN, "--no-banner", "--timeout", "500"], cols=random.choice([8, 20, 40, 80]), rows=random.choice([5, 8, 24]))
     s.pump(0.35)
     for _ in range(random.randint(5, 30)):
         os.write(s.fd, piece()); s.pump(0.01)

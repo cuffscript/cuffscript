@@ -60,6 +60,10 @@ set the same engine options they do for `cuffc`. `--no-color`, `--no-banner`,
 | Ctrl+C | cancel the entry |
 | Ctrl+D (Ctrl+Z on Windows) | leave, when the prompt is empty |
 
+If an entry is taller than the terminal window (a long paste), the screen shows
+a scrolling view around the cursor with a `[rows A-B of N]` status line —
+↑/↓ scroll it — and the whole entry is printed once when you press Enter.
+
 Pasting multi-line code gives you **one** entry to review (bracketed paste on
 Linux/macOS; on Windows, an Enter that already has more typing queued behind
 it is treated as a newline). Long lines that wrap, and wide characters

@@ -28,7 +28,7 @@
 //    one block instead of being run line by line.
 //
 // Drawing is a full redraw (one write) after each change, using a model of
-// how the terminal lays text out (see layoutEntry) so wrapped long lines and
+// how the terminal lays text out (see layoutRows) so wrapped long lines and
 // double-width characters (Korean/CJK) are erased and repositioned correctly.
 
 #include "../engine/common/Limits.h"
@@ -76,12 +76,6 @@ namespace cuff::cli
             int col = 0; // may equal `cols`: the terminal's "pending wrap" state
         };
 
-        struct LayoutResult
-        {
-            Pos end;    // where the terminal cursor sits after drawing everything
-            Pos cursor; // where the editing cursor should be shown
-        };
-
         // Decodes one UTF-8 sequence at s[i]; invalid bytes count as U+FFFD, 1 byte.
         inline size_t decodeAt(const std::string &s, size_t i, char32_t &cp)
         {
@@ -121,32 +115,53 @@ namespace cuff::cli
             return extra + 1;
         }
 
-        // Models how a terminal `cols` wide draws the entry: a 3-column prompt
-        // before each logical line, text wrapping at the right edge (a
-        // double-width character that doesn't fit moves to the next row whole),
-        // and the delayed-wrap behaviour where a line that exactly fills a row
-        // leaves the cursor on that row's last column until more is written.
-        inline LayoutResult layoutEntry(const std::string &buf, size_t cursor, int cols, int promptWidth = 3)
+        struct Row
+        {
+            std::string text;        // what to print for this screen row (prompt included where one starts)
+            bool wrapsToNext = false; // row ended because the line wrapped (the terminal moves down by itself)
+        };
+
+        struct RowsLayout
+        {
+            std::vector<Row> rows;
+            Pos end;    // where the terminal cursor sits after printing every row
+            Pos cursor; // where the editing cursor should be shown
+        };
+
+        // Models how a terminal `cols` wide draws the entry, row by row: a
+        // 3-column prompt before each logical line, text wrapping at the right
+        // edge (a double-width character that doesn't fit moves to the next row
+        // whole), and the delayed-wrap behaviour where a line that exactly fills
+        // a row leaves the cursor on that row's last column until more is
+        // written. Printing the rows one after another, with a line break only
+        // where wrapsToNext is false, reproduces exactly what typing the buffer
+        // would draw — and lets the caller print just a slice of them.
+        inline RowsLayout layoutRows(const std::string &buf, size_t cursor, int cols, const std::string &primary,
+                                     const std::string &cont, int promptWidth = 3)
         {
             cols = std::max(cols, promptWidth + 1);
-            LayoutResult r;
+            RowsLayout r;
+            r.rows.emplace_back();
             int row = 0, col = 0;
-            auto advance = [&](int w)
+            auto startLine = [&](const std::string &prompt)
+            {
+                r.rows[row].text += prompt;
+                col = promptWidth;
+            };
+            auto place = [&](int w, const char *data, size_t len)
             {
                 if (col + w > cols)
                 {
+                    r.rows[row].wrapsToNext = true;
+                    r.rows.emplace_back();
                     ++row;
                     col = 0;
                 }
+                r.rows[row].text.append(data, len);
                 col += w;
             };
-            auto prompt = [&]
-            {
-                for (int i = 0; i < promptWidth; ++i)
-                    advance(1);
-            };
 
-            prompt();
+            startLine(primary);
             size_t i = 0;
             bool cursorSet = false;
             for (;;)
@@ -170,15 +185,15 @@ namespace cuff::cli
                     break;
                 if (buf[i] == '\n')
                 {
+                    r.rows.emplace_back();
                     ++row;
-                    col = 0;
-                    prompt();
+                    startLine(cont);
                     ++i;
                     continue;
                 }
                 char32_t cp;
                 const size_t len = decodeAt(buf, i, cp);
-                advance(cpWidth(cp));
+                place(cpWidth(cp), buf.data() + i, len);
                 i += len;
             }
             r.end = Pos{row, col};
@@ -210,6 +225,7 @@ namespace cuff::cli
             buffer_.clear();
             cursor_ = 0;
             curRow_ = 0;
+            viewTop_ = 0;
             firstRender_ = true;
             dirty_ = true;
             historyPos_ = history_.size();
@@ -246,7 +262,7 @@ namespace cuff::cli
                     inPaste_ = false;
                     if (isBlank(buffer_))
                     {
-                        finishLine();
+                        finishLine(false);
                         buffer_.clear();
                         cursor_ = 0;
                         curRow_ = 0;
@@ -256,7 +272,7 @@ namespace cuff::cli
                         draft_.clear();
                         break;
                     }
-                    finishLine();
+                    finishLine(true);
                     out = buffer_;
                     if (history_.empty() || history_.back() != buffer_)
                     {
@@ -373,7 +389,7 @@ namespace cuff::cli
 
                 case Kind::CtrlC:
                     inPaste_ = false;
-                    finishLine();
+                    finishLine(false);
                     return EntryStatus::Cancelled;
 
                 case Kind::EofOrDelete:
@@ -410,6 +426,7 @@ namespace cuff::cli
         std::string buffer_;
         size_t cursor_ = 0; // byte offset, always on a code point boundary
         int curRow_ = 0;    // row of the terminal cursor within the drawn entry
+        int viewTop_ = 0;   // first screen row of the entry shown, when it is taller than the terminal
         bool firstRender_ = true;
         bool dirty_ = true;
         bool inPaste_ = false;
@@ -669,64 +686,122 @@ namespace cuff::cli
             o.flush();
         }
 
+        // Draws the entry. If it is taller than the terminal, only the rows around
+        // the cursor are drawn (plus a status line): the drawn area must always
+        // fit on screen, because the cursor can't be moved above the top of the
+        // screen, so anything that had scrolled off could never be erased and
+        // would be left behind as a stale copy on every redraw.
         void render()
         {
             if (term_.ui() == Terminal::Ui::None)
                 return;
             const int cols = std::max(4, term_.columns());
+            const int termRows = std::max(4, term_.rows());
+            const int rowsAvail = std::max(3, termRows - 1);
+
+            const detail::RowsLayout lay =
+                detail::layoutRows(buffer_, cursor_, cols, term_.paintUi("1;36", ">> "), term_.paintUi("2", ".. "));
+            const int total = static_cast<int>(lay.rows.size());
+            const bool tall = total > rowsAvail;
+            const int capText = tall ? rowsAvail - 1 : total;
+
+            int top = 0;
+            if (tall)
+            {
+                top = viewTop_;
+                if (lay.cursor.row < top)
+                    top = lay.cursor.row;
+                if (lay.cursor.row >= top + capText)
+                    top = lay.cursor.row - capText + 1;
+                top = std::max(0, std::min(top, total - capText));
+            }
+            viewTop_ = top;
 
             std::string f;
             if (!firstRender_)
             {
                 f += '\r';
-                if (curRow_ > 0)
-                    f += "\x1b[" + std::to_string(curRow_) + "A";
+                const int up = std::min(curRow_, termRows - 1);
+                if (up > 0)
+                    f += "\x1b[" + std::to_string(up) + "A";
                 f += "\x1b[J";
             }
-
-            const std::string primary = term_.paintUi("1;36", ">> ");
-            const std::string cont = term_.paintUi("2", ".. ");
-            f += primary;
-            for (char c : buffer_)
+            for (int i = 0; i < capText; ++i)
             {
-                if (c == '\n')
-                {
+                const detail::Row &rw = lay.rows[static_cast<size_t>(top + i)];
+                f += rw.text;
+                if (i + 1 < capText && !rw.wrapsToNext)
                     f += "\r\n";
-                    f += cont;
-                }
-                else
-                {
-                    f += c;
-                }
             }
 
-            const detail::LayoutResult lay = detail::layoutEntry(buffer_, cursor_, cols);
-            if (cursor_ != buffer_.size())
+            int drawnRows = capText;
+            if (tall)
             {
-                const int up = lay.end.row - lay.cursor.row;
+                std::string status = "[rows " + std::to_string(top + 1) + "-" + std::to_string(top + capText) + " of " +
+                                     std::to_string(total) + "  - Up/Down scroll]";
+                if (static_cast<int>(status.size()) > cols - 1)
+                    status.resize(static_cast<size_t>(cols - 1));
+                f += "\r\n" + term_.paintUi("2", status);
+                drawnRows = capText + 1;
+            }
+
+            const int cursorRel = lay.cursor.row - top;
+            if (tall || cursor_ != buffer_.size())
+            {
+                const int up = (drawnRows - 1) - cursorRel;
                 if (up > 0)
                     f += "\x1b[" + std::to_string(up) + "A";
                 f += '\r';
                 if (lay.cursor.col > 0)
                     f += "\x1b[" + std::to_string(lay.cursor.col) + "C";
-                curRow_ = lay.cursor.row;
+                curRow_ = cursorRel;
             }
             else
             {
-                curRow_ = lay.end.row;
+                curRow_ = drawnRows - 1;
             }
             writeUi(f);
             firstRender_ = false;
         }
 
         // Leaves the entry on screen and puts the terminal cursor on a fresh
-        // line below it, wherever the editing cursor was.
-        void finishLine()
+        // line below it, wherever the editing cursor was. `keep` = leave the
+        // text visible (submit); a cancelled entry that was too tall to show in
+        // full is simply erased.
+        void finishLine(bool keep)
         {
             cursor_ = buffer_.size();
-            render();
+            const int cols = std::max(4, term_.columns());
+            const int termRows = std::max(4, term_.rows());
+            const int rowsAvail = std::max(3, termRows - 1);
+            const detail::RowsLayout lay =
+                detail::layoutRows(buffer_, cursor_, cols, term_.paintUi("1;36", ">> "), term_.paintUi("2", ".. "));
+            if (static_cast<int>(lay.rows.size()) <= rowsAvail)
+            {
+                render();
+                dirty_ = false;
+                writeUi("\r\n");
+                return;
+            }
+            // Taller than the screen: swap the scrolling view for the whole
+            // entry, printed once, so the full text is in the terminal's history.
+            std::string f = "\r";
+            const int up = std::min(curRow_, termRows - 1);
+            if (up > 0)
+                f += "\x1b[" + std::to_string(up) + "A";
+            f += "\x1b[J";
+            if (keep)
+            {
+                for (size_t i = 0; i < lay.rows.size(); ++i)
+                {
+                    f += lay.rows[i].text;
+                    if (i + 1 < lay.rows.size() && !lay.rows[i].wrapsToNext)
+                        f += "\r\n";
+                }
+                f += "\r\n";
+            }
+            writeUi(f);
             dirty_ = false;
-            writeUi("\r\n");
         }
 
         // ---- plain-line fallback --------------------------------------------
@@ -800,6 +875,7 @@ namespace cuff::cli
 #if defined(_WIN32)
         DWORD savedMode_ = 0;
         wchar_t pendingHigh_ = 0;
+        bool lastWasCr_ = false; // the previous key was an Enter that carried a CR
 
         bool enableRawMode()
         {
@@ -865,10 +941,17 @@ namespace cuff::cli
                 const bool ctrl = (st & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
                 const bool alt = (st & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
                 const bool altGr = ctrl && alt && wc >= 0x20; // AltGr reports Ctrl+Alt but yields a real character
+                const bool afterCr = lastWasCr_;
+                lastWasCr_ = false;
 
                 switch (ke.wVirtualKeyCode)
                 {
                 case VK_RETURN:
+                    // A pasted CRLF can arrive as two Enter events ('\r' then
+                    // '\n'); the second is the same line break, not another.
+                    if (wc == L'\n' && afterCr)
+                        continue;
+                    lastWasCr_ = (wc == L'\r');
                     if (shift || (alt && !altGr))
                         return Key{Kind::ShiftEnter};
                     // Enter with more typing already queued behind it is a

@@ -166,15 +166,19 @@ check("TERM=dumb: usable, no cursor-control escapes", s.nonblank()[:2] == [">> p
 s.send(":exit\r", .3); s.finish(.2)
 
 # 19 stdout redirected, stdin+stderr are the terminal
-out = tempfile.mktemp()
+out_fd, out = tempfile.mkstemp()
+os.close(out_fd)
 s = Session(["sh", "-c", f"exec {BIN} --no-banner > {out}"]); s.pump(.4)
 s.send("print(42)\r", .5)
 check("stdout redirected: prompt+echo still visible (on stderr)", ">> print(42)" in s.nonblank(), s.nonblank())
 s.send(":exit\r", .3); s.finish(.3)
 check("stdout redirected: program output went to the file", open(out).read().strip() == "42", open(out).read())
+os.unlink(out)
 
 # 20 banner first, then startup file output
-f = tempfile.mktemp(suffix=".cuff"); open(f, "w").write('print("from file")\n')
+f_fd, f = tempfile.mkstemp(suffix=".cuff")
+with os.fdopen(f_fd, "w") as fh:
+    fh.write('print("from file")\n')
 s = Session([BIN, f]); s.pump(.6)
 t = s.nonblank(); i_logo = next((i for i, l in enumerate(t) if "___" in l), -1); i_out = t.index("from file") if "from file" in t else -1
 check("banner printed before the startup file's output", 0 <= i_logo < i_out, t); s.send(":exit\r", .3); s.finish(.2)
@@ -182,6 +186,7 @@ check("banner printed before the startup file's output", 0 <= i_logo < i_out, t)
 # 21 :load with quoted path, and meta-commands
 s = new(); s.send(f':load "{f}"\r', .5); check(":load accepts a quoted path", "from file" in s.nonblank(), s.nonblank())
 s.send(":bogus\r", .3); check("unknown command message", any(l.startswith("Error: Unknown command") for l in s.nonblank()), s.nonblank()); s.send(":exit\r", .3); s.finish(.2)
+os.unlink(f)
 
 # 22 Korean typing + backspace + submit
 s = new(); s.send('print("안녕")'.encode(), .3); s.send(b"\x7f"*3, .3); s.send('하")'.encode(), .3); s.send(b"\r", .4)
@@ -196,6 +201,48 @@ s = new(); s.send(b"\x1b", .3); s.send("z", .3); check("lone Escape is ignored, 
 
 # 25 resize-width differences: very narrow terminal
 s = new(cols=8, rows=12); s.send("abcdefghij", .3); check("narrow terminal (8 cols) wraps without garbage", s.nonblank() == [">> abcde", "fghij"], s.nonblank()); s.finish(.2)
+
+
+# 26 entries taller than the terminal (regression: every redraw used to leave a stale copy behind)
+def tall_session(rows=10, cols=40, n=30):
+    s = Session([BIN, "--no-banner"], cols=cols, rows=rows, history=True); s.pump(0.35)
+    code = "\n".join(f"print({i})" for i in range(1, n + 1))
+    s.send(b"\x1b[200~" + code.encode() + b"\x1b[201~", 0.6)
+    return s
+
+def dup_count(s, n=30):
+    tr = s.transcript()
+    return max((sum(1 for l in tr if l.endswith(f"print({i})")) for i in range(1, n + 1)), default=0)
+
+s = tall_session()
+t = s.nonblank()
+check("tall: paste shows a viewport that fits the window, ending at the cursor", len(t) <= 10 and t[-2].endswith("print(30)") and t[-1].startswith("[rows"), t)
+for key in (UP, UP, LEFT, RIGHT, DOWN, b"\x1b[H", b"\x1b[F"):
+    s.send(key, .2)
+check("tall: moving the cursor never duplicates code on screen or in scrollback", dup_count(s) <= 1, [l for l in s.transcript() if "print(30)" in l])
+for _ in range(29): s.send(UP, .08)
+t = s.nonblank()
+check("tall: scrolling to the top shows the first lines, once", t[0] == ">> print(1)" and dup_count(s) <= 1 and s.cursor()[0] == 0, (t[:3], s.cursor()))
+check("tall: status line says which rows are shown", t[-1].startswith("[rows 1-8 of 30"), t[-1])
+s.send(b"\r", 1.0)
+tr = s.transcript()
+full = [l for l in tr if l.startswith((">> print(", ".. print("))]
+check("tall: Enter prints the WHOLE entry once, then runs it", len(full) == 30 and all(any(l.endswith(f"print({i})") for l in full) for i in range(1, 31)) and tr.count("30") >= 1, (len(full), tr[-6:]))
+check("tall: output of all 30 lines appears", all(str(i) in tr for i in range(1, 31)), tr[-12:])
+s.send(":exit\r", .4); s.finish(.2)
+
+s = tall_session()
+s.send(b"\x03", .4)
+t = s.nonblank()
+check("tall: Ctrl+C erases the scrolling view and leaves a clean prompt", t[-1] == ">>" and not any("print(" in l for l in t[-2:]), t)
+s.send("print(99)\r", .5); check("tall: usable after cancelling", "99" in s.nonblank(), s.nonblank()); s.send(":exit\r", .3); s.finish(.2)
+
+s = tall_session(rows=8, cols=20, n=25)   # narrow AND short: wrapped rows count toward the height
+for key in (UP, UP, UP, LEFT, DOWN):
+    s.send(key, .15)
+check("tall+wrapped: no duplicated code", dup_count(s, 25) <= 1, s.transcript()[-10:])
+s.send(b"\x7f"*40, .5)
+check("tall: backspacing a tall entry back down to fit redraws cleanly", dup_count(s, 25) <= 1 and s.nonblank()[-1] != "" , s.nonblank()); s.finish(.2)
 
 bad = [n for n, ok in results if not ok]
 print(f"\n{len(results)-len(bad)}/{len(results)} passed")
