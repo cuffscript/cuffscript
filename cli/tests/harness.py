@@ -83,7 +83,11 @@ class Session:
 
     def send(self, data, wait=0.15):
         if isinstance(data, str): data = data.encode()
-        os.write(self.fd, data); self.pump(wait)
+        try:
+            os.write(self.fd, data)
+        except OSError:
+            pass
+        self.pump(wait)
 
     def text(self):
         return [l.rstrip() for l in self.screen.display]

@@ -30,13 +30,6 @@ jobs:
                 shell: bash
                 run: |
                     python3 -m pip install --quiet --break-system-packages pyte wcwidth
-                    python3 -c "
-                    path = 'tests/harness.py'
-                    code = open(path).read()
-                    old_line = 'os.write(self.fd, data)'
-                    new_block = 'try:\n            os.write(self.fd, data)\n        except OSError as e:\n            if e.errno != 5: raise'
-                    open(path, 'w').write(code.replace(old_line, new_block))
-                    "
 
                     chmod +x build.sh tests/run_tests.sh
                     ./build.sh
