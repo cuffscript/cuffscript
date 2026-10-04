@@ -22,12 +22,10 @@ jobs:
                 os: [ubuntu-latest, macos-latest]
 
         steps:
-            - 
-                name: Checkout code
+            -   name: Checkout code
                 uses: actions/checkout@v4
 
-            - 
-                name: Build and Test REPL
+            -   name: Build and Test REPL
                 working-directory: cli
                 shell: bash
                 run: |
