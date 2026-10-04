@@ -10,7 +10,7 @@ BIN="${1:-../cuffsh}"
 FUZZ=60
 [ "${2:-}" = "--fuzz" ] && FUZZ="${3:-60}"
 [ -x "$BIN" ] || { echo "build it first: ./cli/build.sh" >&2; exit 1; }
-python3 -c "import pyte, wcwidth" 2>/dev/null || { echo "missing deps: pip install pyte wcwidth" >&2; exit 1; }
+python3 -c "import pyte, wcwidth" 2>/dev/null || { echo "missing dependencies. Install python packages: pip install pyte wcwidth" >&2; exit 1; }
 rc=0
 python3 test_editor.py  "$BIN" | tail -1 || rc=1
 python3 test_session.py "$BIN" | tail -1 || rc=1
