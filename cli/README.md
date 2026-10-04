@@ -15,7 +15,7 @@ Drop this `cli/` folder into the project root as-is and build it.
 36
 ```
 
-**Enter runs what you've typed. Shift+Enter adds a new line instead.** There
+**Enter runs what you've typed. Shift+Enter or Alt+Enter adds a new line instead.** There
 is no "this looks unfinished, let me guess and wait" behavior: whatever you
 submit is parsed and run exactly once, and any error is the engine's own
 message, printed the same way `cuffc` prints it (`ERROR: [E....] ...`).

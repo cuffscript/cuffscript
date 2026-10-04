@@ -31,7 +31,7 @@ jobs:
                 run: |
                     python3 -m pip install --quiet --break-system-packages pyte wcwidth
                     perl -pi -e 's/"\$\{extra_args\[@\]}"/\${extra_args[\@]+\"\${extra_args[\@]}\"}/g' ../tests/run.sh
-                    
-                    chmod +x build.sh run_tests.sh
+
+                    chmod +x build.sh tests/run_tests.sh
                     ./build.sh
-                    ./run_tests.sh
+                    ./tests/run_tests.sh
