@@ -78,7 +78,9 @@ implementations" 섹션에 (양쪽 클래스가 모두 완전한 타입이 된 �
 2. 필요하면 `engine/common/CuffError.h`에 작은 서브클래스를 추가합니다 (기존 클래스
    중 하나로 충분하면 이 단계는 생략 가능 — 예: `CuffRuntimeError(ErrorCode::내코드, ...)`
    를 직접 던져도 됩니다).
-3. `recoverable` 여부는 코드의 숫자대에서 자동으로 결정됩니다
+3. 화면에 보이는 태그(`E4-030` 같은 형태)는 숫자(`4030`)에서 `errorCodeTag()`가 자동으로
+   만들어 줍니다 — 태그 문자열을 직접 쓰지 말고, 테스트의 `.expected_code`에만 그 형태로 적으세요.
+4. `recoverable` 여부는 코드의 숫자대에서 자동으로 결정됩니다
    (`errorCodeRecoverable()`) — 3100~5999는 `or_else`가 잡을 수 있고, 그 외는 잡을 수
    없습니다.
 
@@ -183,4 +185,24 @@ bash tests/run.sh              # 전체 회귀 테스트 (기존 기능이 안 �
 캐럿 표시는 자동입니다 — 캐럿의 가로 위치는 바이트가 아니라 코드포인트 단위로 계산되므로 같은
 줄에 한글 등이 앞서 있어도 정렬이 맞습니다. 이 동작을 바꾸면 `tests/unit/error_snippet_test.cpp`가
 알려 줍니다.
+
+## 12. 함수 파라미터 문법을 건드릴 때
+
+파라미터 목록은 `FunctionParser.h`의 `parseParam` 한 곳에서 파싱합니다 (`이름` 또는 `타입 이름`).
+새 타입을 허용하려면 `ASTNodes.h`의 `ParamType`/`paramTypeName`, `FunctionParser::paramTypeFromToken`,
+`Interpreter::checkParamTypes`의 switch 세 곳에 추가하세요 (switch는 `-Wswitch`가 누락을 잡아 줍니다).
+타입 검사는 `evalCall`/`invokeAwaited`에서 디스패치 **전에** 하므로 async 함수도 호출 지점에서
+에러가 납니다 — 큐에 쌓인 뒤로 미루지 마세요.
+
+## 13. `use` 문 문법을 건드릴 때
+
+DLC 임포트는 `UseStmt::dlcs`(이름 + 각자의 위치) 목록이고, 모듈 임포트는 `name`/`path`입니다
+(`ImportParser.h`, `Interpreter::execUse`, `ASTPrinter.h` 세 곳). 여러 줄에 걸친 `use`는 SPEC의
+"모듈 로드 명령은 한 줄" 규칙 때문에 일부러 지원하지 않습니다.
+
+## 14. 코드 주석 방침
+
+`engine/`의 주석은 "코드만 봐서는 알 수 없는 것"만 한두 줄로 남깁니다 — 수명/순서 불변식, 플랫폼 특이사항,
+스택 안전 한도, 비직관적인 검사의 이유. "무엇을 하는지"는 이름과 코드가 말하게 하고, 긴 설명은 이 문서나
+`IMPLEMENTATION_NOTES.md`에 쓰세요 (39번 참고). 기능을 바꿀 때 그 설명이 들어 있는 문서 항목도 같이 고치세요.
 

@@ -1,0 +1,17 @@
+note: 한 줄에 여러 라이브러리를 쉼표로 불러오기 -- 따로 여러 줄로 쓰는 것과 같아야 합니다.
+use DLC:math, DLC:string, DLC:convert
+print(math_sqrt(16))
+print(str_upper("hi"))
+print(to_number("42"))
+
+note: 여러 번에 나눠서 섞어 써도 됩니다
+use DLC:list
+use DLC:map, DLC:json
+print(list_sum([1, 2, 3]))
+print(to_json(map_keys({"a": 1})))
+
+note: 줄마다 따로 불러오는 방식도 그대로 됩니다 (모듈 로드 명령은 한 줄에 하나의 use 문)
+use DLC:time
+use DLC:random
+print(type_of(time_now()))
+print(random_int(2, 2))

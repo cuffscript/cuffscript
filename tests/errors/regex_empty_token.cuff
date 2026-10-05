@@ -1,4 +1,4 @@
-note: E3006
+note: E3-006
 if "x" is "[]" do:
     print("unreachable")
 end

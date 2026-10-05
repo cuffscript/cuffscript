@@ -1,19 +1,5 @@
 #pragma once
 
-// A minimal, dependency-free HTTP/1.1 client backing DLC:network's get()/
-// post(). Plain HTTP only — there is no TLS here, so https:// URLs fail with
-// a clear error rather than silently talking plaintext to an HTTPS port (see
-// docs/SPEC.md and SECURITY.md for the rationale and how a host can bridge
-// HTTPS itself). POSIX sockets are used on Linux and macOS; Winsock2 on
-// Windows behind `#ifdef _WIN32`, so this is the one file in the engine with
-// real platform-specific code.
-//
-// Safety by default: every resolved address is checked against loopback,
-// private and link-local ranges (the classic SSRF targets — localhost admin
-// panels, cloud metadata endpoints) and rejected unless the caller opts in
-// via HttpOptions::allowPrivateTargets. This mirrors the module sandbox's
-// "safe by default, widen explicitly" shape (see Interpreter's module root).
-
 #include "../common/Limits.h"
 #include <algorithm>
 #include <cctype>
@@ -65,20 +51,17 @@ namespace cuff::net
 
     struct HttpResponse
     {
-        bool ok = false; // a full HTTP response was received (status may still be 4xx/5xx — that's still "ok")
+        bool ok = false;
         int status = 0;
         std::string body;
-        std::string finalUrl;    // after following any redirects
-        std::string errorMessage; // set when ok == false
+        std::string finalUrl;
+        std::string errorMessage;
     };
 
     namespace detail
     {
 
 #if defined(_WIN32)
-        // Winsock needs one-time process setup; a static instance's
-        // constructor/destructor bracket the program's socket usage. Every
-        // public entry point below touches this before creating a socket.
         struct WinsockInit
         {
             WinsockInit()
@@ -140,7 +123,7 @@ namespace cuff::net
             setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
 #if defined(__APPLE__)
             int one = 1;
-            setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one); // avoid SIGPIPE on write to a closed peer
+            setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);  // avoid SIGPIPE on write to a closed peer
 #endif
         }
         inline int sendAll(cuff_socket_t s, const char *data, size_t len)
@@ -148,7 +131,7 @@ namespace cuff::net
 #if defined(__linux__)
             return static_cast<int>(::send(s, data, len, MSG_NOSIGNAL));
 #else
-            return static_cast<int>(::send(s, data, len, 0)); // macOS: SIGPIPE already suppressed via SO_NOSIGPIPE above
+            return static_cast<int>(::send(s, data, len, 0));  // macOS: SIGPIPE already suppressed via SO_NOSIGPIPE above
 #endif
         }
         inline int recvSome(cuff_socket_t s, char *buf, size_t len)
@@ -167,14 +150,12 @@ namespace cuff::net
         struct ParsedUrl
         {
             std::string scheme;
-            std::string host; // hostname or IP literal, brackets already stripped for IPv6
+            std::string host;
             int port = 80;
-            std::string target; // path + query, defaults to "/"
+            std::string target;
         };
 
-        // Deliberately minimal: no percent-decoding, no userinfo (user:pass@)
-        // support, no fragment handling — a plain http://host[:port]/path
-        // is what DLC:network is meant for.
+        // Deliberately minimal: plain http://host[:port]/path only (no percent-decoding, userinfo or fragments).
         inline bool parseUrl(const std::string &url, ParsedUrl &out, std::string &err)
         {
             size_t schemeEnd = url.find("://");
@@ -195,6 +176,8 @@ namespace cuff::net
 
             size_t hostStart = pos;
             size_t pathStart;
+            // IPv6 literals use [addr]:port so ':' inside the address is not
+            // mistaken for the port separator.
             if (pos < url.size() && url[pos] == '[')
             {
                 size_t closeBracket = url.find(']', pos);
@@ -249,10 +232,11 @@ namespace cuff::net
             return true;
         }
 
-        // SSRF guard: true if `addr` names a loopback, private, link-local, or
-        // otherwise non-public address (IPv4 and IPv6). Checked against the
-        // concrete address just before connecting, not the hostname text, so
-        // "example.com" that happens to resolve to 127.0.0.1 is still caught.
+        // SSRF guard: true for loopback, private, link-local and other
+        // non-public addresses. The check is performed on the resolved address,
+        // not the hostname, so a public-looking hostname cannot bypass the policy
+        // by resolving to a private address.
+
         inline bool isPrivateOrLoopback(const sockaddr *addr)
         {
             if (addr->sa_family == AF_INET)
@@ -263,13 +247,13 @@ namespace cuff::net
                 if (a == 127 || a == 10 || a == 0)
                     return true;
                 if (a == 169 && b == 254)
-                    return true; // link-local, incl. cloud metadata (169.254.169.254)
+                    return true;
                 if (a == 172 && b >= 16 && b <= 31)
                     return true;
                 if (a == 192 && b == 168)
                     return true;
                 if (a == 100 && b >= 64 && b <= 127)
-                    return true; // carrier-grade NAT
+                    return true;
                 return false;
             }
             if (addr->sa_family == AF_INET6)
@@ -278,11 +262,10 @@ namespace cuff::net
                 static const unsigned char loopback[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
                 if (std::memcmp(ip, loopback, 16) == 0)
                     return true;
-                if ((ip[0] & 0xFE) == 0xFC) // fc00::/7 unique local
+                if ((ip[0] & 0xFE) == 0xFC)
                     return true;
-                if (ip[0] == 0xFE && (ip[1] & 0xC0) == 0x80) // fe80::/10 link-local
+                if (ip[0] == 0xFE && (ip[1] & 0xC0) == 0x80)
                     return true;
-                // ::ffff:0:0/96 — IPv4-mapped; re-check the embedded IPv4.
                 static const unsigned char v4mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xFF};
                 if (std::memcmp(ip, v4mapped, 12) == 0)
                 {
@@ -293,9 +276,11 @@ namespace cuff::net
                 }
                 return false;
             }
-            return true; // unknown family: fail closed
+            return true;
         }
 
+        // Use a non-blocking connect so the TCP handshake is bounded by our
+        // explicit timeout rather than the operating system's default timeout.
         inline bool connectWithTimeout(cuff_socket_t sock, const sockaddr *addr, socklen_t len, int timeoutMs)
         {
             setNonBlocking(sock);
@@ -324,8 +309,6 @@ namespace cuff::net
             return true;
         }
 
-        // Reads exactly `want` bytes (or until close if want == npos, capped
-        // at `cap`), enforcing the overall deadline throughout.
         inline bool readBytes(cuff_socket_t sock, std::string &out, size_t want, size_t cap,
                               std::chrono::steady_clock::time_point deadline, std::string &err)
         {
@@ -341,12 +324,12 @@ namespace cuff::net
                 if (n < 0)
                 {
                     if (wouldBlock())
-                        continue; // recv timeout fired short of the deadline; loop and recheck
+                        continue;
                     err = "connection error while reading the response";
                     return false;
                 }
                 if (n == 0)
-                    break; // peer closed
+                    break;
                 if (out.size() + static_cast<size_t>(n) > cap)
                 {
                     err = "response exceeded the maximum allowed size";
@@ -402,7 +385,7 @@ namespace cuff::net
         struct RawResponse
         {
             int status = 0;
-            std::vector<std::pair<std::string, std::string>> headers; // lowercased names
+            std::vector<std::pair<std::string, std::string>> headers;
             std::string body;
         };
 
@@ -421,7 +404,6 @@ namespace cuff::net
             std::string pending, line;
             if (!readLine(sock, pending, line, 8192, deadline, err))
                 return false;
-            // "HTTP/1.1 200 OK"
             size_t sp1 = line.find(' ');
             size_t sp2 = sp1 == std::string::npos ? std::string::npos : line.find(' ', sp1 + 1);
             if (sp1 == std::string::npos)
@@ -456,12 +438,11 @@ namespace cuff::net
                 {
                     if (!readLine(sock, pending, line, 64, deadline, err))
                         return false;
-                    size_t semi = line.find(';'); // chunk extensions, if any
+                    size_t semi = line.find(';');
                     std::string sizeStr = semi == std::string::npos ? line : line.substr(0, semi);
                     unsigned long chunkSize = std::strtoul(sizeStr.c_str(), nullptr, 16);
                     if (chunkSize == 0)
                     {
-                        // Optional trailing headers, then the final blank line.
                         while (readLine(sock, pending, line, 16384, deadline, err) && !line.empty())
                         {
                         }
@@ -497,7 +478,6 @@ namespace cuff::net
                     }
                     out.body.append(pending, 0, chunkSize);
                     pending.erase(0, chunkSize);
-                    // Each chunk is followed by a CRLF; consume it (may need one more line-read cycle).
                     if (!readLine(sock, pending, line, 8, deadline, err))
                         return false;
                 }
@@ -530,7 +510,7 @@ namespace cuff::net
             return true;
         }
 
-    } // namespace detail
+    }
 
     inline HttpResponse performRequest(const std::string &method, const std::string &initialUrl,
                                        const std::string &requestBody, const std::string &contentType,
@@ -543,6 +523,8 @@ namespace cuff::net
         std::string url = initialUrl;
         std::string method_ = method;
         std::string body = requestBody;
+        // Keep one deadline for the request so response processing cannot extend
+        // the caller's total timeout indefinitely.
         const auto overallDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(opts.totalTimeoutMs);
 
         for (int redirectsLeft = opts.maxRedirects; redirectsLeft >= 0; --redirectsLeft)
@@ -663,16 +645,18 @@ namespace cuff::net
                 std::string next = *location;
                 if (next.find("://") == std::string::npos)
                 {
-                    // Relative redirect: resolve against the current host.
                     next = "http://" + hostHeader + (next.empty() || next[0] != '/' ? "/" + next : next);
                 }
+                // Follow common redirect semantics: 303 switches to GET, 301/302
+                // switch POST to GET, while 307/308 preserve the original method/body.
+
                 if (raw.status == 303 || ((raw.status == 301 || raw.status == 302) && method_ == "POST"))
                 {
                     method_ = "GET";
                     body.clear();
                 }
                 url = next;
-                continue; // follow it
+                continue;
             }
 
             result.ok = true;
@@ -697,4 +681,4 @@ namespace cuff::net
         return performRequest("POST", url, body, contentType, opts);
     }
 
-} // namespace cuff::net
+}

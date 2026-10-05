@@ -13,12 +13,9 @@ namespace cuff::utf8
         if ((c & 0xE0) == 0xC0) return 2;
         if ((c & 0xF0) == 0xE0) return 3;
         if ((c & 0xF8) == 0xF0) return 4;
-        return 1; // stray continuation byte — advance by 1 to stay in sync
+        return 1;
     }
 
-    // Byte offset of each codepoint start, plus a trailing sentinel == s.size().
-    // boundaries.size() - 1 is the codepoint count; boundaries[i]..boundaries[i+1]
-    // is the byte range of codepoint i.
     inline std::vector<size_t> boundaries(const std::string &s)
     {
         std::vector<size_t> b;
@@ -47,4 +44,4 @@ namespace cuff::utf8
         return count;
     }
 
-} // namespace cuff::utf8
+}

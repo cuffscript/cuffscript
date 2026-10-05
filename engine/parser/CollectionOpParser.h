@@ -11,15 +11,9 @@
 namespace cuff
 {
 
-    // Parses collection manipulation statements:
-    //   add [value] to [collectionName]
-    //   replace [collection][index] to [newValue]
-    //   replace [collection]["key"] to [newValue]
-    //   remove [index/key/value] from [collectionName]
     class CollectionOpParser
     {
     public:
-        // add [value] to [collectionName]
         static std::unique_ptr<Stmt> parseAdd(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
@@ -50,13 +44,11 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::CollectionOp, std::move(stmt));
         }
 
-        // replace [collection][index/key] to [newValue]
         static std::unique_ptr<Stmt> parseReplace(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
             p.consume(TokenType::REPLACE, "expected 'replace'");
 
-            // Parse the target: collectionName[index] or collectionName["key"]
             std::string collectionName;
             if (isWordLikeToken(p.current()))
             {
@@ -68,7 +60,6 @@ namespace cuff
                 throw SyntaxError("expected collection name after 'replace'", p.current().location);
             }
 
-            // Parse [index] or ["key"]
             p.consume(TokenType::LBRACKET, "expected '[' for index/key in 'replace'");
             auto indexOrKey = ExpressionParser::parse(p);
             p.consume(TokenType::RBRACKET, "expected ']' to close index/key");
@@ -88,7 +79,6 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::CollectionOp, std::move(stmt));
         }
 
-        // remove [index/key/value] from [collectionName]
         static std::unique_ptr<Stmt> parseRemove(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
@@ -120,4 +110,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

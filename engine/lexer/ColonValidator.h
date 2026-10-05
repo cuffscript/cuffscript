@@ -7,12 +7,6 @@
 namespace cuff
 {
 
-    // Enforces CuffScript's colon spacing rule:
-    //   - No space before ':'
-    //   - Space after ':' is allowed (free) — not mandatory in this spec version
-    //
-    // The tokenizer records hasSpaceBefore on each token.
-    // A COLON with hasSpaceBefore=true violates the "no space before" rule.
     class ColonValidator
     {
     public:
@@ -25,7 +19,6 @@ namespace cuff
 
                 const Token &colon = tokens[i];
 
-                // Rule: no space before ':'
                 if (colon.hasSpaceBefore)
                 {
                     throw SyntaxError("space before ':' is not allowed", colon.location);
@@ -34,4 +27,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

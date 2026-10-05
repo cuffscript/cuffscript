@@ -9,7 +9,6 @@
 namespace cuff
 {
 
-    // Pretty-prints an AST tree and token streams for debugging and verification.
     class ASTPrinter
     {
     public:
@@ -103,6 +102,8 @@ namespace cuff
                 {
                     if (i > 0)
                         os << ", ";
+                    if (i < f.paramTypes.size() && f.paramTypes[i] != ParamType::Any)
+                        os << paramTypeName(f.paramTypes[i]) << " ";
                     os << f.params[i];
                 }
                 os << ")\n";
@@ -191,7 +192,12 @@ namespace cuff
             {
                 const auto &use = std::get<UseStmt>(stmt.data);
                 if (use.isDLC)
-                    os << "Use DLC:" << use.name << "\n";
+                {
+                    os << "Use";
+                    for (size_t i = 0; i < use.dlcs.size(); ++i)
+                        os << (i ? ", DLC:" : " DLC:") << use.dlcs[i].name;
+                    os << "\n";
+                }
                 else
                     os << "Use " << use.name << " from " << use.path << "\n";
                 break;
@@ -468,4 +474,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

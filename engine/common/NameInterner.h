@@ -8,15 +8,7 @@
 namespace cuff
 {
 
-    // Variable names are interned to dense integer IDs at parse time, so the
-    // interpreter's scope lookups compare ints instead of strings. Profiling a
-    // recursion-heavy benchmark showed name comparison dominating variable
-    // resolution; an int compare is a single instruction and lets the linear
-    // scan over a small scope stay in cache.
-    //
-    // IDs are process-global and never recycled. The table is small (one entry
-    // per distinct identifier in the program) and lives for the whole run, so
-    // there is nothing to invalidate.
+    // Interns variable names into stable integer IDs.
     class NameInterner
     {
     public:
@@ -49,4 +41,4 @@ namespace cuff
         return NameInterner::instance().intern(name);
     }
 
-} // namespace cuff
+}

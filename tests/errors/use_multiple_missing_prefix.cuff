@@ -1,0 +1,2 @@
+note: E2-001 -- 목록의 두 번째부터도 DLC: 접두어가 필요합니다
+use DLC:math, string

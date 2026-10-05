@@ -11,8 +11,6 @@
 namespace cuff
 {
 
-    // Main parser: takes a validated token stream from the lexer and produces
-    // an AST (Program root node). Orchestrates all sub-parsers.
     class Parser
     {
     public:
@@ -20,7 +18,7 @@ namespace cuff
 
         std::unique_ptr<Program> parse()
         {
-            ParseStackFloorScope stackGuard; // primed fresh for this parse — see ParserCore.h
+            ParseStackFloorScope stackGuard;
             auto program = std::make_unique<Program>();
 
             while (!core_.atEnd())
@@ -47,4 +45,4 @@ namespace cuff
         ParserCore core_;
     };
 
-} // namespace cuff
+}

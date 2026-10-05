@@ -19,18 +19,6 @@
 namespace cuff
 {
 
-    // Builds a two-line "source snippet + caret" block pointing at `loc`
-    // inside `source`, e.g.:
-    //     loop repeat i to 1 ~ 3 do
-    //              ^
-    // `loc.offset` (a byte offset, always in sync with how the tokenizer
-    // advances `line`/`column` — see ScanState.h) finds the exact line
-    // directly, without re-deriving it from `line`/`column`. The caret's
-    // horizontal position is measured in *codepoints*, not bytes: column
-    // itself is a byte count, so a line with any multibyte UTF-8 text before
-    // the error (Korean identifiers, comments, ...) would otherwise push the
-    // caret too far right. Returns "" when there's no meaningful line to show
-    // (empty source, or an offset past the end).
     inline std::string buildCaretSnippet(const std::string &source, const SourceLocation &loc)
     {
         if (source.empty() || loc.offset < 0)
@@ -51,10 +39,6 @@ namespace cuff
         return "    " + lineText + "\n    " + std::string(caretCol, ' ') + "^";
     }
 
-    // Rebuilds a CuffError's rendered message (same format as CuffError::what())
-    // with a caret snippet spliced in between the message and the hint. Uses
-    // the error's own public fields directly rather than re-parsing what(),
-    // which already has message+hint flattened into one string.
     inline std::string renderErrorWithSnippet(const CuffError &e, const std::string &source)
     {
         std::string out = "[" + errorCodeTag(e.code) + "] " + e.category +
@@ -67,8 +51,6 @@ namespace cuff
         return out;
     }
 
-    // CuffScript engine entry point.
-    // Runs the full pipeline: source -> tokenize -> lex -> parse -> AST -> (optionally) execute
     class CuffEngine
     {
     public:
@@ -81,22 +63,19 @@ namespace cuff
             std::unique_ptr<Program> ast;
         };
 
-        // Sandbox and resource settings for execute(). All limits default to
-        // "off"; the structural limits in common/Limits.h always apply.
         struct Options
         {
-            std::string rootDir;    // modules must stay inside this directory (default: the script's directory)
+            std::string rootDir;  // modules must stay inside this directory (default: the script's directory)
             uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
-            uint32_t timeoutMs = 0; // wall-clock budget; 0 = unlimited
-            size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
+            uint32_t timeoutMs = 0;  // wall-clock budget; 0 = unlimited
+            size_t stackBudgetBytes = 0;  // native stack the evaluator may use; 0 = derive from the real stack size
             bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
-            bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
-            bool filesystemEnabled = true; // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
+            bool allowPrivateNetworkTargets = false;  // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
+            bool filesystemEnabled = true;  // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
         };
 
-        // `keepTokens` retains the raw/lexed token streams in the result (only
-        // the --ast debug dump needs them); without it the tokens are moved
-        // through the pipeline instead of copied.
+        // `keepTokens` keeps the raw/lexed token streams in the result (only --ast needs them); otherwise they are
+        // moved.
         static Result run(const std::string &source, bool keepTokens = true)
         {
             Result result;
@@ -110,11 +89,9 @@ namespace cuff
                                       SourceLocation());
                 }
 
-                // Stage 1: Tokenize
                 Tokenizer tokenizer(source);
                 std::vector<Token> raw = tokenizer.tokenize();
 
-                // Stage 2: Lex (classify + validate)
                 std::vector<Token> lexed;
                 if (keepTokens)
                 {
@@ -129,7 +106,6 @@ namespace cuff
                     lexed = lexer.lex();
                 }
 
-                // Stage 3: Parse
                 Parser parser(std::move(lexed));
                 result.ast = parser.parse();
 
@@ -151,10 +127,6 @@ namespace cuff
             return result;
         }
 
-        // Parses AND executes `source`. `scriptDir` resolves relative
-        // `use ... from ...` module paths. Returns exit-code-style success;
-        // on failure, an error message (already formatted by the systematic
-        // CuffError hierarchy — see engine/common/CuffError.h) is in `error`.
         static Result execute(const std::string &source, const std::string &scriptDir)
         {
             return execute(source, scriptDir, Options());
@@ -228,5 +200,5 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}
 

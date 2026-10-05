@@ -7,7 +7,6 @@
 namespace cuff
 {
 
-    // ---- DLC:time ----
     inline void registerTimeDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
         auto nowFn = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -21,4 +20,4 @@ namespace cuff
         reg["time_timestamp"] = nowFn;
     }
 
-} // namespace cuff
+}

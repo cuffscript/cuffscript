@@ -11,27 +11,17 @@
 namespace cuff
 {
 
-    // Forward declaration — ExpressionParser and LiteralParser are mutually recursive
     class ExpressionParser;
 
-    // Parses literal values: numbers, strings, booleans, empty, lists, maps, f-strings.
-    // Also resolves identifiers as expressions.
     class LiteralParser
     {
     public:
         static std::unique_ptr<Expr> parsePrimary(ParserCore &p);
 
-        // Parse a list literal: [expr, expr, ...]
-        // (Body deferred to the bottom of ExpressionParser.h — it calls
-        //  ExpressionParser::parse, which is mutually recursive with LiteralParser
-        //  and therefore only forward-declared at this point in the header chain.)
         static std::unique_ptr<Expr> parseList(ParserCore &p);
 
-        // Parse a map literal: {"key": value, "key2": value2}
-        // (Body deferred — see parseList above.)
         static std::unique_ptr<Expr> parseMap(ParserCore &p);
 
-        // Parse an f-string into segments of literal text and embedded expressions.
         static std::unique_ptr<Expr> parseFString(ParserCore &p)
         {
             const Token &tok = p.current();
@@ -61,7 +51,6 @@ namespace cuff
 
                 if (c == '{')
                 {
-                    // "{{" is an escaped literal '{' (mirrors "}}" below).
                     if (i + 1 < raw.size() && raw[i + 1] == '{')
                     {
                         currentText += '{';
@@ -71,10 +60,6 @@ namespace cuff
 
                     flushText();
 
-                    // Find the matching '}', tracking nested brace depth so an
-                    // embedded expression that itself contains braces (e.g. a
-                    // map literal: f"{ {"a": 1} }") is captured as one piece
-                    // instead of stopping at the first '}'.
                     size_t j = i + 1;
                     int depth = 1;
                     while (j < raw.size() && depth > 0)
@@ -104,10 +89,6 @@ namespace cuff
                 }
                 else if (c == '}')
                 {
-                    // "}}" is an escaped literal '}'. A lone, unmatched '}'
-                    // (not part of any "{...}" above) is also treated as a
-                    // literal '}' rather than an error — there's no ambiguity
-                    // the way there is for an unmatched '{'.
                     if (i + 1 < raw.size() && raw[i + 1] == '}')
                     {
                         currentText += '}';
@@ -134,4 +115,4 @@ namespace cuff
                                                              const SourceLocation &fallbackLoc);
     };
 
-} // namespace cuff
+}

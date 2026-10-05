@@ -10,15 +10,7 @@
 
 namespace cuff
 {
-    // isWordLikeToken() now lives in ParserCore.h, shared by every parser
-    // that needs to accept a keyword-shaped name (declarations, references,
-    // DLC/module names here).
 
-    // Parses import statements:
-    //   use DLC:[name]          — built-in library load
-    //   use [name] from [path]  — custom module load
-    //
-    // Enforces: must be a single line (no newlines within the statement).
     class ImportParser
     {
     public:
@@ -27,32 +19,37 @@ namespace cuff
             SourceLocation loc = p.current().location;
             p.consume(TokenType::USE, "expected 'use'");
 
-            // Pattern 1: use DLC:name  (DLC is a word, then COLON, then name)
             if (isWordLikeToken(p.current()) && p.current().value == "DLC" && p.peek(1).is(TokenType::COLON))
             {
-                p.advance(); // DLC
-                p.consume(TokenType::COLON, "expected ':' after DLC");
-
-                std::string libName;
-                if (isWordLikeToken(p.current()))
-                {
-                    libName = p.current().value;
-                    p.advance();
-                }
-                else
-                {
-                    throw SyntaxError("expected library name after 'DLC:'", p.current().location);
-                }
-
                 UseStmt use;
                 use.isDLC = true;
-                use.name = libName;
                 use.loc = loc;
+                while (true)
+                {
+                    SourceLocation nameLoc = p.current().location;
+                    p.advance();
+                    p.consume(TokenType::COLON, "expected ':' after DLC");
+
+                    if (!isWordLikeToken(p.current()))
+                        throw SyntaxError("expected library name after 'DLC:'", p.current().location);
+                    use.dlcs.push_back({p.current().value, nameLoc});
+                    p.advance();
+
+                    const SourceLocation commaLoc = p.current().location;
+                    if (!p.match(TokenType::COMMA))
+                        break;
+                    if (!(isWordLikeToken(p.current()) && p.current().value == "DLC" && p.peek(1).is(TokenType::COLON)))
+                        throw SyntaxError("expected 'DLC:name' after ',' in 'use' (every library in the list needs its own 'DLC:' prefix)",
+                                          commaLoc);
+                }
+
+                // Catches a forgotten comma; otherwise the second `DLC` would parse as a new statement.
+                if (isWordLikeToken(p.current()) && p.current().value == "DLC" && p.peek(1).is(TokenType::COLON))
+                    throw SyntaxError("expected ',' between libraries: use DLC:name, DLC:name", p.current().location);
 
                 return std::make_unique<Stmt>(StmtKind::UseStmt, std::move(use));
             }
 
-            // Pattern 2: use [name] from [path]
             std::string moduleName;
             if (isWordLikeToken(p.current()))
             {
@@ -66,7 +63,6 @@ namespace cuff
 
             p.consume(TokenType::FROM, "expected 'from' in custom import");
 
-            // Path: reconstruct from tokens (./maps/core_engine -> DOT, WORD, SLASH, WORD, SLASH, WORD)
             std::string path;
             while (!p.check(TokenType::NEWLINE) && !p.check(TokenType::EOF_TOKEN) && !p.check(TokenType::END) && !p.check(TokenType::DEDENT))
             {
@@ -113,4 +109,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

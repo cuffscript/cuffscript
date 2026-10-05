@@ -8,8 +8,6 @@
 namespace cuff
 {
 
-    // Scans identifiers (alphanumeric words). No '!' prefix handling here —
-    // '!' is a separate BANG operator token in CuffScript.
     inline Token scanIdentifier(ScanState &s)
     {
         SourceLocation start = s.here();
@@ -28,4 +26,4 @@ namespace cuff
         return Token(TokenType::WORD, value, start, s.pendingSpaceBefore);
     }
 
-} // namespace cuff
+}

@@ -10,12 +10,6 @@
 namespace cuff
 {
 
-    // The Lexer takes the tokenizer's raw token stream and:
-    //   1. Validates colon spacing rules (no space before ':').
-    //   2. Classifies WORD tokens into keywords, type keywords, boolean literals, or identifiers.
-    //   3. Preserves structural tokens (NEWLINE, INDENT, DEDENT, EOF) for the parser.
-    //
-    // Output: a classified, validated token stream ready for parsing.
     class Lexer
     {
     public:
@@ -23,10 +17,8 @@ namespace cuff
 
         std::vector<Token> lex()
         {
-            // First pass: validate colon spacing
             ColonValidator::validate(tokens_);
 
-            // Second pass: classify WORD tokens
             for (auto &tok : tokens_)
             {
                 if (tok.type == TokenType::WORD)
@@ -44,4 +36,4 @@ namespace cuff
         std::vector<Token> tokens_;
     };
 
-} // namespace cuff
+}

@@ -8,37 +8,16 @@
 namespace cuff
 {
 
-    // =========================================================================
-    // CuffError — the single base class for every error the engine can raise.
-    //
-    // Every error carries:
-    //   - an ErrorCode (see ErrorCodes.h)         -> stable, greppable identity
-    //   - a category name derived from the code   -> "Syntax Error", etc.
-    //   - a SourceLocation                         -> where it happened
-    //   - a human message                          -> what happened
-    //   - an optional hint                         -> how to fix it (may be empty)
-    //   - `recoverable`                             -> can `or_else` catch this?
-    //
-    // what() renders this (message + hint only — no source line, since a raw
-    // CuffError has no access to the original source text):
-    //   [E4008] Runtime Error at line 12, column 5: index out of range (got 5, length 3)
-    //           hint: CuffScript lists are 1-based; the last valid index here is 3.
-    //
-    // CuffEngine::execute()/run() catch CuffError right where the original
-    // source text is still in scope, and render the *user-facing* message via
-    // renderErrorWithSnippet() (see CuffEngine.h) instead of what() — that
-    // version splices in the offending source line with a `^` caret under the
-    // exact column, e.g.:
-    //   [E2001] Syntax Error at line 4, column 10: unexpected token ')' in expression
-    //       print(x +)
-    //                ^
-    //       hint: ...
-    //
-    // Adding a brand new *kind* of error is just a new small subclass at the
-    // bottom of this file (or in whatever module owns the concept) that calls
-    // the CuffError constructor with a fixed ErrorCode -- no changes required
-    // anywhere else in the hierarchy.
-    // =========================================================================
+// CuffError is the base class for all engine errors.
+//
+// Each error carries an ErrorCode, category, source location,
+// message, optional hint, and recoverability flag.
+//
+// what() includes the error code, category, location, message,
+// and optional hint, but not the original source line.
+// CuffEngine::execute()/run() can use renderErrorWithSnippet()
+// to include the source line and caret while the source is available.
+
     class CuffError : public std::runtime_error
     {
     public:
@@ -61,9 +40,7 @@ namespace cuff
         {
         }
 
-        // Legacy constructor kept for older call sites that pass a free-form
-        // category string directly (e.g. "Syntax Error"). New code should
-        // prefer the ErrorCode-based constructor above.
+        // Constructor for callers that provide a category directly.
         CuffError(const std::string &kind, const std::string &msg, const SourceLocation &loc)
             : std::runtime_error(loc.toString() + ": " + kind + ": " + msg),
               code(ErrorCode::InternalError),
@@ -89,13 +66,6 @@ namespace cuff
         }
     };
 
-    // -------------------------------------------------------------------------
-    // Compile-time error families (never recoverable -- a malformed program
-    // cannot sensibly be "handled" by the very program that failed to parse).
-    // -------------------------------------------------------------------------
-
-    // Generic syntax error -- tokenizer or parser stage. Most existing call
-    // sites use this 2-arg form; it defaults to ErrorCode::UnexpectedToken.
     class SyntaxError : public CuffError
     {
     public:
@@ -107,10 +77,6 @@ namespace cuff
             : CuffError(c, msg, loc, hintText) {}
     };
 
-    // Raised by the CuffScript pattern compiler (engine/regex) when a pattern
-    // literal is malformed. Per the language spec this must fire "immediately"
-    // -- for literal string patterns we compile eagerly at parse time, so most
-    // of these are in fact caught before the program ever runs.
     class RegexSyntaxError : public CuffError
     {
     public:
@@ -123,14 +89,6 @@ namespace cuff
             : CuffError(c, msg, loc, hintText) {}
     };
 
-    // -------------------------------------------------------------------------
-    // Runtime error families (recoverable -- these are exactly the situations
-    // `or_else` exists to handle: bad data, missing resources, exhausted
-    // safety limits).
-    // -------------------------------------------------------------------------
-
-    // Generic runtime error. Kept 2-arg-compatible with the original engine
-    // skeleton; defaults to a generic "unsupported operation" code.
     class CuffRuntimeError : public CuffError
     {
     public:
@@ -142,8 +100,6 @@ namespace cuff
             : CuffError(c, msg, loc, hintText) {}
     };
 
-    // Pattern matched syntactically fine but blew a safety limit while running
-    // (catastrophic-backtracking guard). See engine/regex/RegexMatcher.h.
     class RegexRuntimeError : public CuffError
     {
     public:
@@ -151,12 +107,6 @@ namespace cuff
                            const std::string &hintText = "")
             : CuffError(c, msg, loc, hintText) {}
     };
-
-    // ---- Specific runtime error kinds -------------------------------------
-    // Each of these is a thin, self-documenting subclass so call sites read
-    // naturally (`throw TypeError(...)`) and `catch` clauses can target a
-    // precise kind when useful, while still being catchable as a generic
-    // CuffRuntimeError / CuffError by the interpreter's or_else handler.
 
     class TypeError : public CuffRuntimeError
     {
@@ -207,7 +157,6 @@ namespace cuff
             : CuffRuntimeError(ErrorCode::DivisionByZero, msg, loc) {}
     };
 
-    // Wrong *number* of arguments.
     class ArgumentError : public CuffRuntimeError
     {
     public:
@@ -215,10 +164,6 @@ namespace cuff
             : CuffRuntimeError(ErrorCode::ArgumentCountMismatch, msg, loc, hint) {}
     };
 
-    // Right number of arguments, but one of them holds a value the function
-    // can't work with (a negative square root, malformed JSON text, a reversed
-    // range). Distinct from ArgumentError so "you passed the wrong count" and
-    // "you passed a bad value" don't share one error code.
     class ValueError : public CuffRuntimeError
     {
     public:
@@ -247,8 +192,6 @@ namespace cuff
             : CuffRuntimeError(ErrorCode::StackOverflow, msg, loc) {}
     };
 
-    // Module loading (use / from / DLC). Its own small category namespace
-    // (5000s) but behaves exactly like a runtime error for or_else purposes.
     class ModuleError : public CuffError
     {
     public:
@@ -256,10 +199,6 @@ namespace cuff
             : CuffError(c, msg, loc, hint) {}
     };
 
-    // -------------------------------------------------------------------------
-    // Internal errors -- represent a bug in the engine itself (a broken
-    // invariant), never a user-fixable mistake. Not recoverable via or_else.
-    // -------------------------------------------------------------------------
     class InternalEngineError : public CuffError
     {
     public:
@@ -267,4 +206,4 @@ namespace cuff
             : CuffError(ErrorCode::InternalError, msg, loc) {}
     };
 
-} // namespace cuff
+}

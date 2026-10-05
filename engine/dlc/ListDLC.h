@@ -7,11 +7,6 @@
 namespace cuff
 {
 
-    // ---- DLC:list ----
-    // Functional-style helpers: all of these return a *new* list/value and
-    // never mutate the argument, so they behave predictably regardless of
-    // list's reference semantics (see Value.h) — no aliasing surprises from
-    // calling a library function.
     inline void registerListDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
         reg["length"] = nativeLength;
@@ -24,6 +19,8 @@ namespace cuff
             const auto &src = expectList("list_sort", args, 0, loc).items;
             auto out = std::make_shared<ValueList>();
             out->items = src;
+
+            // Only homogeneous number or string lists are orderable.
             bool allNumbers = std::all_of(src.begin(), src.end(), [](const Value &v)
                                           { return v.isNumber(); });
             bool allStrings = std::all_of(src.begin(), src.end(), [](const Value &v)
@@ -88,6 +85,9 @@ namespace cuff
             expectArgCount("list_unique", args, 1, loc);
             const auto &src = expectList("list_unique", args, 0, loc).items;
             auto out = std::make_shared<ValueList>();
+
+            // Specialized hashing is used for homogeneous numbers/strings; other
+            // lists fall back to valuesEqual() so mixed values retain language equality semantics.
             bool allNumbers = std::all_of(src.begin(), src.end(), [](const Value &v)
                                           { return v.isNumber(); });
             bool allStrings = std::all_of(src.begin(), src.end(), [](const Value &v)
@@ -148,7 +148,7 @@ namespace cuff
             return Value::makeNumber(total / static_cast<double>(items.size()));
         };
 
-        // Expands one level of nesting; non-list elements are kept as they are.
+        // Flattens exactly one level; nested lists inside child lists are preserved.
         reg["list_flatten"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
             expectArgCount("list_flatten", args, 1, loc);
@@ -169,7 +169,7 @@ namespace cuff
             return Value::makeList(std::move(out));
         };
 
-        // Inclusive on both ends, like `loop repeat`; counts down when start > end.
+        // Inclusive range; defaults to ±1 based on the direction of start and end.
         reg["list_range"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
             expectArgRange("list_range", args, 2, 3, loc);
@@ -198,4 +198,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

@@ -30,4 +30,4 @@ namespace cuff
         return c == '\n';
     }
 
-} // namespace cuff
+}

@@ -11,25 +11,37 @@
 namespace cuff
 {
 
-    // Parses function declarations:
-    //   set func name(params) do: <newline> ... end
-    //   set returnable func name(params) do: <newline> ... end
-    //   set async func name(params) do: <newline> ... end
-    //   set pure func name(params) do: <newline> ... end   (body cannot touch global scope)
-    //
-    // Enforces: NO one-line shorthand — body must start on a new line after do:.
-    // Function bodies require indentation (enforced by INDENT token).
     class FunctionParser
     {
+    private:
+        static ParamType paramTypeFromToken(TokenType t)
+        {
+            switch (t)
+            {
+            case TokenType::NUMBER_TYPE:
+                return ParamType::Number;
+            case TokenType::STR_TYPE:
+                return ParamType::Str;
+            case TokenType::BOOLEAN_TYPE:
+                return ParamType::Boolean;
+            case TokenType::LIST_TYPE:
+                return ParamType::List;
+            case TokenType::MAP_TYPE:
+                return ParamType::Map;
+            case TokenType::MATCH:
+                return ParamType::Match;
+            default:
+                return ParamType::Any;
+            }
+        }
+
+    public:
     public:
         static std::unique_ptr<Stmt> parse(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
             p.consume(TokenType::SET, "expected 'set'");
 
-            // `async`, `returnable` and `pure` are independent modifiers and
-            // may appear together, in any order (e.g. `set async returnable
-            // pure func ...` or `set pure func ...`).
             bool isAsync = false;
             bool isReturnable = false;
             bool isPure = false;
@@ -66,61 +78,53 @@ namespace cuff
                 throw SyntaxError("expected function name after 'func'", p.current().location);
             }
 
-            // Parse parameter list. Names here accept any word-shaped token
-            // (same reasoning as the function name above) — `(add, count)`
-            // is an unambiguous "a name goes here, then ',' or ')'" slot.
             p.consume(TokenType::LPAREN, "expected '(' for function parameters");
 
             std::vector<std::string> params;
-            if (!p.check(TokenType::RPAREN))
+            std::vector<ParamType> paramTypes;
+            bool anyTyped = false;
+            auto parseParam = [&](const char *missingNameMsg)
             {
-                if (isWordLikeToken(p.current()))
+                ParamType type = ParamType::Any;
+                ParamType fromKeyword = paramTypeFromToken(p.current().type);
+                if (fromKeyword != ParamType::Any && isWordLikeToken(p.peek(1)))
                 {
-                    params.push_back(p.current().value);
+                    type = fromKeyword;
+                    anyTyped = true;
                     p.advance();
                 }
-                else
-                {
-                    throw SyntaxError("expected parameter name", p.current().location);
-                }
+                if (!isWordLikeToken(p.current()))
+                    throw SyntaxError(missingNameMsg, p.current().location);
+                params.push_back(p.current().value);
+                paramTypes.push_back(type);
+                p.advance();
+            };
+            if (!p.check(TokenType::RPAREN))
+            {
+                parseParam("expected parameter name");
                 while (p.match(TokenType::COMMA))
-                {
-                    if (isWordLikeToken(p.current()))
-                    {
-                        params.push_back(p.current().value);
-                        p.advance();
-                    }
-                    else
-                    {
-                        throw SyntaxError("expected parameter name after ','", p.current().location);
-                    }
-                }
+                    parseParam("expected parameter name after ','");
             }
             p.consume(TokenType::RPAREN, "expected ')' to close parameter list");
 
-            // Parse do: — must be followed by newline (one-line shorthand forbidden for functions)
             p.consume(TokenType::DO, "expected 'do' keyword for function body");
             p.consume(TokenType::COLON, "expected ':' after 'do'");
 
-            // Enforce: function body must start on a new line
             if (!p.check(TokenType::NEWLINE) && !p.check(TokenType::EOF_TOKEN))
             {
                 throw SyntaxError("function body must start on a new line — one-line shorthand is forbidden for functions",
                                   p.current().location);
             }
 
-            // Parse function body — skip newlines and INDENT, then parse until DEDENT/END
             p.skipNewlines();
-            // Expect INDENT for block body
             if (p.check(TokenType::INDENT))
             {
-                p.advance(); // consume INDENT
+                p.advance();
             }
 
             auto body = parseBlockBody(p);
 
             p.consume(TokenType::END, "expected 'end' to close function");
-            // Skip DEDENT after end
             p.match(TokenType::DEDENT);
 
             FunctionDecl decl;
@@ -130,6 +134,8 @@ namespace cuff
             decl.name = name;
             decl.nameId = internName(name);
             decl.params = std::move(params);
+            decl.paramTypes = std::move(paramTypes);
+            decl.hasTypedParams = anyTyped;
             for (const auto &pn : decl.params)
                 decl.paramIds.push_back(internName(pn));
             decl.body = std::move(body);
@@ -138,9 +144,7 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::FunctionDecl, std::move(decl));
         }
 
-        // Parse a block of statements until we hit 'end', 'else', or DEDENT.
-        // Shared with ControlFlowParser and LoopParser.
         static std::vector<std::unique_ptr<Stmt>> parseBlockBody(ParserCore &p);
     };
 
-} // namespace cuff
+}

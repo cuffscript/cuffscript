@@ -13,7 +13,7 @@ namespace cuff
         std::string value;
         SourceLocation location;
         bool hasSpaceBefore = false;
-        int indentLevel = 0; // indentation depth in spaces (for block-structure enforcement)
+        int indentLevel = 0;
 
         Token() = default;
         Token(TokenType t, std::string v, SourceLocation loc, bool space = false, int indent = 0)
@@ -22,4 +22,4 @@ namespace cuff
         bool is(TokenType t) const { return type == t; }
     };
 
-} // namespace cuff
+}

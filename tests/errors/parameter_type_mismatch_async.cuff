@@ -1,0 +1,6 @@
+note: E4-030 -- async 함수는 큐에 쌓기 전에, 호출 지점에서 검사합니다
+set async func later(str s) do:
+    print(s)
+end
+later(5)
+print("not reached")

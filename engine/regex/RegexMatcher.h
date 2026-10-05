@@ -20,39 +20,20 @@ namespace cuff::regex
     {
         bool matched = false;
         size_t start = 0;
-        size_t end = 0; // half-open [start, end)
-        // 1-based positional captures: positional[0] is group 1, etc. An
-        // unmatched optional group is represented as an empty string (the
-        // language doesn't need to distinguish "unmatched" from "matched
-        // empty" for capture groups; REGEX.md never exercises that case).
+        size_t end = 0;
+        // 1-based positional captures: positional[0] is group 1, etc.
         std::vector<std::string> positional;
         std::unordered_map<std::string, std::string> named;
     };
 
-    // Safety limits guarding against catastrophic backtracking (REGEX.md
-    // section 33: "최대 매칭 스텝 수(Step Limit)와 시간 제한(Timeout)"). Both a
-    // step counter and a wall-clock deadline are enforced; either one tripping
-    // aborts the match with a RegexRuntimeError. A recursion-depth counter is
-    // also enforced so a pathological match can never grow the native C++
-    // call stack large enough to crash the process outright — it fails
-    // cleanly with a CuffScript-level error instead.
+    // Limits that stop catastrophic backtracking.
     struct RegexLimits
     {
         size_t stepLimit = 200000;
-        // The matcher recurses via continuation-passing (one atom match can
-        // be several nested C++ calls deep before returning), so this needs
-        // a much bigger safety margin below the real stack limit than a
-        // naive "8MB stack / call frame size" estimate suggests — measured
-        // empirically: on an 8MB stack, real crashes started around ~19,500
-        // (not the previous default of 20,000, which crashed the process
-        // with a real SIGSEGV instead of throwing this guard's exception).
-        // 3000 leaves a large margin for smaller stacks (some platforms
-        // default worker/secondary threads to as little as 512KB-1MB).
+        // Matching recurses via continuations, so it needs a larger stack margin than the interpreter.
         size_t depthLimit = 3000;
         std::chrono::milliseconds timeLimit{500};
-        // Wall-clock cutoff for a whole operation (many start positions, or
-        // many matches for global find/replace/split/count); the per-attempt
-        // limits above never accumulate across attempts. Epoch = no cutoff.
+        // Wall-clock cutoff for a whole operation; the per-attempt limits don't accumulate.
         std::chrono::steady_clock::time_point operationDeadline{};
     };
 
@@ -66,28 +47,21 @@ namespace cuff::regex
         {
         }
 
-        // Anchored, whole-string match (used by `is` / `IS`).
         bool fullMatch(const std::string &text, MatchOutcome &out)
         {
-            return tryMatchAt(text, 0, out, /*requireFullConsumption=*/true);
+            return tryMatchAt(text, 0, out, true);
         }
 
-        // Leftmost match starting at or after `fromPos` (used by
-        // match/find/replace/split/count).
-        //
-        // Start positions are advanced one *codepoint* at a time, not one
-        // byte: starting mid-sequence in a multi-byte UTF-8 character could
-        // otherwise produce a match whose start offset splits a character,
-        // and substr()ing that range would yield mojibake.
         bool search(const std::string &text, size_t fromPos, MatchOutcome &out)
         {
             size_t p = fromPos;
             while (p <= text.size())
             {
-                if (tryMatchAt(text, p, out, /*requireFullConsumption=*/false))
+                if (tryMatchAt(text, p, out, false))
                     return true;
                 if (p == text.size())
                     break;
+                // Advance by codepoint so a match never starts inside a UTF-8 sequence.
                 p += cuff::utf8::seqLen(static_cast<unsigned char>(text[p]));
             }
             return false;
@@ -101,12 +75,11 @@ namespace cuff::regex
         cuff::SourceLocation loc_;
         RegexLimits limits_;
 
-        // Per-attempt mutable state.
         size_t steps_ = 0;
         size_t totalSteps_ = 0;
         size_t depth_ = 0;
         std::chrono::steady_clock::time_point deadline_;
-        std::vector<std::pair<size_t, size_t>> groupSpans_;                     // 1-based; index 0 unused
+        std::vector<std::pair<size_t, size_t>> groupSpans_; // 1-based; index 0 unused
         std::unordered_map<std::string, std::pair<size_t, size_t>> namedSpans_;
         const std::string *text_ = nullptr;
 
@@ -159,9 +132,9 @@ namespace cuff::regex
             if (steps_ > limits_.stepLimit)
             {
                 throw cuff::RegexRuntimeError(cuff::ErrorCode::RegexStepLimitExceeded,
-                                               "pattern matching exceeded the maximum step limit (possible catastrophic backtracking)",
-                                               loc_,
-                                               "simplify the pattern — avoid nested unbounded quantifiers like ([any]+)+");
+                                              "pattern matching exceeded the maximum step limit (possible catastrophic backtracking)",
+                                              loc_,
+                                              "simplify the pattern — avoid nested unbounded quantifiers like ([any]+)+");
             }
             if ((++totalSteps_ & 0xFFF) == 0)
             {
@@ -170,9 +143,9 @@ namespace cuff::regex
                     (limits_.operationDeadline != std::chrono::steady_clock::time_point{} && now > limits_.operationDeadline))
                 {
                     throw cuff::RegexRuntimeError(cuff::ErrorCode::RegexTimeout,
-                                                   "pattern matching exceeded its time limit",
-                                                   loc_,
-                                                   "simplify the pattern or the input — avoid nested unbounded quantifiers");
+                                                  "pattern matching exceeded its time limit",
+                                                  loc_,
+                                                  "simplify the pattern or the input — avoid nested unbounded quantifiers");
                 }
             }
         }
@@ -185,9 +158,9 @@ namespace cuff::regex
                 if (++m->depth_ > m->limits_.depthLimit || stackPointer() < stackFloor())
                 {
                     throw cuff::RegexRuntimeError(cuff::ErrorCode::RegexRecursionLimitExceeded,
-                                                   "pattern matching recursed too deeply for this input",
-                                                   m->loc_,
-                                                   "the input or pattern is too large/complex for a single match attempt");
+                                                  "pattern matching recursed too deeply for this input",
+                                                  m->loc_,
+                                                  "the input or pattern is too large/complex for a single match attempt");
                 }
             }
             ~DepthGuard() { --m->depth_; }
@@ -204,7 +177,7 @@ namespace cuff::regex
                 return k(pos);
             RNode &node = *nodes[idx];
             return matchNode(node, pos, [this, &nodes, idx, &k](size_t newPos)
-                              { return matchSeqAt(nodes, idx + 1, newPos, k); });
+                             { return matchSeqAt(nodes, idx + 1, newPos, k); });
         }
 
         bool matchNode(RNode &node, size_t pos, const Cont &k)
@@ -247,17 +220,6 @@ namespace cuff::regex
             return false;
         }
 
-        // Matches exactly one codepoint (1-4 bytes). Three cases:
-        //   - isAnyCodepoint ([any]): any single codepoint except newline
-        //   - multiByteLiteral: a literal non-ASCII character from the pattern
-        //   - charTest: an ASCII-range predicate ([num], [a-z], a literal 'x', ...)
-        //
-        // For charTest, a multi-byte codepoint in the *text* is never fed to
-        // the predicate byte-by-byte — the predicates are all ASCII-range, so
-        // a non-ASCII character simply can't satisfy a positive one. A negated
-        // set ([!num], [!a-z]) is the interesting case: it *should* match a
-        // Korean character, and does, because negation is checked against the
-        // whole codepoint rather than each byte.
         bool matchCharTest(RNode &node, size_t pos, const Cont &k)
         {
             if (pos >= text_->size())
@@ -266,7 +228,7 @@ namespace cuff::regex
             unsigned char lead = static_cast<unsigned char>((*text_)[pos]);
             size_t len = cuff::utf8::seqLen(lead);
             if (pos + len > text_->size())
-                len = 1; // truncated/invalid sequence — treat the byte as one unit
+                len = 1;
 
             if (node.isAnyCodepoint)
             {
@@ -287,8 +249,7 @@ namespace cuff::regex
 
             if (len > 1)
             {
-                // A multi-byte codepoint can only satisfy a negated set — no
-                // positive ASCII-range predicate will accept it.
+                // A multi-byte codepoint can only satisfy a negated set.
                 if (!node.negated)
                     return false;
                 return k(pos + len);
@@ -299,10 +260,6 @@ namespace cuff::regex
             return k(pos + 1);
         }
 
-        // [edge]: a word/non-word transition. A multi-byte codepoint counts as
-        // a word character — a Korean or accented letter is a letter, so
-        // "안녕 hello" has an edge between the space and each word, not inside
-        // "안녕" itself.
         bool isWordCharAt(size_t pos) const
         {
             if (pos >= text_->size())
@@ -313,7 +270,6 @@ namespace cuff::regex
             return isWordChar(c);
         }
 
-        // Start of the codepoint containing (or immediately preceding) `pos`.
         size_t prevCodepointStart(size_t pos) const
         {
             if (pos == 0)
@@ -350,7 +306,7 @@ namespace cuff::regex
             int idx = node.groupIndex;
             auto saved = groupSpans_[static_cast<size_t>(idx)];
             bool ok = matchNode(*node.child, pos, [&](size_t endPos)
-                                 {
+                                {
                 groupSpans_[static_cast<size_t>(idx)] = {pos, endPos};
                 if (k(endPos)) return true;
                 return false; });
@@ -367,7 +323,7 @@ namespace cuff::regex
             std::pair<size_t, size_t> saved = hadSaved ? it->second : std::pair<size_t, size_t>{std::string::npos, std::string::npos};
 
             bool ok = matchNode(*node.child, pos, [&](size_t endPos)
-                                 {
+                                {
                 namedSpans_[name] = {pos, endPos};
                 if (k(endPos)) return true;
                 return false; });
@@ -395,18 +351,12 @@ namespace cuff::regex
                     unsigned char pc = static_cast<unsigned char>(alt[i]);
                     if (tc == pc)
                         continue;
-                    // Case folding is ASCII-only, so it must never be applied
-                    // to a continuation/lead byte of a multi-byte sequence —
-                    // toggleAsciiCase leaves those alone anyway, but comparing
-                    // them only byte-for-byte keeps multi-byte alternatives
-                    // ([one:사과|배]) matching exactly.
+                    // Case folding is ASCII-only and must never touch bytes of a multi-byte sequence.
                     if (ci_ && tc < 0x80 && pc < 0x80 && toggleAsciiCase(tc) == pc)
                         continue;
                     ok = false;
                 }
-                // An alternative must also end on a codepoint boundary in the
-                // text; otherwise "가" could match the first byte(s) of a
-                // different character that happens to share a prefix.
+                // An alternative must end on a codepoint boundary, or it could match a prefix of another character.
                 if (ok && !endsOnCodepointBoundary(pos + alt.size()))
                     ok = false;
                 if (ok && k(pos + alt.size()))
@@ -422,7 +372,6 @@ namespace cuff::regex
             return (static_cast<unsigned char>((*text_)[pos]) & 0xC0) != 0x80;
         }
 
-        // Returns candidate match lengths at `pos`, longest first (greedy).
         std::vector<size_t> presetLengths(RNode &node, size_t pos)
         {
             const std::string &text = *text_;
@@ -440,10 +389,9 @@ namespace cuff::regex
                 while (i < n && classNum(static_cast<unsigned char>(text[i])))
                     ++i;
                 if (i == digitsStart)
-                    return results; // no digits at all
+                    return results;
                 for (size_t len = i - pos; len >= 1; --len)
                 {
-                    // Only accept lengths that don't cut off a sign with no digits after it
                     if (pos + len <= n)
                         results.push_back(len);
                 }
@@ -458,7 +406,7 @@ namespace cuff::regex
                 while (i < n && classNum(static_cast<unsigned char>(text[i])))
                     ++i;
                 if (i == intStart)
-                    break; // need at least one digit before '.'
+                    break;
                 if (i >= n || text[i] != '.')
                     break;
                 size_t dotPos = i;
@@ -467,7 +415,7 @@ namespace cuff::regex
                 while (i < n && classNum(static_cast<unsigned char>(text[i])))
                     ++i;
                 if (i == fracStart)
-                    break; // need at least one digit after '.'
+                    break;
                 (void)dotPos;
                 results.push_back(i - pos);
                 break;
@@ -482,7 +430,7 @@ namespace cuff::regex
                     ++i;
                 if (i == localStart || i >= n || text[i] != '@')
                     break;
-                ++i; // consume '@'
+                ++i;
                 size_t domainStart = i;
                 auto isDomainChar = [](unsigned char c)
                 { return classStr(c) || c == '.' || c == '-'; };
@@ -490,11 +438,8 @@ namespace cuff::regex
                     ++i;
                 if (i == domainStart)
                     break;
-                // require at least one dot with 2+ trailing letters for a TLD
                 if (i - pos < 1)
                     break;
-                // Find longest valid split by trimming trailing chars until a
-                // dot + 2+ letters is found at the end.
                 for (size_t end = i; end > domainStart; --end)
                 {
                     size_t dot = text.rfind('.', end - 1);
@@ -514,15 +459,10 @@ namespace cuff::regex
             }
             case PresetKind::Phone:
             {
-                // Korean phone formats: 0XX(-)XXX(X)-XXXX — mobile (010/011/...)
-                // and area-code lines (02, 0XX). Hand-matched, longest first.
                 static const std::vector<std::string> shapes = {
-                    // 3-4-4 (e.g. 010-1234-5678)
                     "DDD-DDDD-DDDD",
-                    // 2-3/4-4 (Seoul, e.g. 02-123-4567 / 02-1234-5678)
                     "DD-DDD-DDDD",
                     "DD-DDDD-DDDD",
-                    // 3-3-4 (other regions, e.g. 031-123-4567)
                     "DDD-DDD-DDDD",
                 };
                 size_t bestLen = 0;
@@ -600,10 +540,8 @@ namespace cuff::regex
                 if (!canContinue)
                     return false;
                 return matchNode(*node.child, pos, [this, &node, pos, count, &k](size_t newPos)
-                                  {
-                    // Zero-width guard: if the child matched without consuming
-                    // any input and we've already satisfied the minimum, don't
-                    // recurse forever — treat this repetition as done.
+                                 {
+                    // Zero-width guard: a child that consumed nothing must not recurse forever.
                     if (newPos == pos && count >= node.minCount)
                         return false;
                     return matchQuantified(node, newPos, count + 1, k); });
@@ -624,4 +562,4 @@ namespace cuff::regex
         }
     };
 
-} // namespace cuff::regex
+}

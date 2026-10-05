@@ -234,7 +234,7 @@ build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
 근처에서 이미 발생해서 제가 만든 안전장치(예외 던지기)가 발동하기도 전에 진짜 스택이
 터진 것입니다. `depthLimit`을 3000으로 낮췄고(관측된 크래시 지점 대비 6배 이상 여유),
 100자부터 100만자까지 전 구간에서 크래시 없이 정상 종료 또는 `RegexRecursionLimitExceeded`
-(E3103)를 깔끔하게 던지는 것을 확인했습니다. 교훈: "충분히 보수적"이라고 생각한 숫자도
+(E3-103)를 깔끔하게 던지는 것을 확인했습니다. 교훈: "충분히 보수적"이라고 생각한 숫자도
 실측 없이는 믿으면 안 됩니다.
 
 **식별자로 예약어를 쓸 수 없는 범위가 생각보다 넓음 (미해결, 기록만 해둠).**
@@ -290,7 +290,7 @@ sequences) are likewise out of scope, same reasoning as section 14.
 ## 18. Indices and range bounds must be whole numbers
 
 `list[i]`, `str[i]`, `x[i~j]`, and `loop repeat i to A ~ B` all reject a fractional value
-with `FractionalIndex` (E4024) instead of silently rounding it, which is what the engine
+with `FractionalIndex` (E4-024) instead of silently rounding it, which is what the engine
 used to do. A computed index that lands on `2.5` almost always means the _calculation_ is
 wrong; rounding it hides the bug and produces a plausible-looking wrong answer.
 
@@ -325,14 +325,24 @@ Two conventions, both checked during a full audit of every throw site:
   always rendered after a `...at line N, column M: ` prefix. (Parser messages used to start
   uppercase while runtime messages started lowercase.)
 - **`ArgumentError` means the wrong _number_ of arguments; `ValueError`
-  (`InvalidArgumentValue`, E4025) means the right number but a value the function can't
+  (`InvalidArgumentValue`, E4-025) means the right number but a value the function can't
   use** — `sqrt(-1)`, `to_number("abc")`, malformed `from_json` input, `random_int(5, 1)`.
-  These previously all reported as E4010 `ArgumentCountMismatch`, which was simply the wrong
+  These previously all reported as E4-010 `ArgumentCountMismatch`, which was simply the wrong
   code for them.
 
 When adding a builtin, pick the code by what actually went wrong, and keep the message
 lowercase. Add a hint only when there's a concrete next action for the reader — a hint that
 just restates the message is noise.
+
+**Tag format.** Codes are printed as `E<category>-<number>` with a 3-digit zero-padded number
+(`errorCodeTag()`, `ErrorCodes.h`): `4005` → `E4-005`, `2001` → `E2-001`. The enum values
+themselves (`ErrorCode::DivisionByZero = 4006`, ...) are unchanged — only the printed tag is
+split into category and number, so the 4005-style value in C++ and the `E4-005` seen by users
+are the same code. The dash is what keeps the tag unambiguous when a category number needs
+more than one digit (a 10th category would print as `E10-001`, where the old style would have
+printed `E10001`). Capacity within a category is still 999 numbers. Every `.expected_code`
+file, `note: E####` header comment, and doc example was converted; `tests/run.sh`/`run.ps1`
+match the bracketed tag as a plain substring, so they needed no change.
 
 ## 21. Interpreter performance work
 
@@ -377,33 +387,33 @@ process; hostile or accidental input ends in an ordinary error code instead. All
 limits live in one file, `engine/common/Limits.h`.
 
 **Parser.** `ParseDepthScope` (in `ParserCore.h`) counts native recursion across all parsers,
-including the nested parser used for f-string expressions, and fails with `E2008` beyond
+including the nested parser used for f-string expressions, and fails with `E2-008` beyond
 256 levels of nested parentheses, lists, maps, unary chains or blocks. Chains that the parser
 builds iteratively (`1+1+1+...`, `a[1][1]...`) are bounded by `Expr::height`, computed when
-each node is constructed (`E2008` beyond 10,000). Source larger than 16 MiB is rejected
-(`E2009`).
+each node is constructed (`E2-008` beyond 10,000). Source larger than 16 MiB is rejected
+(`E2-009`).
 
 **Evaluator.** A depth counter alone cannot bound stack use: a function body with many
 nested blocks uses far more stack per call than a flat one. So `evalExpr` and `execStatement`
 compare the real stack pointer with a budget derived from the actual stack size (on Linux,
 `pthread_getattr_np`; elsewhere a fixed default, `Interpreter::Config::stackBudgetBytes` to
-override). Exceeding it raises the catchable `E4017`, the same code as the call-depth limit
+override). Exceeding it raises the catchable `E4-017`, the same code as the call-depth limit
 (1,000 calls, unchanged). Regex matching checks a hard floor below that budget, so it fails
-with `E3103` rather than overflowing when the interpreter is already deep.
+with `E3-103` rather than overflowing when the interpreter is already deep.
 
 **Values.** Nested lists/maps are destroyed iteratively (`dismantleValues`), and `is` compares
 iteratively, so depth never matters; circular structures of the same shape compare equal.
 Printing marks cycles (`[...]`, `{...}`) and stops at depth 1,000. `to_json`/`from_json` stop at
 depth 200.
 
-**Sizes.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4026`), enforced where
+**Sizes.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4-026`), enforced where
 they can grow: `+`, f-strings, `join`, `repeat_str`, padding, `range`, `flatten`, `merge`,
 regex `replace`/`find`/`split` results and the async task queue. Running out of memory anyway
-is reported as `E6003` instead of terminating the process.
+is reported as `E6-003` instead of terminating the process.
 
 **Execution budget (opt-in).** `--max-steps N` and `--timeout MS` (or `CuffEngine::Options`)
 bound loop iterations plus function calls, and wall-clock time. Both are off by default. They
-raise `E6001`/`E6002`, which live in the 6000 range and are deliberately **not** catchable by
+raise `E6-001`/`E6-002`, which live in the 6000 range and are deliberately **not** catchable by
 `or_else`, so a script cannot swallow its own kill switch.
 
 **Regex.** Group nesting is capped at 64 and quantifier counts at 100,000; a pattern over
@@ -420,8 +430,8 @@ still work). Raise them in `Limits.h` if a workload needs more.
 `use name from path` may only load files inside a root directory: the running script's
 directory by default, or `--root <dir>` / `CuffEngine::Options::rootDir`. Absolute paths and
 paths that resolve outside the root (`..`, or a symlink pointing out, checked on the
-canonicalized path) fail with `E5006`. A module must be a regular file no larger than the source
-limit, and imports may nest 64 levels (`E5007`). Errors show the path as written in the script
+canonicalized path) fail with `E5-006`. A module must be a regular file no larger than the source
+limit, and imports may nest 64 levels (`E5-007`). Errors show the path as written in the script
 rather than the host's absolute path. A failed import no longer marks the module as loaded,
 and its AST is kept alive even if its body fails, so functions it registered can never dangle.
 
@@ -498,7 +508,7 @@ order): `set pure func f() do: ... end`. Enforcement lives entirely in `Interpre
 `Environment` — `FrameGuard` now also carries `isPure`, and the three places that resolve a
 name against an `Environment` (`evalExpr`'s identifier case, `execChange`, `execCollectionOp`)
 each check `currentFunctionPure_ && look.owner == &globalEnv_` and raise the new
-`PureFunctionGlobalAccess` (E4027) before the read/write happens; `change x to global` is
+`PureFunctionGlobalAccess` (E4-027) before the read/write happens; `change x to global` is
 rejected at the bridge itself, before it can even register. The restriction is on that
 function's own body, not the whole call graph: a pure function calling a non-pure one is fine,
 and the callee's own purity (or lack of it) governs its own body, exactly as `returnable` and
@@ -509,7 +519,7 @@ literal escape hatch, by construction — there's no separate override flag to k
 on Linux/macOS, Winsock2 on Windows (the one file in the engine with `#ifdef _WIN32` socket
 code). Plain HTTP only — no TLS, so `https://` fails with a clear error rather than silently
 talking plaintext to an HTTPS port. `get(url)` and `post(url, body[, content_type])` return
-`{"status", "ok", "body"}`; connection/DNS/timeout failures raise `NetworkRequestFailed` (E4028),
+`{"status", "ok", "body"}`; connection/DNS/timeout failures raise `NetworkRequestFailed` (E4-028),
 catchable via `or_else` like any other runtime error. Handles chunked transfer-encoding,
 `Content-Length` framing, and 301/302/303/307/308 redirects (303, and 301/302 for an original
 POST, downgrade to GET per common client behavior; 307/308 preserve method and body), each
@@ -558,13 +568,13 @@ escape hatch: `set pure func f() do: g() end` where `g` touches globals — `f` 
 touches a global *directly*, so the old check passed, but calling `f` still reached a
 global through `g`. `checkPureCallAllowed()` (`Interpreter.h`) now runs at every call
 site (`evalCall`, `invokeAwaited`) and rejects a pure caller invoking a non-pure
-*user-defined* function, with a new error, `PureFunctionImpureCall` (E4029).
+*user-defined* function, with a new error, `PureFunctionImpureCall` (E4-029).
 Native/DLC functions are still exempt — they never touch a CuffScript `Environment` at
 all, so they can't reach a global through this route regardless. Recursion and
 pure-calling-pure remain unrestricted, since `decl.isPure` is checked per callee, not
 per call depth. This is a **behavior change**: `tests/cases/pure_functions.cuff`'s old
 "pure calling non-pure is fine" example no longer holds and was rewritten; the same
-scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4029 case.
+scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4-029 case.
 
 
 ## 27. Global-bridge bug: `Environment::resolve()` checked the bridge before the local
@@ -631,7 +641,7 @@ in an `is not` comparison. Regression test: `tests/cases/reserved_words_as_ident
 Errors now show the offending source line with a `^` under the exact column, e.g.:
 
 ```
-[E2001] Syntax Error at line 4, column 10: unexpected token ')' in expression
+[E2-001] Syntax Error at line 4, column 10: unexpected token ')' in expression
     print(x +)
              ^
 ```
@@ -650,6 +660,15 @@ same line would otherwise push the caret roughly 3x too far right; the byte-pref
 the error's offset is measured with `utf8::length()` instead. Regression test:
 `tests/unit/error_snippet_test.cpp` (ASCII, UTF-8-alignment, and a runtime-error case).
 
+An error inside an f-string's `{...}` used to report line 1 of the *fragment* (the
+expression text is tokenized on its own, so its positions start over at 1:1), which the
+snippet then rendered as the wrong source line. `LiteralParser::parseEmbeddedExpression`
+now pins every token location in the fragment, and any `CuffError` thrown while tokenizing or
+parsing it, to the f-string literal's own location, so the snippet shows the line the
+f-string is on (the caret sits at the literal's start, not at the exact column inside the
+braces — the fragment has no reliable mapping back once escapes have been decoded).
+Two extra cases in `error_snippet_test.cpp` cover this.
+
 ## 30. `DLC:filesystem`
 
 Real local file access: `file_exist`, `file_size`, `file_read`, `file_readlines`,
@@ -661,7 +680,7 @@ filesystem-specific root to configure. `isInsideRoot()` (the containment check m
 loading already had) moved from a private `Interpreter` method to a shared
 `engine/common/PathSandbox.h` so both features use the identical check rather than two
 copies that could drift. An absolute path, or a relative path that escapes the root
-(`../../etc/passwd`), is rejected with a new error, `FilesystemAccessDenied` (E5008),
+(`../../etc/passwd`), is rejected with a new error, `FilesystemAccessDenied` (E5-008),
 *before* touching the filesystem — a script trying to reach outside its sandbox is worth
 surfacing loudly. An ordinary OS-level failure once a path clears that check (file
 doesn't exist, permission denied) is reported the quiet way each function's own contract
@@ -673,8 +692,8 @@ filesystem can't force an oversized allocation just to get rejected. New host co
 mirroring `DLC:network`'s existing shape exactly: `CuffEngine::Options::filesystemEnabled`
 (default true) / `--no-filesystem`. See `SECURITY.md`'s "DLC:filesystem" section for the
 full trust-boundary discussion. Regression tests: `tests/cases/dlc_filesystem.cuff`
-(success paths, self-cleaning), `tests/errors/dlc_filesystem_disabled.cuff` (E5005),
-`tests/errors/filesystem_sandbox_escape.cuff` (E5008).
+(success paths, self-cleaning), `tests/errors/dlc_filesystem_disabled.cuff` (E5-005),
+`tests/errors/filesystem_sandbox_escape.cuff` (E5-008).
 
 ## 31. DLC function naming convention (`library_verb`)
 
@@ -781,3 +800,81 @@ happened to be pulled in first — the kind of hidden coupling splitting a file 
 to remove, not just relocate. Purely a file-organization change: no declaration moved
 namespace, gained a new name, or changed behavior, and the full suite (unit tests,
 `tests/cases`, `tests/errors`, `examples`) passes unchanged before and after.
+
+## 35. `use DLC:a, DLC:b` — several libraries in one statement
+
+`use DLC:math, DLC:string, DLC:convert` loads all three; one `use` per line still works and
+gives the same result. `UseStmt` now carries `dlcs` (a list of `{name, loc}`) for the DLC form —
+each name keeps its own location so an unknown library in the middle of the list (`E5-004`) is
+pointed at directly — and `name`/`path` only for the `use X from path` form. `ImportParser`
+requires every item to repeat the `DLC:` prefix (`use DLC:math, string` is a syntax error, since a
+bare `string` is indistinguishable from a module name), and gives a specific message for a
+dangling comma and for a forgotten comma (`use DLC:math DLC:string`; without that check the
+second `DLC` would parse as the start of a new statement and fail with a confusing `unexpected
+token ':'`). `SPEC.md` §13 requires module-load commands to be a single line, so a list cannot be
+continued onto the next line — separate `use` lines are the multi-line form.
+Tests: `tests/cases/use_multiple_dlcs.cuff`, `tests/errors/use_multiple_*.cuff`.
+
+## 36. Typed function parameters
+
+`set func add_num(number n1, number n2) do:` — each parameter is `name` or `type name` with
+`number`/`str`/`boolean`/`list`/`map`/`match`; typed and untyped can be mixed. `FunctionDecl` gets
+`paramTypes` (parallel to `params`, `ParamType::Any` = untyped) and `hasTypedParams`; the call
+path only does any checking when `hasTypedParams` is true, so untyped functions pay one
+predictable branch. `Interpreter::checkParamTypes` runs in `evalCall`/`invokeAwaited` *before*
+dispatch — for an `async` function that is before queueing, so the error points at the call
+rather than surfacing later when the queue drains. A mismatch is `ParameterTypeMismatch`
+(`E4-030`) located at the call site. `empty` passes every type, matching `set`'s rule, since a
+failed `find`/`file_read` returning `empty` should be something a function can receive and
+handle. A type keyword counts as a type only when a name follows it, so `(number)` and
+`(number, x)` stay legal untyped parameters named `number`. Arity is still checked separately,
+by `callUserFunction`. Tests: `tests/cases/typed_parameters.cuff`,
+`tests/errors/parameter_type_mismatch*.cuff`.
+
+## 37. Performance pass: measured, mostly nothing to change
+
+Benchmarks (`fib(30)`, a 3M-iteration loop, 1M user-function calls, string/list/map work,
+f-strings, a 66k-line script) against the original codebase: this release's engine is at parity
+(fib 449→429 ms, everything else within noise), so none of the semantic changes above cost
+speed. Then looked for real wins: no profiler beyond `gprof` was available and its profile was
+flat (`evalExpr`, `evalBinaryOp`, scope lookup), consistent with the earlier notes (21, 24) that
+the tree-walker is near its floor. Tried and **not adopted**: profile-guided optimization
+(0–4%, inside run-to-run noise, and it needs a two-step build), `-O2` instead of `-O3` (same),
+static `libstdc++` (startup 2.2→1.7 ms, but the binary grows 2.4×, against "light as a
+feather"), dropping `-fstack-protector`/`_FORTIFY_SOURCE` (≈0–8%, not worth weakening a
+sandboxing interpreter). A broad micro-suite (200k-element sort, unique, split of 150k
+parts, replace/find/count over 850 KB, 50k-object JSON round trip, 50k-key map) found no
+quadratic outlier. **Adopted:** stripping the release binary (`-s`, 1.18 MB → 670 KB, no speed
+change; skipped on macOS where Apple's linker ignores it with a warning).
+
+## 38. `tests/run.ps1` fixes
+
+The first `run.ps1` used `ProcessStartInfo.ArgumentList`, which does not exist on .NET
+Framework, so on Windows PowerShell 5.1 (the default on Windows) every test died with a
+null-method error. Rewritten to build the argument string itself (CommandLineToArgvW quoting),
+and fixed along the way: output is decoded as UTF-8 (the OEM code page garbled Korean output,
+failing every diff); `\r\n` is normalized before comparing; stdin is closed so `input()` sees
+EOF instead of waiting for the timeout; g++ is run through the same helper instead of `& g++ 2>`
+(under `$ErrorActionPreference='Stop'`, 5.1 turned any compiler warning on stderr into a
+terminating error), with a 600 s build timeout instead of 10 s; the unit tests link with
+`-lws2_32` and an 8 MiB stack on Windows, as `Makefile.win` does (without them
+`limits_test.cpp` could not link, or overflowed Windows' 1 MiB default stack); and the binary
+name is `cuffc.exe` on Windows, `./cuffc` elsewhere, so it also runs under PowerShell 7 on
+Linux/macOS. Still not executed on a real Windows machine — none was available here.
+
+## 39. Comment cleanup in `engine/`
+
+Of the 657 comment blocks in `engine/` (1,534 comment lines out of 12,529), about 90 short
+ones remain (92 lines out of 11,247). What stays is what the code can't say itself:
+lifetime and ordering invariants (`Environment` is stack-local and referenced by raw pointer; the
+module AST must outlive its functions), platform quirks (`windef.h` macros, Emscripten's shadow
+stack, `SIGPIPE` handling, `pthread_get_stackaddr_np`), stack-safety limits, the reasoning behind
+non-obvious checks (zero-width regex guard, codepoint-boundary matching, ASCII-only case
+folding, "a local binding always wins over a `global` bridge"), and the public option fields in
+`CuffEngine::Options`. Longer explanations that used to live in comments are in this file and in
+`SPEC.md`. The cleanup was mechanical and checked mechanically: a string/char-literal-aware
+scanner located comments, the preprocessed output of `main.cpp` was compared before and after
+(identical once whitespace is ignored, so only comments and blank lines changed), every string and
+char literal was compared byte-for-byte, and the build plus the full suite pass unchanged.
+`main.cpp`, `wasm/bindings.cpp` and `tests/` were left as they were.
+

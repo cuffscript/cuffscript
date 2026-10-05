@@ -22,4 +22,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

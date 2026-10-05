@@ -15,17 +15,6 @@
 namespace cuff
 {
 
-    // True for tokens that carry a plain "word" as their raw text —
-    // IDENTIFIER, plus any reserved keyword (which is lexically still just a
-    // word; it only means something special in the specific grammar spot(s)
-    // that check for it by exact TokenType). Any spot that just needs "a
-    // name" — a variable/function/parameter/loop-variable being declared, or
-    // a name being referenced back — should accept this instead of requiring
-    // TokenType::IDENTIFIER outright, so a name that happens to collide with
-    // a keyword (`set number add to 5`, `use DLC:list`) still parses instead
-    // of confusingly rejecting an otherwise reasonable name. String and
-    // number literals are excluded explicitly since their `.value` could
-    // coincidentally look word-shaped (e.g. the string literal "list").
     inline bool isWordLikeToken(const Token &t)
     {
         if (t.is(TokenType::STRING) || t.is(TokenType::FSTRING) || t.is(TokenType::NUMBER))
@@ -40,21 +29,13 @@ namespace cuff
         return true;
     }
 
-    // Lowest real stack address the parser's own recursion may reach; 0 =
-    // no floor (unknown/not yet primed). Kept separate from the
-    // interpreter's stackFloor() — they guard different, non-overlapping
-    // phases (see ParseStackFloorScope) and must never be confused.
+    // Lowest stack address the parser's recursion may reach; 0 = no floor.
     inline uintptr_t &parseStackFloor()
     {
         static thread_local uintptr_t floor = 0;
         return floor;
     }
 
-    // Primes parseStackFloor() from the real stack available *right now* —
-    // called once at the top of Parser::parse(), so a module parsed deep
-    // inside a running script's own recursion (via `use ... from`) gets a
-    // floor based on however much stack is actually left at that point, not
-    // a stale budget computed back when the top-level script started.
     struct ParseStackFloorScope
     {
         uintptr_t previous;
@@ -76,13 +57,7 @@ namespace cuff
         ~ParseStackFloorScope() { parseStackFloor() = previous; }
     };
 
-    // Counts native recursion depth across every parser (including the nested
-    // parsers used for f-string expressions) so hostile nesting fails with a
-    // syntax error instead of exhausting the C++ stack. Backed by two
-    // independent checks: a level counter (kMaxParseDepth) and, since a
-    // single level can cost several KB of real stack, a stack-pointer floor
-    // primed by ParseStackFloorScope — either one alone can miss a case the
-    // other catches.
+    // Counts native recursion across all parsers (f-string sub-parsers included) so hostile nesting fails cleanly.
     class ParseDepthScope
     {
     public:
@@ -110,8 +85,6 @@ namespace cuff
         }
     };
 
-    // Core parser state — token cursor + utility helpers.
-    // Shared by all sub-parsers.
     class ParserCore
     {
     public:
@@ -119,8 +92,6 @@ namespace cuff
         size_t pos = 0;
 
         explicit ParserCore(std::vector<Token> t) : tokens(std::move(t)) {}
-
-        // ---- Token cursor helpers ----
 
         const Token &current() const { return tokens[pos]; }
 
@@ -178,7 +149,6 @@ namespace cuff
             return false;
         }
 
-        // Skip NEWLINE tokens (and INDENT/DEDENT for structural flexibility)
         void skipNewlines()
         {
             while (check(TokenType::NEWLINE) || check(TokenType::INDENT) || check(TokenType::DEDENT))
@@ -187,14 +157,12 @@ namespace cuff
             }
         }
 
-        // Skip only NEWLINE tokens
         void skipNewlinesOnly()
         {
             while (check(TokenType::NEWLINE))
                 advance();
         }
 
-        // Check if the next non-trivial token (skipping NEWLINE/INDENT/DEDENT) is a terminator
         bool peekTerminator(std::initializer_list<TokenType> terminators) const
         {
             size_t idx = pos;
@@ -216,10 +184,8 @@ namespace cuff
             return false;
         }
 
-        // Get current indentation level (from the most recent INDENT/DEDENT or current token)
         int currentIndent() const
         {
-            // Walk backwards to find the last INDENT/DEDENT
             for (int i = static_cast<int>(pos) - 1; i >= 0; --i)
             {
                 if (tokens[i].is(TokenType::INDENT))
@@ -231,4 +197,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

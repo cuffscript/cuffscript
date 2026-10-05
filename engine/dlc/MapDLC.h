@@ -5,7 +5,6 @@
 namespace cuff
 {
 
-    // ---- DLC:map ----
     inline void registerMapDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
         reg["length"] = nativeLength;
@@ -49,7 +48,6 @@ namespace cuff
             }
             return Value::makeList(std::move(out));
         };
-        // Returns a new map; on duplicate keys the second map wins.
         reg["map_merge"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
             expectArgCount("map_merge", args, 2, loc);
@@ -66,4 +64,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

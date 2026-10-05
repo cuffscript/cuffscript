@@ -1,0 +1,35 @@
+note: 매개변수 타입 지정 -- `타입 이름` 형태, 타입은 생략해도 됩니다 (섞어 써도 됨).
+set returnable func add_num(number n1, number n2) do:
+    return n1 + n2
+end
+print(add_num(1, 2))
+
+use DLC:list
+set func greet(str name, count, list items) do:
+    print(f"{name} {count} {length(items)}")
+end
+greet("kim", 3, [1, 2])
+
+set returnable func mixed(a, number b) do:
+    return a + b
+end
+print(mixed(5, 6))
+
+note: 타입이 지정된 매개변수도 `empty`는 받습니다 (set과 동일 규칙)
+set returnable func maybe(str s) do:
+    return s is empty
+end
+print(maybe(empty))
+
+note: map / boolean / match 타입
+set func show(map m, boolean flag) do:
+    print(f"{length(m)} {flag}")
+end
+show({"a": 1}, true)
+
+note: async 함수도 호출하는 시점에 타입을 검사합니다
+set async func later(number n) do:
+    print(f"later {n}")
+end
+later(7)
+print("sync done")

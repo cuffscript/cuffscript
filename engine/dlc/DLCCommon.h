@@ -96,13 +96,9 @@ namespace cuff
         return result;
     }
 
-    // ---- Text helpers (UTF-8) ----
-
     namespace textutil
     {
 
-        // Decodes the codepoint starting at `pos`. Returns false for a malformed
-        // sequence (callers then copy the byte through unchanged).
         inline bool decodeAt(const std::string &s, size_t pos, unsigned int &cp, size_t &len)
         {
             unsigned char c = static_cast<unsigned char>(s[pos]);
@@ -153,8 +149,6 @@ namespace cuff
             }
         }
 
-        // Simple one-to-one case mapping for Latin (incl. Latin-1 and Extended-A),
-        // Greek and Cyrillic. Scripts without case (Korean, CJK, ...) pass through.
         inline unsigned int toUpperCp(unsigned int c)
         {
             if (c < 0x80)
@@ -257,8 +251,6 @@ namespace cuff
             return Value::makeStr(std::move(out));
         }
 
-        // Parses a plain decimal number: [sign] digits [. digits] [e[sign]digits].
-        // Hex floats, "nan", "inf" and anything strtod would otherwise accept are rejected.
         inline bool parseDecimal(const std::string &text, double &out)
         {
             size_t b = 0, e = text.size();
@@ -304,9 +296,7 @@ namespace cuff
             return true;
         }
 
-    } // namespace textutil
-
-    // ---- Functions shared by several DLC libraries ----
+    }
 
     inline Value nativeLength(std::vector<Value> &args, const SourceLocation &loc)
     {
@@ -320,8 +310,6 @@ namespace cuff
         throw TypeError("length() expects a str, list, or map, got " + valueTypeName(args[0].type()), loc);
     }
 
-    // contains(str, str) is a substring test, contains(list, value) an element
-    // test (structural equality), and contains(map, str) a key test.
     inline Value nativeContains(std::vector<Value> &args, const SourceLocation &loc)
     {
         expectArgCount("contains", args, 2, loc);
@@ -365,4 +353,4 @@ namespace cuff
         return Value::makeNumber(static_cast<double>(cp + 1));
     }
 
-} // namespace cuff
+}

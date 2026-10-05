@@ -29,11 +29,10 @@ namespace cuff
         {
             if (s.peek(1) != '"')
             {
-                // 'f' not followed by '"' — not a string, signal failure
                 return Token(TokenType::WORD, "", start);
             }
             isFString = true;
-            s.advance(); // consume 'f'
+            s.advance();
         }
 
         char quote = static_cast<char>(s.peek());
@@ -41,15 +40,13 @@ namespace cuff
         {
             return Token(TokenType::WORD, "", start);
         }
-        // f-strings are only ever opened with a double quote (f'...' is not
-        // part of the language) — a bare f followed by a single quote should
-        // just fall through as if 'f' were an ordinary identifier character.
+        // f-strings open only with a double quote; f'...' falls through as an identifier character.
         if (isFString && quote != '"')
         {
             return Token(TokenType::WORD, "", start);
         }
 
-        s.advance(); // consume opening quote
+        s.advance();
 
         std::string value;
         int braceDepth = 0;
@@ -92,12 +89,11 @@ namespace cuff
 
             if (c == quote)
             {
-                s.advance(); // consume closing quote
+                s.advance();
                 TokenType tt = isFString ? TokenType::FSTRING : TokenType::STRING;
                 return Token(tt, value, start, s.pendingSpaceBefore);
             }
 
-            // Track brace depth in f-strings so embedded {expr} is not misread
             if (isFString)
             {
                 if (c == '{')
@@ -116,4 +112,4 @@ namespace cuff
         throw SyntaxError("unterminated string literal", start);
     }
 
-} // namespace cuff
+}

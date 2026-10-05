@@ -1,35 +1,15 @@
 #pragma once
 
+#include <algorithm>
 #include <string>
 
 namespace cuff
 {
 
-    // =========================================================================
-    // Systematic error classification.
-    //
-    // Every error the engine can raise has a stable numeric code and belongs to
-    // exactly one category. Categories map to numeric ranges so that a bare code
-    // number alone tells you roughly where in the pipeline it came from:
-    //
-    //   1000-1999  Lexical    (tokenizer stage)
-    //   2000-2999  Syntax     (parser stage)
-    //   3000-3999  Regex      (CuffScript pattern compiler / matcher)
-    //   4000-4999  Runtime    (interpreter — recoverable via or_else)
-    //   5000-5999  Module     (use/from — recoverable via or_else)
-    //   6000-6999  Resource   (execution budget / memory — terminal, never caught by or_else)
-    //   9000-9999  Internal   (engine bugs — should never surface to users)
-    //
-    // Adding a new error kind is a two-step, additive process:
-    //   1. Add an entry to ErrorCode (pick the next free number in the range).
-    //   2. Add a matching case in errorCodeName() below.
-    // Nothing else needs to change — CuffError (see CuffError.h) formats any
-    // code generically, and new leaf exception types can be added independently.
-    // =========================================================================
-
+    // Error code ranges: 1000 Lexical, 2000 Syntax, 3000 Regex,
+    // 4000 Runtime, 5000 Module, 6000 Resource, 9000 Internal.
     enum class ErrorCode
     {
-        // ---- Lexical (1000s) ----
         UnexpectedCharacter = 1001,
         UnterminatedString = 1002,
         InvalidNumberLiteral = 1003,
@@ -38,7 +18,6 @@ namespace cuff
         UnterminatedComment = 1006,
         InvalidAssignmentSymbol = 1007,
 
-        // ---- Syntax (2000s) ----
         UnexpectedToken = 2001,
         ExpectedToken = 2002,
         MalformedFunctionDecl = 2003,
@@ -49,7 +28,6 @@ namespace cuff
         NestingTooDeep = 2008,
         SourceTooLarge = 2009,
 
-        // ---- Regex (3000s: syntax subset compiled at parse time) ----
         RegexUnclosedGroup = 3001,
         RegexUnclosedBracket = 3002,
         RegexInvalidColonSpacing = 3003,
@@ -61,12 +39,10 @@ namespace cuff
         RegexDanglingQuantifier = 3009,
         RegexUnexpectedCharacter = 3010,
         RegexPatternTooComplex = 3011,
-        // ---- Regex runtime (3100s: safety limits during matching) ----
         RegexStepLimitExceeded = 3101,
         RegexTimeout = 3102,
         RegexRecursionLimitExceeded = 3103,
 
-        // ---- Runtime (4000s) ----
         UndefinedVariable = 4001,
         UndefinedFunction = 4002,
         ConstantReassignment = 4003,
@@ -96,8 +72,8 @@ namespace cuff
         PureFunctionGlobalAccess = 4027,
         NetworkRequestFailed = 4028,
         PureFunctionImpureCall = 4029,
+        ParameterTypeMismatch = 4030,
 
-        // ---- Module (5000s) ----
         ModuleNotFound = 5001,
         ModuleParseFailed = 5002,
         CircularImport = 5003,
@@ -107,17 +83,13 @@ namespace cuff
         ModuleLimitExceeded = 5007,
         FilesystemAccessDenied = 5008,
 
-        // ---- Resource limits (6000s) ----
         ExecutionStepLimit = 6001,
         ExecutionTimeout = 6002,
         OutOfMemory = 6003,
 
-        // ---- Internal (9000s) ----
         InternalError = 9001,
     };
 
-    // Category name — used as the human-readable prefix in formatted messages
-    // ("Syntax Error", "Runtime Error", etc.) and to bucket codes for tooling.
     inline std::string errorCategoryName(ErrorCode code)
     {
         int n = static_cast<int>(code);
@@ -138,25 +110,20 @@ namespace cuff
         return "Internal Error";
     }
 
-    // Short machine-friendly tag, e.g. "E4005". Handy for grepping docs/tests
-    // and for issue reports (see CONTRIBUTING.md).
+    // Short machine-readable error tag, e.g. "E4-008".
     inline std::string errorCodeTag(ErrorCode code)
     {
-        return "E" + std::to_string(static_cast<int>(code));
+        const int n = static_cast<int>(code);
+        std::string num = std::to_string(n % 1000);
+        num.insert(0, 3 - std::min<size_t>(3, num.size()), '0');
+        return "E" + std::to_string(n / 1000) + "-" + num;
     }
 
-    // Whether this category is, in principle, something an `or_else` block is
-    // allowed to catch. Lexical/Syntax/RegexSyntax/Internal errors mean the
-    // *program itself* is malformed and cannot be meaningfully recovered from
-    // at runtime — they should never be reached inside an already-parsed,
-    // already-running program, so or_else does not catch them. Runtime,
-    // RegexRuntime, and Module errors represent a well-formed program
-    // encountering a bad *situation* (missing file, bad index, timeout, ...),
-    // which is exactly what or_else exists to handle.
+    // Whether an `or_else` block may catch errors of this category.
     inline bool errorCodeRecoverable(ErrorCode code)
     {
         int n = static_cast<int>(code);
         return (n >= 3100 && n < 4000) || (n >= 4000 && n < 6000);
     }
 
-} // namespace cuff
+}

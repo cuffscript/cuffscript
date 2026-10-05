@@ -16,13 +16,8 @@
 namespace cuff
 {
 
-    // ---- Forward declarations ----
     struct Expr;
     struct Stmt;
-
-    // =========================================================================
-    // Expression nodes
-    // =========================================================================
 
     struct NumberLiteral
     {
@@ -71,7 +66,6 @@ namespace cuff
 
     struct MapLiteral
     {
-        // key-value pairs: keys are expressions (typically string literals)
         struct Pair
         {
             std::unique_ptr<Expr> key;
@@ -82,14 +76,13 @@ namespace cuff
         MapLiteral(std::vector<Pair> p, SourceLocation l) : pairs(std::move(p)), loc(l) {}
     };
 
-    // f"Hello {expr} world" → segments of literal text and embedded expressions
     struct FStringExpr
     {
         struct Segment
         {
             bool isExpression;
-            std::string text;           // when isExpression == false
-            std::unique_ptr<Expr> expr; // when isExpression == true
+            std::string text;
+            std::unique_ptr<Expr> expr;
         };
         std::vector<Segment> segments;
         SourceLocation loc;
@@ -97,30 +90,26 @@ namespace cuff
             : segments(std::move(s)), loc(l) {}
     };
 
-    // Operators are stored as enums, not strings. The interpreter dispatches
-    // on them in a hot loop, and a string-compare chain there cost ~10 string
-    // comparisons per operation (measured: 16M comparisons for a 635k-call
-    // fib benchmark, the single largest cost in the profile).
     enum class BinOp
     {
-        Add,        // +
-        Sub,        // -
-        Mul,        // *
-        Div,        // /
-        Is,         // is      (exact equality)
-        IsCase,     // IS      (case-insensitive equality)
-        IsNot,      // is not
-        IsNotCase,  // IS not
-        Greater,    // >
-        Less,       // <
-        GreaterEq,  // >=
-        LessEq      // <=
+        Add,
+        Sub,
+        Mul,
+        Div,
+        Is,
+        IsCase,
+        IsNot,
+        IsNotCase,
+        Greater,
+        Less,
+        GreaterEq,
+        LessEq
     };
 
     enum class UnOp
     {
-        Not,    // !
-        Negate  // -
+        Not,
+        Negate
     };
 
     inline const char *binOpName(BinOp op)
@@ -206,35 +195,21 @@ namespace cuff
 
     struct RegexMatchExpr
     {
-        std::unique_ptr<Expr> target; // the string being matched
-        bool caseInsensitive;         // IS vs is
-        std::string pattern;          // raw pattern string
+        std::unique_ptr<Expr> target;
+        bool caseInsensitive;
+        std::string pattern;
         SourceLocation loc;
         RegexMatchExpr(std::unique_ptr<Expr> t, bool ci, std::string p, SourceLocation l)
             : target(std::move(t)), caseInsensitive(ci), pattern(std::move(p)), loc(l) {}
     };
 
-    // =========================================================================
-    // Pattern-matching command expressions (see docs/REGEX.md).
-    //
-    // `pattern` is filled in when the pattern was written as a literal string
-    // (the common case) — it is compiled once, eagerly, at parse time, so a
-    // malformed literal pattern is reported immediately as a RegexSyntaxError
-    // rather than only when that line of the program happens to execute.
-    // `patternExpr` is filled in instead when the pattern is a dynamic
-    // expression (e.g. a variable) — compiled lazily, once, the first time
-    // that expression is evaluated. Exactly one of the two is non-null/non-empty.
-    // Flags is the raw suffix letters (any subset of "gim"), or empty.
-    // =========================================================================
-
     struct PatternArg
     {
-        std::string literalPattern;         // used when isLiteral == true
-        std::unique_ptr<Expr> dynamicExpr;  // used when isLiteral == false
+        std::string literalPattern;
+        std::unique_ptr<Expr> dynamicExpr;
         bool isLiteral = true;
     };
 
-    // match <target> from <pattern> [flags]
     struct MatchFromExpr
     {
         std::unique_ptr<Expr> target;
@@ -243,7 +218,6 @@ namespace cuff
         SourceLocation loc;
     };
 
-    // find <pattern> from <target> [flags]
     struct FindExpr
     {
         PatternArg pattern;
@@ -252,7 +226,6 @@ namespace cuff
         SourceLocation loc;
     };
 
-    // replace <pattern> in <target> to <replacement> [flags]
     struct PatternReplaceExpr
     {
         PatternArg pattern;
@@ -262,7 +235,6 @@ namespace cuff
         SourceLocation loc;
     };
 
-    // split <target> by <pattern>
     struct SplitExpr
     {
         std::unique_ptr<Expr> target;
@@ -270,7 +242,6 @@ namespace cuff
         SourceLocation loc;
     };
 
-    // count <pattern> in <target> [flags]
     struct CountExpr
     {
         PatternArg pattern;
@@ -278,10 +249,6 @@ namespace cuff
         std::string flags;
         SourceLocation loc;
     };
-
-    // =========================================================================
-    // Expression variant
-    // =========================================================================
 
     enum class ExprKind
     {
@@ -334,10 +301,6 @@ namespace cuff
             CountExpr>
             data;
 
-        // `height` is the length of the longest path down to a leaf. Bounding it
-        // keeps evaluation, printing and destruction of the tree (all recursive)
-        // safe even for left-associative chains like `1+1+1+...`, which the
-        // parser builds iteratively.
         template <typename T>
         Expr(ExprKind k, T &&v) : kind(k), data(std::forward<T>(v))
         {
@@ -351,9 +314,6 @@ namespace cuff
             }
         }
 
-        // AST nodes own their children through unique_ptr, so the tree as a
-        // whole is move-only. Declared explicitly so an accidental copy fails
-        // at the call site with a clear "deleted function" error.
         Expr(const Expr &) = delete;
         Expr &operator=(const Expr &) = delete;
         Expr(Expr &&) = default;
@@ -430,17 +390,11 @@ namespace cuff
         };
     };
 
-    // =========================================================================
-    // Statement nodes
-    // =========================================================================
-
     struct DeclarationStmt
     {
-        // set [type] [name] to [value]
-        // set constant [type] [name] to [value]
-        std::string varType; // "number", "str", "list", "map", "boolean", "empty"
+        std::string varType;
         std::string name;
-        uint32_t nameId = 0; // interned `name`, set by the parser
+        uint32_t nameId = 0;
         bool isConstant = false;
         std::unique_ptr<Expr> value;
         SourceLocation loc;
@@ -448,33 +402,60 @@ namespace cuff
 
     struct ChangeStmt
     {
-        // change [name] to [value]                      -- plain reassignment
-        // change [name][index]...[index] to [value]      -- indexed assignment
-        //   (into a list element, or a map key — auto-vivifies missing map keys)
-        // change [name] to global                        -- declare-global marker
-        //   (must appear alone, in a function body, before mutating a global;
-        //    `value` and `indices` are unused when toGlobal is true)
         std::string name;
-        uint32_t nameId = 0; // interned `name`, set by the parser
+        uint32_t nameId = 0;
         std::vector<std::unique_ptr<Expr>> indices;
         std::unique_ptr<Expr> value;
         bool toGlobal = false;
         SourceLocation loc;
     };
 
+    // Parameter type categories represented by this AST node.
+    enum class ParamType : uint8_t
+    {
+        Any,
+        Number,
+        Str,
+        Boolean,
+        List,
+        Map,
+        Match
+    };
+
+    inline const char *paramTypeName(ParamType t)
+    {
+        switch (t)
+        {
+        case ParamType::Number:
+            return "number";
+        case ParamType::Str:
+            return "str";
+        case ParamType::Boolean:
+            return "boolean";
+        case ParamType::List:
+            return "list";
+        case ParamType::Map:
+            return "map";
+        case ParamType::Match:
+            return "match";
+        case ParamType::Any:
+            break;
+        }
+        return "";
+    }
+
     struct FunctionDecl
     {
-        // A function can be async, returnable, pure, any combination, or
-        // none (e.g. `set async returnable function fetch() do: ... end`).
-        // The modifiers are independent, so they're tracked as separate
-        // flags rather than a single enum.
         bool isAsync = false;
         bool isReturnable = false;
-        bool isPure = false; // 'pure': body cannot read or write global-scope variables
+        bool isPure = false;
         std::string name;
-        uint32_t nameId = 0; // interned `name`, set by the parser
+        uint32_t nameId = 0;
         std::vector<std::string> params;
-        std::vector<uint32_t> paramIds; // interned `params`, set by the parser
+        std::vector<uint32_t> paramIds;
+        // Parameter type information stored for the function declaration.
+        std::vector<ParamType> paramTypes;
+        bool hasTypedParams = false;
         std::vector<std::unique_ptr<Stmt>> body;
         SourceLocation loc;
     };
@@ -483,7 +464,7 @@ namespace cuff
     {
         struct Branch
         {
-            std::unique_ptr<Expr> condition; // nullptr for else branch
+            std::unique_ptr<Expr> condition;
             std::vector<std::unique_ptr<Stmt>> body;
         };
         std::vector<Branch> branches;
@@ -499,13 +480,11 @@ namespace cuff
         };
         LoopKind kind;
 
-        // repeat: variable name, start expr, end expr
         std::string repeatVar;
-        uint32_t repeatVarId = 0; // interned `repeatVar`, set by the parser
+        uint32_t repeatVarId = 0;
         std::unique_ptr<Expr> repeatStart;
         std::unique_ptr<Expr> repeatEnd;
 
-        // while: condition expr
         std::unique_ptr<Expr> condition;
 
         std::vector<std::unique_ptr<Stmt>> body;
@@ -537,8 +516,14 @@ namespace cuff
     struct UseStmt
     {
         bool isDLC;
-        std::string name;
-        std::string path;
+        struct DLCName
+        {
+            std::string name;
+            SourceLocation loc;
+        };
+        std::vector<DLCName> dlcs;  // DLC form only
+        std::string name;  // module form only
+        std::string path;  // module form only
         SourceLocation loc;
     };
 
@@ -550,7 +535,6 @@ namespace cuff
             : expr(std::move(e)), loc(l) {}
     };
 
-    // Collection manipulation: add / remove / replace
     struct CollectionOpStmt
     {
         enum class OpKind
@@ -561,34 +545,24 @@ namespace cuff
         };
         OpKind opKind;
 
-        // add [value] to [collectionName]
         std::unique_ptr<Expr> addValue;
         std::string collectionName;
-        uint32_t collectionNameId = 0; // interned, set by the parser
+        uint32_t collectionNameId = 0;
 
-        // replace [collection][index/key] to [newValue]
-        // or replace [collection]["key"] to [newValue]
-        std::unique_ptr<Expr> indexOrKey; // for replace
-        std::unique_ptr<Expr> newValue;   // for replace
+        std::unique_ptr<Expr> indexOrKey;
+        std::unique_ptr<Expr> newValue;
 
-        // remove [index/key/value] from [collectionName]
-        std::unique_ptr<Expr> removeValue; // for remove
+        std::unique_ptr<Expr> removeValue;
 
         SourceLocation loc;
     };
 
-    // or_else error handling: [stmt] or_else do: ... end
     struct OrElseStmt
     {
-        // The "dangerous" statement that might fail — typically an await or function call
         std::unique_ptr<Stmt> primaryStmt;
         std::vector<std::unique_ptr<Stmt>> fallbackBody;
         SourceLocation loc;
     };
-
-    // =========================================================================
-    // Statement variant
-    // =========================================================================
 
     enum class StmtKind
     {
@@ -627,20 +601,15 @@ namespace cuff
         template <typename T>
         Stmt(StmtKind k, T &&v) : kind(k), data(std::forward<T>(v)) {}
 
-        // Move-only for the same reason as Expr above.
         Stmt(const Stmt &) = delete;
         Stmt &operator=(const Stmt &) = delete;
         Stmt(Stmt &&) = default;
         Stmt &operator=(Stmt &&) = default;
     };
 
-    // =========================================================================
-    // Program root
-    // =========================================================================
-
     struct Program
     {
         std::vector<std::unique_ptr<Stmt>> statements;
     };
 
-} // namespace cuff
+}

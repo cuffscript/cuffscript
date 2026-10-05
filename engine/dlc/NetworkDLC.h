@@ -7,7 +7,6 @@
 namespace cuff
 {
 
-    // ---- DLC:network ----
     // A real (plain-HTTP-only) client, backed by engine/net/HttpClient.h — see
     // that file for the socket-level implementation and the SSRF guard.
     struct NetworkDLCOptions

@@ -8,7 +8,6 @@
 namespace cuff
 {
 
-    // ---- DLC:convert ----
     inline void registerConvertDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
         reg["to_number"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -21,10 +20,7 @@ namespace cuff
                 return Value::makeNumber(v.asBool() ? 1.0 : 0.0);
             if (v.isStr())
             {
-                // Only plain decimal text is accepted: partial parses like
-                // "12abc" and forms like "nan", "inf" or hex floats would hide
-                // bugs, so the whole string (minus surrounding whitespace)
-                // must be an ordinary finite number.
+                // Plain finite decimal text only; partial parses ("12abc") and nan/inf/hex would hide bugs.
                 double d;
                 if (!textutil::parseDecimal(v.asStr(), d))
                     throw ValueError("to_number() could not parse \"" + v.asStr() + "\" as a number", loc);
@@ -48,4 +44,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

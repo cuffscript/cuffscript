@@ -32,7 +32,6 @@ namespace cuff
             return cpCount_;
         }
 
-        // Byte offset of the codepoint at 0-based index `cp` (cp == codepoints() gives size()).
         size_t offsetOf(size_t cp) const
         {
             if (ascii())
@@ -83,4 +82,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

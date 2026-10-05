@@ -5,13 +5,6 @@
 namespace cuff
 {
 
-    // ---- DLC:json ----
-    // JSON maps onto CuffScript's value model almost exactly: object -> map,
-    // array -> list, string/number/true/false/null -> str/number/boolean/empty.
-    // Parsing is strict (RFC 8259): trailing commas, single quotes, unquoted
-    // keys, and NaN/Infinity are all rejected, because silently accepting them
-    // is how malformed data reaches production unnoticed.
-
     inline void jsonEscapeInto(const std::string &s, std::string &out)
     {
         out += '"';
@@ -36,8 +29,6 @@ namespace cuff
                 }
                 else
                 {
-                    // UTF-8 bytes pass through unescaped — valid JSON, and it
-                    // keeps Korean/emoji readable instead of \uXXXX soup.
                     out += static_cast<char>(c);
                 }
             }
@@ -283,8 +274,6 @@ namespace cuff
                 case 'u':
                 {
                     unsigned int cp = parseHex4();
-                    // Surrogate pair -> single codepoint, so \ud55c\uc544 style
-                    // input round-trips to real UTF-8 rather than mojibake.
                     if (cp >= 0xD800 && cp <= 0xDBFF && pos_ + 1 < t_.size() &&
                         t_[pos_] == '\\' && t_[pos_ + 1] == 'u')
                     {
@@ -312,7 +301,6 @@ namespace cuff
             if (peek() == '-') ++pos_;
             if (atEnd() || !(peek() >= '0' && peek() <= '9'))
                 fail("invalid number");
-            // JSON forbids leading zeros ("01"), so accept "0" or [1-9][0-9]*
             if (peek() == '0') ++pos_;
             else while (!atEnd() && peek() >= '0' && peek() <= '9') ++pos_;
             if (!atEnd() && peek() == '.')
@@ -364,6 +352,4 @@ namespace cuff
         };
     }
 
-    // Dispatches `use DLC:<name>` to the right registration function.
-
-} // namespace cuff
+}

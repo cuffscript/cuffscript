@@ -12,7 +12,7 @@
 | `05_scoping_and_globals.cuff` | 함수 레벨 스코프, `change x to global` |
 | `06_error_recovery.cuff` | `or_else`가 실패한 선언을 어떻게 복구하는지 |
 | `07_functions_async.cuff` | 재귀 `returnable` 함수, `async`+`returnable` 조합 |
-| `08_dlc_libraries.cuff` | `DLC:math`/`DLC:string`/`DLC:random`/`DLC:list`/`DLC:convert` (함수 이름은 `math_sqrt`, `str_upper`, `list_sort`처럼 `라이브러리_동사` 형태) |
+| `08_dlc_libraries.cuff` | `DLC:math`/`DLC:string`/`DLC:random`/`DLC:list`/`DLC:convert` (함수 이름은 `math_sqrt`, `str_upper`, `list_sort`처럼 `라이브러리_동사` 형태, `use DLC:a, DLC:b`로 한 줄에 여러 개도 가능) |
 | `09_modules_demo.cuff` + `lib/greetings.cuff` | `use <이름> from <경로>`로 다른 `.cuff` 파일 불러오기 |
 | `10_async_ordering.cuff` | `await` 없이 부른 `async` 함수가 동기 코드가 끝난 뒤 큐 순서대로(FIFO) 실행되는 것 확인 (협력적 스케줄링이며 동시 실행이 아님) |
 | `11_utf8_strings.cuff` | 한글 등 멀티바이트 문자열의 UTF-8 코드포인트 기준 인덱싱/슬라이싱/`length()` |

@@ -7,9 +7,6 @@
 namespace cuff
 {
 
-    // Shared cursor state for all scanner modules.
-    // Tracks position in the source, line/column for error reporting,
-    // and whether the next token is preceded by whitespace.
     class ScanState
     {
     public:
@@ -54,8 +51,7 @@ namespace cuff
             return SourceLocation(line, column, offset);
         }
 
-        // Skip inline whitespace (spaces/tabs/CR), tracking space-before flag.
-        // Does NOT skip newlines — the main loop handles those.
+        // Skips inline whitespace but leaves newlines for the tokenizer.
         void skipInlineWhitespace()
         {
             while (!atEnd())
@@ -74,4 +70,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

@@ -1,4 +1,4 @@
-note: E3005
+note: E3-005
 if "x" is "[num]++" do:
     print("unreachable")
 end

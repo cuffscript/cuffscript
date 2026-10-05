@@ -1,4 +1,4 @@
-note: E4024
+note: E4-024
 loop repeat i to 1 ~ 2.5 do:
     print(i)
 end

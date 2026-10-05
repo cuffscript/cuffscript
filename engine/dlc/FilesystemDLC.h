@@ -9,20 +9,10 @@
 namespace cuff
 {
 
-    // ---- DLC:filesystem ----
-    // Every path is resolved relative to, and confined inside, the sandbox
-    // root the host configured (CuffEngine::Options::rootDir, defaulting to
-    // the running script's own directory) — the exact same root `use ... from
-    // ...` module imports are confined to (Interpreter::moduleRoot_). An
-    // absolute path, or a relative path that escapes the root (e.g.
-    // `../../etc/passwd`), is rejected with a loud FilesystemAccessDenied
-    // error rather than silently failing, since that's a script trying to
-    // reach outside its sandbox — worth surfacing clearly, unlike an ordinary
-    // "file not found". Once a path clears that check, ordinary OS-level
-    // failures (missing file, permission denied, ...) are reported the quiet
-    // way each function's own table entry promises (`empty`/`false`), not by
-    // throwing — a missing file is a completely normal thing for a script to
-    // check for with `file_exist()` first.
+// All paths are confined to the host-configured sandbox root.
+// Sandbox violations throw; ordinary filesystem failures return
+// the function's normal failure value.
+
     struct FilesystemDLCOptions
     {
         bool enabled = true;
@@ -43,8 +33,7 @@ namespace cuff
                           loc, "use a path relative to, and inside, the script's directory (or the host's configured rootDir)");
     }
 
-    // Resolves `rawPath` against opts.root and rejects anything that would
-    // escape it. Returns the resolved (not-necessarily-existing) path.
+    // Resolves `rawPath` against opts.root and rejects anything that would escape it.
     inline std::filesystem::path resolveSandboxedPath(const char *fn, const std::string &rawPath,
                                                        const FilesystemDLCOptions &opts, const SourceLocation &loc)
     {
@@ -98,10 +87,7 @@ namespace cuff
             auto sz = std::filesystem::file_size(resolved, ec);
             if (ec)
                 return Value::makeEmpty();
-            // Checked against the file's stat'd size *before* allocating or
-            // reading anything, unlike slurping the whole thing first — a
-            // multi-gigabyte file on the sandboxed filesystem shouldn't be
-            // able to force a multi-gigabyte allocation just to get rejected.
+            // Checked against the file's stat'd size before allocating or reading.
             if (sz > limits::kMaxStringBytes)
                 throw CuffRuntimeError(ErrorCode::SizeLimitExceeded,
                                        "file_read(): file exceeds the maximum allowed string size", loc);
@@ -190,4 +176,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

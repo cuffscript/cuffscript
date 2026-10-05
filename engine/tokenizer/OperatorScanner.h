@@ -9,8 +9,6 @@
 namespace cuff
 {
 
-    // Scans operators and delimiters.
-    // Multi-char operators (>=, <=, or_else) checked before single-char ones.
     inline Token scanOperator(ScanState &s)
     {
         SourceLocation start = s.here();
@@ -22,7 +20,6 @@ namespace cuff
             return Token(tt, label, start, s.pendingSpaceBefore);
         };
 
-        // Two-char operators first
         if (c == '>')
         {
             s.advance();
@@ -44,9 +41,7 @@ namespace cuff
             return Token(TokenType::LT, "<", start, s.pendingSpaceBefore);
         }
 
-        // or_else keyword — scanned here because '_' is not isAlpha
-        // Actually '_' IS isAlpha, so "or_else" would be scanned as a WORD by scanIdentifier.
-        // The lexer classifies it. No special handling needed here.
+        // or_else is scanned before identifiers, which would otherwise read it as a plain WORD.
 
         switch (c)
         {
@@ -81,12 +76,10 @@ namespace cuff
         case '~':
             return make(TokenType::TILDE, "~");
         case '=':
-            // '=' is not used as assignment in CuffScript (uses 'to'),
-            // but >= and <= are handled above. A standalone '=' is an error.
             throw SyntaxError("unexpected '=' — CuffScript uses 'to' for assignment, not '='", start);
         default:
             throw SyntaxError(std::string("Unexpected character '") + static_cast<char>(c) + "'", start);
         }
     }
 
-} // namespace cuff
+}

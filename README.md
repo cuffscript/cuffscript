@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/License-Apache%202.0-red?style=flat" alt="Apache 2.0 license" />
 </p>
 
-CuffScript is a scripting language that is as easy as a game, as light as a feather, and as fast as a flash. This repository includes its language engine, command-line runner, built-in libraries, and runnable examples.
+CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository includes its language engine, command-line runner, built-in libraries, and runnable examples.
 
 The engine can be used through the command-line interpreter or embedded in a C++ application.
 

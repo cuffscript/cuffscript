@@ -1,10 +1,5 @@
 #pragma once
 
-// The DLC (library) implementations themselves live under engine/dlc/ —
-// one file per library, plus DLCCommon.h for the argument-checking helpers
-// and UTF-8 text utilities several of them share. This file is now just:
-// the always-available core builtins (print/input/type_of, no 'use' needed),
-// and registerDLC(), the single dispatcher `use DLC:name` calls into.
 #include "Value.h"
 #include "../dlc/DLCCommon.h"
 #include "../dlc/MathDLC.h"
@@ -22,8 +17,6 @@
 
 namespace cuff
 {
-
-    // ---- Always-available builtins ----
 
     inline void registerConvertDLC(std::unordered_map<std::string, NativeFn> &reg);
 
@@ -62,9 +55,7 @@ namespace cuff
             return Value::makeStr(valueTypeName(args[0].type()));
         };
 
-        // to_number/to_str/to_boolean are common enough to be core builtins
-        // rather than requiring `use DLC:convert` first. `use DLC:convert`
-        // still works — it just re-registers the same functions.
+        // Conversion functions are available as core builtins.
         registerConvertDLC(reg);
     }
 
@@ -97,4 +88,4 @@ namespace cuff
                                "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:list, DLC:map, DLC:convert, DLC:json, DLC:network, DLC:filesystem");
     }
 
-} // namespace cuff
+}

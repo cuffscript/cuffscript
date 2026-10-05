@@ -12,45 +12,18 @@
 namespace cuff
 {
 
-    // =========================================================================
-    // Scoping model (see docs/SPEC.md "함수 레벨 스코프"):
-    //
-    //  - CuffScript has no nested functions/closures, so a function call only
-    //    ever sees the global scope plus its own locals -- never a caller's
-    //    locals. Each function call gets a fresh, function-scope Environment
-    //    whose `parent_` is null; `global_` points at the one true global
-    //    Environment for fallback reads and explicit `global` writes.
-    //
-    //  - `if`/`loop` bodies do NOT introduce a new scope (matching Python:
-    //    a variable set inside an `if` stays visible for the rest of the
-    //    function). The interpreter simply reuses the current Environment
-    //    for those bodies -- see Interpreter::execBlock.
-    //
-    //  - `or_else` fallback bodies DO get their own block-local Environment
-    //    (spec: "새로운 변수를 선언할 수도 있으며, 이 경우 블록 내 로컬
-    //    스코프를 갖습니다"). These chain to their enclosing Environment via
-    //    `parent_` for reads/writes of pre-existing names, while `set`
-    //    always declares into the innermost (block) scope.
-    //
-    //  - Reading an undeclared local implicitly falls back to the global
-    //    scope (Python-like). *Writing* via `change` to a name that isn't
-    //    already local requires either that the name already exists locally,
-    //    or that it was explicitly bridged with `change name to global`
-    //    first -- `change` never silently creates a new global.
-    // =========================================================================
     class Environment
     {
     public:
-        // Root/global scope.
         Environment() : parent_(nullptr), global_(this), isFunctionScope_(true) {}
 
+        // Function scopes are isolated from callers; block scopes chain to their enclosing scope.
         enum class Kind
         {
-            FunctionScope, // isolated from the caller; `ref` is the true global env
-            BlockScope     // chains to `ref` for reads/writes; `set` still local
+            FunctionScope,
+            BlockScope
         };
 
-        // Function-call or or_else-block scope. See Kind above.
         Environment(Kind kind, Environment &ref)
             : parent_(kind == Kind::BlockScope ? &ref : nullptr),
               global_(kind == Kind::FunctionScope ? &ref : ref.global_),
@@ -58,18 +31,12 @@ namespace cuff
         {
         }
 
-        // Environments are referenced by raw pointer from other Environments
-        // (parent_/global_) and are always created as stack-local variables
-        // whose lifetime nests correctly with their parent's — see
-        // Interpreter::callUserFunction / execOrElse. Copying or moving one
-        // after the fact would silently invalidate those back-pointers, so
-        // both are disabled outright rather than risking a dangling pointer.
+        // Environments are stack-local and referenced by raw pointer, so lifetimes must nest.
         Environment(const Environment &) = delete;
         Environment &operator=(const Environment &) = delete;
         Environment(Environment &&) = delete;
         Environment &operator=(Environment &&) = delete;
 
-        // `set` always declares into *this* (innermost) scope.
         void declare(uint32_t nameId, Value value, bool isConstant)
         {
             if (Value *existing = findLocal(nameId))
@@ -97,35 +64,19 @@ namespace cuff
             return true;
         }
 
-        // Convenience overload for the few paths that only have a name string
-        // (module merging). Interning is a hash lookup, so it stays off the
-        // hot path where the parser already supplied an id.
         void declare(const std::string &name, Value value, bool isConstant)
         {
             declare(internName(name), std::move(value), isConstant);
         }
 
-        // Pre-sizes the local variable table — called once per function call
-        // with the parameter count, so binding N parameters is one allocation.
         void reserve(size_t n) { vars_.reserve(n); }
 
-        // Reuses a previously-released vars_ buffer (see Interpreter's
-        // per-call environment pool) instead of starting from an empty
-        // vector, so a hot recursive call doesn't pay for a fresh heap
-        // allocation on every invocation. Only the raw storage is reused —
-        // it's cleared first, and this environment's own index_/constants_
-        // are unaffected (a freshly constructed Environment already has
-        // neither).
         void adoptStorage(std::vector<std::pair<uint32_t, Value>> &&storage)
         {
             storage.clear();
             vars_ = std::move(storage);
         }
 
-        // Hands back this environment's vars_ storage so a later call can
-        // adopt it (see adoptStorage). Only call this once vars_ is no
-        // longer needed — e.g., right after execBlock returns, before the
-        // Environment itself goes out of scope.
         std::vector<std::pair<uint32_t, Value>> releaseStorage() { return std::move(vars_); }
 
         bool isDeclaredHere(uint32_t nameId) const
@@ -133,10 +84,7 @@ namespace cuff
             return const_cast<Environment *>(this)->findLocal(nameId) != nullptr;
         }
 
-        // Mark `name` as referring to the global scope for the rest of this
-        // function call (`change name to global`). Applied to the nearest
-        // enclosing function-scope environment so it survives through any
-        // block scopes (or_else) nested inside the same call.
+        // Marks the name as a global bridge for this function call.
         void declareGlobal(uint32_t nameId)
         {
             Environment *e = this;
@@ -149,24 +97,10 @@ namespace cuff
         struct Lookup
         {
             Value *value = nullptr;
-            Environment *owner = nullptr; // environment that actually stores it
+            Environment *owner = nullptr;
         };
 
-        // Used for both reads and change-writes: walks block scopes up to
-        // the nearest function-scope environment, then (if not found there
-        // and not explicitly global-declared) falls back to true global.
-        //
-        // A real local binding at any level ALWAYS wins over `globalDeclared_`
-        // at the function-scope level — checked here in that order — so that
-        // a loop variable, parameter, or plain `set` local can shadow a
-        // `change name to global` bridge of the same name exactly the way a
-        // local shadows an implicit-fallback global everywhere else in the
-        // language. Checking `globalDeclared_` first (as an earlier version
-        // of this method did) let a bridge silently and permanently hide any
-        // same-named local declared anywhere in the same call — most visibly
-        // with a loop variable reusing a bridged name, where every read
-        // inside the loop body kept returning the stale global value instead
-        // of the loop's own counter.
+        // Local bindings win over `change x to global`; otherwise lookup falls back to the true global scope.
         Lookup resolve(uint32_t nameId)
         {
             Environment *e = this;
@@ -187,7 +121,6 @@ namespace cuff
                 }
                 e = e->parent_;
             }
-            // Implicit read fallback to true global (Python-like).
             if (e != e->global_)
             {
                 if (Value *v = e->global_->findLocal(nameId))
@@ -205,36 +138,23 @@ namespace cuff
 
         Environment *globalEnv() { return global_; }
 
-        // Introspection used only for merging a freshly-executed module's
-        // top-level bindings into the importing script's scope (see
-        // Interpreter::loadCustomModule).
         const std::vector<std::pair<uint32_t, Value>> &localVars() const { return vars_; }
         bool isConstantHere(uint32_t nameId) const
         {
             return std::find(constants_.begin(), constants_.end(), nameId) != constants_.end();
         }
 
-
     private:
         Environment *parent_;
         Environment *global_;
         bool isFunctionScope_;
-        // Scopes are small in practice (a function's parameters plus a handful
-        // of locals), and a linear scan over a contiguous vector beats hashing
-        // there: it needs one allocation for the whole scope instead of one
-        // node per variable, and most name comparisons fail on length or the
-        // first character. Measured: binding 3 parameters went from ~181ns to
-        // ~57ns. The global scope can grow larger, so it gets a lazily-built
-        // index once it passes kIndexThreshold entries (see findLocal).
         std::vector<std::pair<uint32_t, Value>> vars_;
         std::vector<uint32_t> constants_;
         std::vector<uint32_t> globalDeclared_;
         std::unique_ptr<std::unordered_map<uint32_t, size_t>> index_;
         static constexpr size_t kIndexThreshold = 16;
 
-        // vars_ is append-only, so an existing index never goes stale: new
-        // entries are added to it as they arrive, and it is built once when
-        // the scope first crosses kIndexThreshold.
+        // vars_ is append-only, so the name index never goes stale.
         void append(uint32_t nameId, Value value)
         {
             vars_.emplace_back(nameId, std::move(value));
@@ -274,4 +194,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

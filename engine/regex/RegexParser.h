@@ -12,39 +12,17 @@
 namespace cuff::regex
 {
 
-    // Recursive-descent compiler: pattern text -> RNode tree.
-    //
-    // Grammar (informal — see docs/REGEX.md):
-    //   Sequence   := Atom*
-    //   Atom       := PrimaryAtom Quantifier?
-    //   PrimaryAtom:=
-    //         '(' Sequence ')'                    -> numbered Group
-    //       | '<' name ':' Sequence '>'            -> NamedGroup
-    //       | '[' BracketBody ']'                  -> CharTest / Preset / OneOf / anchors
-    //       | '\' EscapedChar                      -> literal CharTest
-    //       | AnyOtherChar                         -> literal CharTest
-    //   Quantifier := ('+' | '*' | '?' | Digits ('~' Digits?)? | '~' Digits) '?'?
-    //
-    // There is no bare top-level alternation (`|`) outside of `[one:...]` —
-    // the language spec never shows one, so keeping the grammar to this
-    // (much simpler, unambiguous) shape is a deliberate scope decision.
     class RegexParser
     {
     public:
-        // `loc` is only used to attribute thrown errors to a sensible source
-        // location in the *host* CuffScript program (the pattern string
-        // itself has no meaningful line/column of its own).
         RegexParser(const std::string &pattern, cuff::SourceLocation loc)
             : text_(pattern), loc_(loc), pos_(0), nextGroupIndex_(1) {}
 
-        // Returns the compiled root (always a Sequence node) plus how many
-        // numbered capture groups it declared.
         RNodePtr parse(int &outGroupCount)
         {
-            RNodePtr root = parseSequence(/*stopChars=*/"");
+            RNodePtr root = parseSequence("");
             if (pos_ != text_.size())
             {
-                // A stray unmatched closing bracket of some kind.
                 fail(cuff::ErrorCode::RegexUnexpectedCharacter,
                      std::string("pattern has an unexpected trailing character '") + text_[pos_] + "'");
             }
@@ -59,8 +37,6 @@ namespace cuff::regex
         int nextGroupIndex_;
         int nesting_ = 0;
 
-        // Groups are parsed recursively, so their nesting depth is capped to
-        // keep a hostile pattern from exhausting the native stack.
         struct NestingScope
         {
             RegexParser &p;
@@ -102,9 +78,6 @@ namespace cuff::regex
             return static_cast<int>(value);
         }
 
-        // Sequence of atoms, stopping at end-of-text or when the current
-        // character is one of `stopChars` (used for ')' and '>' terminators
-        // of nested groups — the caller consumes the terminator itself).
         RNodePtr parseSequence(const std::string &stopChars)
         {
             RNodePtr seq = makeNode(RNodeKind::Sequence);
@@ -133,7 +106,7 @@ namespace cuff::regex
                 RNodePtr inner = parseSequence(")");
                 if (atEnd())
                     fail(cuff::ErrorCode::RegexUnclosedGroup, "unclosed '(' — missing ')'");
-                advance(); // consume ')'
+                advance();
                 RNodePtr g = makeNode(RNodeKind::Group);
                 g->groupIndex = idx;
                 g->child = inner;
@@ -150,17 +123,16 @@ namespace cuff::regex
                     fail(cuff::ErrorCode::RegexEmptyToken, "named capture is missing a name, e.g. <name:...>");
                 if (atEnd() || peek() != ':')
                     fail(cuff::ErrorCode::RegexUnclosedGroup, "named capture <" + name + "...> is missing ':'");
-                // Colon-spacing rule: no space directly before ':'.
                 if (!name.empty() && (name.back() == ' ' || name.back() == '\t'))
                     fail(cuff::ErrorCode::RegexInvalidColonSpacing,
                          "no space is allowed before ':' in a named capture",
                          "write <" + trimTrailingSpace(name) + ":...> instead");
-                advance(); // consume ':'
+                advance();
                 NestingScope nest(*this);
                 RNodePtr inner = parseSequence(">");
                 if (atEnd())
                     fail(cuff::ErrorCode::RegexUnclosedGroup, "unclosed named capture '<" + name + ":...>' — missing '>'");
-                advance(); // consume '>'
+                advance();
                 RNodePtr g = makeNode(RNodeKind::NamedGroup);
                 g->groupName = name;
                 g->child = inner;
@@ -192,18 +164,6 @@ namespace cuff::regex
                      std::string("unexpected '") + c + "' with no matching opener");
             }
 
-            // Every other character (including '.') is a plain literal.
-            // Design decision: unlike traditional regex, '.' is NOT a wildcard
-            // here — CuffScript already provides [any] for that — so literal
-            // dots (extremely common in emails/filenames/version strings)
-            // compare exactly like every other character. `\.` is still
-            // accepted (see escape handling above) and produces the same node.
-            //
-            // A non-ASCII byte here starts a multi-byte UTF-8 character (e.g.
-            // a literal Korean character written directly in the pattern) —
-            // consume the whole sequence and match it as one codepoint, not
-            // byte-by-byte (which would require the *text* to also happen to
-            // split at the same byte offsets to match).
             {
                 unsigned char uc = static_cast<unsigned char>(c);
                 size_t seqLen = cuff::utf8::seqLen(uc);
@@ -241,26 +201,21 @@ namespace cuff::regex
             return n;
         }
 
-        // Parses the content of '[' ... ']' — dispatches to a named class,
-        // a preset, [one:...], an anchor/boundary token, or a literal/range
-        // character set (with optional leading '!' negation).
         RNodePtr parseBracket()
         {
-            advance(); // consume '['
+            advance();
             size_t bodyStart = pos_;
 
-            // Find the matching ']' (patterns never nest brackets).
             size_t closeAt = text_.find(']', pos_);
             if (closeAt == std::string::npos)
                 fail(cuff::ErrorCode::RegexUnclosedBracket, "unclosed '[' — missing ']'");
 
             std::string body = text_.substr(bodyStart, closeAt - bodyStart);
-            pos_ = closeAt + 1; // consume through ']'
+            pos_ = closeAt + 1;
 
             if (body.empty())
                 fail(cuff::ErrorCode::RegexEmptyToken, "empty '[]' token");
 
-            // Named-class / preset / anchor tokens (exact keyword match).
             if (body == "num")
                 return classNode(classNum);
             if (body == "let")
@@ -298,20 +253,12 @@ namespace cuff::regex
             if (body == "url")
                 return presetNode(PresetKind::Url);
 
-            // Route to the [one:...] alternative-selection parser whenever the
-            // body contains a ':' and the part before it (ignoring trailing
-            // spaces, so "[one :a|b]" is recognized as a *misspaced* one-token
-            // rather than silently falling through) is "one". A bare "[one]"
-            // with no colon at all is deliberately treated as an ordinary
-            // 3-character literal set {o, n, e} — there is no reserved-word
-            // collision unless a colon is actually present.
             size_t colonProbe = body.find(':');
             if (colonProbe != std::string::npos && trimTrailingSpace(body.substr(0, colonProbe)) == "one")
             {
                 return parseOneOf(body);
             }
 
-            // Negated set: '!' followed by either a named class or a literal set.
             bool negate = false;
             std::string setBody = body;
             if (!setBody.empty() && setBody[0] == '!')
@@ -323,7 +270,6 @@ namespace cuff::regex
             if (setBody.empty())
                 fail(cuff::ErrorCode::RegexEmptyToken, "empty character set '[" + body + "]'");
 
-            // Negating a named class, e.g. [!sp], [!num].
             std::function<bool(unsigned char)> base;
             if (setBody == "num")
                 base = classNum;
@@ -359,8 +305,6 @@ namespace cuff::regex
             return n;
         }
 
-        // Builds a predicate for a literal character set body like "abc" or
-        // "a-z0-9" (used for both `[abc]` and the inside of `[!...]`).
         std::function<bool(unsigned char)> buildLiteralSetPredicate(const std::string &body)
         {
             std::vector<std::pair<unsigned char, unsigned char>> ranges;
@@ -413,8 +357,6 @@ namespace cuff::regex
             return n;
         }
 
-        // [one:apple|banana|orange] — colon-spacing rule enforced, empty
-        // alternatives rejected.
         RNodePtr parseOneOf(const std::string &body)
         {
             size_t colonPos = body.find(':');
@@ -450,10 +392,6 @@ namespace cuff::regex
             return n;
         }
 
-        // Attaches an optional quantifier to `atom`. Every atom is always
-        // wrapped in a Quantified node (default {1,1,greedy} when no explicit
-        // quantifier is written) so the matcher only ever has to deal with
-        // one uniform shape.
         RNodePtr applyQuantifier(RNodePtr atom)
         {
             int minC = 1, maxC = 1;
@@ -486,7 +424,6 @@ namespace cuff::regex
                 else if (c == '~')
                 {
                     advance();
-                    // "~M" form: 0 to M
                     if (!atEnd() && isDigitChar(peek()))
                     {
                         minC = 0;
@@ -518,14 +455,12 @@ namespace cuff::regex
                         }
                         else
                         {
-                            // "N~" form: N or more, unbounded
                             minC = n1;
                             maxC = -1;
                         }
                     }
                     else
                     {
-                        // exact count
                         minC = maxC = n1;
                     }
                     sawQuantifier = true;
@@ -539,7 +474,6 @@ namespace cuff::regex
                 lazy = true;
             }
 
-            // Reject stacked/redundant quantifiers, e.g. "[num]++" or "a**".
             if (sawQuantifier && !atEnd())
             {
                 char after = peek();
@@ -567,4 +501,4 @@ namespace cuff::regex
         }
     };
 
-} // namespace cuff::regex
+}

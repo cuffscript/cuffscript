@@ -4,8 +4,14 @@ CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG
 TARGET = cuffc
 SOURCES = main.cpp
 
+# Strip symbols from the release binary (~45% smaller, no speed change). Apple's
+# linker ignores -s with a warning, so skip it there.
+ifneq ($(shell uname -s),Darwin)
+LDFLAGS = -s
+endif
+
 $(TARGET): $(SOURCES) $(wildcard engine/**/*.h engine/*.h)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SOURCES)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(SOURCES) $(LDFLAGS)
 
 clean:
 	rm -f $(TARGET)

@@ -8,8 +8,6 @@
 namespace cuff
 {
 
-    // Classifies WORD tokens into keyword tokens or identifiers.
-    // Pure lookup — no context needed.
     class KeywordClassifier
     {
     public:
@@ -94,4 +92,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

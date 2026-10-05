@@ -7,11 +7,8 @@
 namespace cuff
 {
 
-    // ---- DLC:random ----
     inline void registerRandomDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
-        // One generator shared by every registration, so `use DLC:random` in
-        // several modules doesn't reseed it and random_seed() applies everywhere.
         static const std::shared_ptr<std::mt19937_64> rng =
             std::make_shared<std::mt19937_64>(std::random_device{}());
 
@@ -57,4 +54,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

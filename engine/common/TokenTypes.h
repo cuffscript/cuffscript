@@ -5,51 +5,40 @@
 namespace cuff
 {
 
-    // Two-layer token type system:
-    //   Layer 1 (TOKENIZER output): physical token kinds — WORD, NUMBER, STRING, etc.
-    //   Layer 2 (LEXER output):     classified keyword / identifier / type tokens.
-    //
-    // The tokenizer produces raw physical tokens; the lexer re-classifies WORD tokens
-    // into specific keyword or identifier types.
-
+    // Raw tokens are classified into keywords and identifiers by the lexer.
     enum class TokenType
     {
-        // ---- Layer 1: raw tokenizer output ----
-        WORD, // alphanumeric identifier — lexer classifies into keyword/type/identifier
+        WORD,
         NUMBER,
         STRING,
         FSTRING,
 
-        // operators
         PLUS,  // +
-        MINUS, // -
+        MINUS,  // -
         STAR,  // *
-        SLASH, // /
-        GE,    // >=
-        LE,    // <=
-        GT,    // >
-        LT,    // <
+        SLASH,  // /
+        GE,  // >=
+        LE,  // <=
+        GT,  // >
+        LT,  // <
         BANG,  // ! (negation operator)
 
-        // delimiters
-        LPAREN,   // (
-        RPAREN,   // )
-        LBRACKET, // [
-        RBRACKET, // ]
-        LBRACE,   // {
-        RBRACE,   // }
-        COMMA,    // ,
-        COLON,    // :
-        DOT,      // .
-        TILDE,    // ~
+        LPAREN,  // (
+        RPAREN,  // )
+        LBRACKET,  // [
+        RBRACKET,  // ]
+        LBRACE,  // {
+        RBRACE,  // }
+        COMMA,  // ,
+        COLON,  // :
+        DOT,  // .
+        TILDE,  // ~
 
-        // structural
         NEWLINE,
-        INDENT, // indentation increase (block body)
-        DEDENT, // indentation decrease (block end)
+        INDENT,
+        DEDENT,
         EOF_TOKEN,
 
-        // ---- Layer 2: lexer-classified keyword tokens ----
         SET,
         CHANGE,
         CONSTANT,
@@ -86,22 +75,18 @@ namespace cuff
         BY,
         IN,
 
-        // type keywords
         NUMBER_TYPE,  // number
-        STR_TYPE,     // str
-        LIST_TYPE,    // list
-        MAP_TYPE,     // map
-        BOOLEAN_TYPE, // boolean
+        STR_TYPE,  // str
+        LIST_TYPE,  // list
+        MAP_TYPE,  // map
+        BOOLEAN_TYPE,  // boolean
 
-        // literals classified by lexer
         TRUE,  // true
-        FALSE, // false
+        FALSE,  // false
 
-        // comparison
-        IS_STRICT,          // is  (case-sensitive equality)
-        IS_CASEINSENSITIVE, // IS  (case-insensitive equality for English strings)
+        IS_STRICT,
+        IS_CASEINSENSITIVE,
 
-        // classified identifiers
         IDENTIFIER,
     };
 
@@ -257,4 +242,4 @@ namespace cuff
         return "UNKNOWN";
     }
 
-} // namespace cuff
+}  // namespace cuff

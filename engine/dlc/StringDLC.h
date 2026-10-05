@@ -8,7 +8,6 @@
 namespace cuff
 {
 
-    // ---- DLC:string ----
     inline void registerStringDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
         reg["str_upper"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -141,4 +140,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

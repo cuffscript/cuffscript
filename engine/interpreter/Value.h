@@ -54,18 +54,6 @@ namespace cuff
         return "unknown";
     }
 
-    // =========================================================================
-    // Value — the interpreter's runtime value representation.
-    //
-    // Strings are immutable and shared (copying a Value never copies text);
-    // List and Map are reference types held via shared_ptr, so assigning or
-    // passing one aliases the same storage. Number/Boolean/Empty are plain
-    // values.
-    //
-    // Adding a new value kind: add an entry to ValueType, add the storage
-    // alternative + make*/as*/is* helpers below, then extend the switches in
-    // truthy()/appendDisplay()/equalsImpl() at the bottom of this file.
-    // =========================================================================
     class Value
     {
     public:
@@ -149,7 +137,6 @@ namespace cuff
         const std::shared_ptr<ValueMap> &asMap() const { return std::get<5>(storage_); }
         const std::shared_ptr<MatchResult> &asMatch() const { return std::get<6>(storage_); }
 
-        // Moves the current contents out, leaving this Value empty.
         Value takeOut()
         {
             Value out;
@@ -167,8 +154,6 @@ namespace cuff
         }
         void appendDisplay(std::string &out) const;
 
-        // Structural equality (exact, case-sensitive) — the semantics of `is`.
-        // Safe on arbitrarily deep or circular structures; see equalsImpl.
         bool strictEquals(const Value &other) const;
 
     private:
@@ -191,19 +176,11 @@ namespace cuff
     struct ValueList
     {
         std::vector<Value> items;
-        // Set once, at the point a `constant list` declaration freezes a
-        // fresh copy of its value (see Interpreter::execDeclaration). Checked
-        // wherever list *contents* can be mutated (add/remove/index-assign);
-        // reassigning the *variable* that names a constant is a separate,
-        // pre-existing check in Environment/execChange. Because this lives on
-        // the value itself rather than any one variable, it also protects an
-        // alias or a function argument that ends up pointing at the same
-        // frozen list — a plain `list` variable can never set this to true.
+        // Set once, when a `constant list` declaration freezes its fresh copy.
         bool isConstant = false;
         ~ValueList();
     };
 
-    // Insertion-ordered string-keyed map (Python dict / JS object semantics).
     class ValueMap
     {
     public:
@@ -287,9 +264,7 @@ namespace cuff
         std::unordered_map<std::string, std::string> named;
     };
 
-    // Destroying a deeply nested list/map through shared_ptr destructors would
-    // recurse once per level. Nested containers are unhooked into a worklist
-    // and released one at a time, so teardown depth stays constant.
+    // Destroying a deeply nested list/map would recurse once per level through shared_ptr destructors.
     inline void dismantleValues(std::vector<Value> &items)
     {
         size_t i = 0;
@@ -499,10 +474,7 @@ namespace cuff
             }
         };
 
-        // Iterative (no native recursion, so nesting depth is unbounded). After a
-        // large number of container visits, already-compared pairs are skipped,
-        // which makes circular structures terminate: two cyclic structures with
-        // the same shape compare equal, and shared sub-structure is compared once.
+        // Iterative comparison avoids call-stack growth for deeply nested or cyclic values.
         inline bool equalsImpl(const Value &a, const Value &b)
         {
             if (a.type() != b.type())
@@ -570,7 +542,7 @@ namespace cuff
             return true;
         }
 
-    } // namespace detail
+    }
 
     inline void Value::appendDisplay(std::string &out) const
     {
@@ -620,4 +592,4 @@ namespace cuff
         return detail::equalsImpl(*this, other);
     }
 
-} // namespace cuff
+}

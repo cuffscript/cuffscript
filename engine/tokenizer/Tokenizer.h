@@ -38,54 +38,45 @@ namespace cuff
         {
             std::vector<Token> tokens;
             std::stack<int> indentStack;
-            indentStack.push(0); // base indent level
+            indentStack.push(0);
 
             bool atLineStart = true;
             bool pendingNewline = false;
 
             while (!state_.atEnd())
             {
-                // ---- Line start: handle indentation ----
                 if (atLineStart)
                 {
-                    // Skip blank lines (whitespace + optional comment + newline)
-                    // Count leading whitespace
                     int indent = 0;
                     while (!state_.atEnd() && (state_.peek() == ' ' || state_.peek() == '\t'))
                     {
-                        // Treat tab as 4 spaces for simplicity
                         indent += (state_.peek() == '\t') ? 4 : 1;
                         state_.advance();
                     }
 
-                    // If line is blank (newline or comment-only or EOF), skip indent processing
                     if (state_.atEnd() || isNewline(state_.peek()))
                     {
                         if (!state_.atEnd())
-                            state_.advance(); // consume newline
+                            state_.advance();
                         continue;
                     }
 
-                    // Check for comment-only line
                     if (state_.peek() == 'n' && isCommentAhead())
                     {
                         scanComment(state_);
-                        // After comment, skip to end of line
                         while (!state_.atEnd() && !isNewline(state_.peek()))
                             state_.advance();
                         if (!state_.atEnd())
-                            state_.advance(); // consume newline
+                            state_.advance();
                         continue;
                     }
 
-                    // Emit pending NEWLINE if needed (before indent tokens)
                     if (pendingNewline)
                     {
                         tokens.emplace_back(TokenType::NEWLINE, "\\n", state_.here(), false);
                         pendingNewline = false;
                     }
 
-                    // Emit INDENT / DEDENT tokens
                     int currentIndent = indentStack.top();
                     if (indent > currentIndent)
                     {
@@ -110,14 +101,12 @@ namespace cuff
                     continue;
                 }
 
-                // ---- Mid-line: skip whitespace, scan tokens ----
                 state_.skipInlineWhitespace();
                 if (state_.atEnd())
                     break;
 
                 int c = state_.peek();
 
-                // Newline → set pendingNewline, go to line start
                 if (isNewline(c))
                 {
                     state_.advance();
@@ -126,15 +115,12 @@ namespace cuff
                     continue;
                 }
 
-                // Comments (consumed entirely)
                 if (c == 'n' && isCommentAhead())
                 {
                     scanComment(state_);
                     continue;
                 }
 
-                // Strings and f-strings (both " and ' delimit plain strings;
-                // only " may open an f-string)
                 if (c == '"' || c == '\'' || (c == 'f' && state_.peek(1) == '"'))
                 {
                     if (c == 'f' && state_.peek(1) != '"')
@@ -149,7 +135,6 @@ namespace cuff
                     continue;
                 }
 
-                // Numbers
                 if (isDigit(c))
                 {
                     tokens.push_back(scanNumber(state_));
@@ -157,7 +142,6 @@ namespace cuff
                     continue;
                 }
 
-                // Identifiers
                 if (isAlpha(c))
                 {
                     tokens.push_back(scanIdentifier(state_));
@@ -165,25 +149,21 @@ namespace cuff
                     continue;
                 }
 
-                // Operators and delimiters
                 tokens.push_back(scanOperator(state_));
                 state_.pendingSpaceBefore = false;
             }
 
-            // Flush final newline
             if (pendingNewline || (!tokens.empty() && !tokens.back().is(TokenType::NEWLINE)))
             {
                 tokens.emplace_back(TokenType::NEWLINE, "\\n", state_.here(), false);
             }
 
-            // Emit remaining DEDENTs
             while (indentStack.top() > 0)
             {
                 indentStack.pop();
                 tokens.emplace_back(TokenType::DEDENT, "", state_.here(), false, 0);
             }
 
-            // EOF sentinel
             tokens.emplace_back(TokenType::EOF_TOKEN, "", state_.here(), false);
 
             return tokens;
@@ -199,4 +179,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

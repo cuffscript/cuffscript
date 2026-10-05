@@ -1,8 +1,7 @@
 note: 내장 DLC 라이브러리 사용 예제
 
-use DLC:math
-use DLC:string
-use DLC:random
+note: 라이브러리는 한 줄에 쉼표로 묶어서 불러와도 되고, 줄마다 따로 불러와도 됩니다 (결과는 같음)
+use DLC:math, DLC:string, DLC:random
 use DLC:list
 use DLC:convert
 

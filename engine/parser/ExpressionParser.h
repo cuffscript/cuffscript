@@ -17,23 +17,12 @@
 namespace cuff
 {
 
-    // Index/postfix parser — handles [index], [start~end], and function calls (args).
-    // (Body deferred to the bottom of this file — it calls ExpressionParser::parse,
-    //  which is declared further down in this same file.)
     class IndexParser
     {
     public:
         static std::unique_ptr<Expr> parsePostfix(ParserCore &p, std::unique_ptr<Expr> base);
     };
 
-    // Expression parser with operator precedence.
-    // Precedence (lowest to highest):
-    //   1. Comparison: is, IS, >=, <=, >, <
-    //   2. Additive: +, -
-    //   3. Multiplicative: *, /
-    //   4. Unary: ! (NOT), - (negation)
-    //   5. Postfix: index, slice, function call
-    //   6. Primary: literals, identifiers, parentheses
     class ExpressionParser
     {
     public:
@@ -42,13 +31,6 @@ namespace cuff
             return parseLogicalNot(p);
         }
 
-        // `!` is CuffScript's boolean-negation operator. Unlike C-style
-        // languages, it binds *looser* than comparison — `!lvl is MAX_LEVEL`
-        // means `!(lvl is MAX_LEVEL)`, matching how the language spec's own
-        // examples read it (the same way Python's `not` binds looser than
-        // `==`). Arithmetic negation (`-x`) is a separate, tight-binding
-        // operator handled down in parseUnary, since `-x + 1` should still
-        // mean `(-x) + 1`.
         static std::unique_ptr<Expr> parseLogicalNot(ParserCore &p)
         {
             if (p.check(TokenType::BANG))
@@ -85,9 +67,6 @@ namespace cuff
                 SourceLocation loc = opTok.location;
                 p.advance();
 
-                // "is not" / "IS not" — negated comparison. Handles the
-                // general case (`x is not y`) as well as the specific
-                // `is not empty` idiom used to check regex/match results.
                 if ((opTok.is(TokenType::IS_STRICT) || opTok.is(TokenType::IS_CASEINSENSITIVE)) &&
                     p.check(TokenType::NOT))
                 {
@@ -98,7 +77,6 @@ namespace cuff
 
                 auto right = parseAdditive(p);
 
-                // Check for regex match: is/IS (not) followed by a string literal
                 if ((opTok.is(TokenType::IS_STRICT) || opTok.is(TokenType::IS_CASEINSENSITIVE)) && right->kind == ExprKind::String)
                 {
                     std::string pattern = std::get<StringLiteral>(right->data).value;
@@ -180,8 +158,6 @@ namespace cuff
         }
     };
 
-    // ---- Deferred implementations ----
-
     inline std::unique_ptr<Expr> IndexParser::parsePostfix(ParserCore &p, std::unique_ptr<Expr> base)
     {
         while (true)
@@ -249,12 +225,6 @@ namespace cuff
         return base;
     }
 
-    // LiteralParser and ExpressionParser are mutually recursive (list/map/f-string
-    // elements are expressions, and expressions can contain list/map/f-string
-    // literals). Their bodies are defined here, after ExpressionParser is a
-    // complete type, even though they're declared inside class LiteralParser
-    // in LiteralParser.h.
-
     inline std::unique_ptr<Expr> LiteralParser::parseList(ParserCore &p)
     {
         SourceLocation loc = p.current().location;
@@ -276,7 +246,6 @@ namespace cuff
             if (p.match(TokenType::COMMA))
             {
                 p.skipNewlines();
-                // Allow a trailing comma right before ']'
                 if (p.check(TokenType::RBRACKET))
                     break;
                 elements.push_back(ExpressionParser::parse(p));
@@ -306,7 +275,6 @@ namespace cuff
             return std::make_unique<Expr>(ExprKind::Map, MapLiteral(std::move(pairs), loc));
         }
 
-        // Parse key: value pairs
         while (true)
         {
             auto key = ExpressionParser::parse(p);
@@ -323,7 +291,7 @@ namespace cuff
             if (!p.match(TokenType::COMMA))
                 break;
             p.skipNewlines();
-            if (p.check(TokenType::RBRACE)) // trailing comma
+            if (p.check(TokenType::RBRACE))
                 break;
         }
 
@@ -332,16 +300,6 @@ namespace cuff
         return std::make_unique<Expr>(ExprKind::Map, MapLiteral(std::move(pairs), loc));
     }
 
-    // A handful of keywords (`add`, `to`, `in`, `by`, `global`, `not`, `from`)
-    // are pure grammar connectors — every existing use of them is consumed
-    // via an explicit p.consume(...) at a fixed point, never dispatched on
-    // from primary-expression position (see the comment on the `default:`
-    // case below) — so treating one as a plain identifier reference here can
-    // never collide with its connector role. `match`/`find`/`replace`/
-    // `split`/`count` are different: each already has its own primary-
-    // position construct (`match X from Y`, `count "p" in y`, ...), so
-    // reusing one of those names as a variable requires telling "the
-    // construct" from "the bare name" apart — see canStartExpressionToken().
     inline bool isBareIdentifierKeyword(TokenType t)
     {
         switch (t)
@@ -359,14 +317,6 @@ namespace cuff
         }
     }
 
-    // Coarse "could an expression plausibly start here" check, used only to
-    // decide whether match/find/replace/split/count should be parsed as
-    // their regex construct (target/pattern sub-expression follows) or as a
-    // bare identifier reference (nothing expression-shaped follows). Doesn't
-    // need to be exhaustive — a false positive just means we attempt the
-    // construct and get its own, still-clear parse error instead of an
-    // identifier; a false negative just means a rarer expression shape isn't
-    // unreserved yet.
     inline bool canStartExpressionToken(TokenType t)
     {
         switch (t)
@@ -395,14 +345,6 @@ namespace cuff
         }
     }
 
-    // Like canStartExpressionToken(), but for deciding whether match/find/
-    // replace/split/count is starting its own construct versus just being a
-    // bare name — LPAREN and LBRACKET are deliberately excluded here. Postfix
-    // parsing (IndexParser::parsePostfix) turns `identifier(...)` into a call
-    // and `identifier[...]` into an index *after* parsePrimary returns a
-    // plain identifier, so `split(a, b)` or `count[0]` must come back here as
-    // bare identifiers too, or a variable/function named `split`/`count`
-    // could never be called or indexed again.
     inline bool looksLikeConstructContinuation(TokenType t)
     {
         if (t == TokenType::LPAREN || t == TokenType::LBRACKET)
@@ -410,15 +352,6 @@ namespace cuff
         return canStartExpressionToken(t);
     }
 
-    // Builds an IdentifierExpr for the current token and consumes it. Kept
-    // out of line on purpose: parsePrimary is on the recursion path of every
-    // nested expression, so its stack frame size directly bounds how deep
-    // `((((...))))` can go before the parser's stack guard trips (see the
-    // depth tests in tests/unit/limits_test.cpp) — an inlined copy of this
-    // (a std::string plus a heap Expr temporary) made that frame measurably
-    // larger under AddressSanitizer's redzones, which showed up as ~4% fewer
-    // levels of nesting than before. Shared by the ordinary IDENTIFIER case
-    // and the keyword-used-as-a-name fallbacks below.
     CUFF_NOINLINE inline std::unique_ptr<Expr> makeIdentifierExpr(ParserCore &p)
     {
         const SourceLocation loc = p.current().location;
@@ -482,10 +415,6 @@ namespace cuff
         }
         case TokenType::AWAIT:
         {
-            // await used inline as an expression, e.g.
-            //   set str result to await fetch_data()
-            // (as opposed to the bare-statement form `await fetch_data()`,
-            //  handled directly by StatementParser).
             p.advance();
             auto inner = ExpressionParser::parse(p);
             if (inner->kind != ExprKind::FunctionCall)
@@ -494,13 +423,6 @@ namespace cuff
             auto callPtr = std::make_unique<FunctionCall>(std::move(fc));
             return std::make_unique<Expr>(ExprKind::Await, AwaitExpr(std::move(callPtr), tok.location));
         }
-        // Each of these five keywords already has its own primary-position
-        // construct with a required sub-expression right after it — but
-        // none of them require ANYTHING to immediately follow if used as a
-        // bare name instead (`print(count)`, `x is count`, `[match, find]`).
-        // canStartExpressionToken() peeks one token ahead to tell "the
-        // construct is starting" from "this is just a name" without the
-        // backtracking a fully general disambiguation would need.
         case TokenType::MATCH:
             if (!looksLikeConstructContinuation(p.peek(1).type))
                 goto bareIdentifier;
@@ -522,14 +444,6 @@ namespace cuff
                 goto bareIdentifier;
             return RegexExprParser::parseCount(p);
         default:
-            // `add`/`to`/`in`/`by`/`global`/`not`/`from` are grammar
-            // connectors elsewhere but a perfectly fine variable/function
-            // name here (see isBareIdentifierKeyword()'s comment above) —
-            // every other keyword (block/control-flow keywords, type
-            // keywords, literals already handled above, ...) stays reserved,
-            // so a genuinely malformed expression still fails with a clear
-            // "unexpected token" here instead of silently naming a variable
-            // after whatever keyword happens to follow it.
             if (isBareIdentifierKeyword(tok.type))
                 goto bareIdentifier;
             throw SyntaxError("unexpected token '" + tok.value + "' in expression", tok.location);
@@ -540,21 +454,25 @@ namespace cuff
     }
 
     inline std::unique_ptr<Expr> LiteralParser::parseEmbeddedExpression(
-        const std::string &exprSource, const SourceLocation & /*fallbackLoc*/)
+        const std::string &exprSource, const SourceLocation &fallbackLoc)
     {
-        // Tokenize and lex the inner expression source
-        Tokenizer tokenizer(exprSource);
-        std::vector<Token> rawTokens = tokenizer.tokenize();
-        Lexer lexer(std::move(rawTokens));
-        std::vector<Token> innerTokens = lexer.lex();
+        try
+        {
+            Tokenizer tokenizer(exprSource);
+            std::vector<Token> rawTokens = tokenizer.tokenize();
+            for (Token &t : rawTokens)
+                t.location = fallbackLoc;
+            Lexer lexer(std::move(rawTokens));
+            std::vector<Token> innerTokens = lexer.lex();
 
-        // Create a sub-parser and parse the expression
-        ParserCore innerParser(std::move(innerTokens));
-        return ExpressionParser::parse(innerParser);
+            ParserCore innerParser(std::move(innerTokens));
+            return ExpressionParser::parse(innerParser);
+        }
+        catch (const CuffError &e)
+        {
+            throw CuffError(e.code, e.message, fallbackLoc, e.hint);
+        }
     }
-
-    // ---- RegexExprParser deferred implementations ----
-    // (mutually recursive with ExpressionParser — see RegexExprParser.h)
 
     inline PatternArg RegexExprParser::parsePatternArg(ParserCore &p)
     {
@@ -565,8 +483,6 @@ namespace cuff
             arg.literalPattern = p.current().value;
             arg.isLiteral = true;
             p.advance();
-            // Eagerly validate now — a malformed literal pattern is reported
-            // immediately as a RegexSyntaxError, at parse time.
             validatePatternLiteral(arg.literalPattern, loc);
         }
         else
@@ -686,4 +602,4 @@ namespace cuff
         return std::make_unique<Expr>(ExprKind::Count, std::move(c));
     }
 
-} // namespace cuff
+}

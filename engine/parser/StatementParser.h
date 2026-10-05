@@ -18,8 +18,6 @@
 namespace cuff
 {
 
-    // Parses individual statements — dispatches to the appropriate sub-parser
-    // based on the leading keyword. Also handles or_else wrapping.
     class StatementParser
     {
     public:
@@ -116,8 +114,6 @@ namespace cuff
                 }
                 else
                 {
-                    // Pattern-replace used as a bare expression-statement,
-                    // e.g. `replace "[num]+" in log to "***"` on its own line.
                     auto expr = ExpressionParser::parse(p);
                     stmt = std::make_unique<Stmt>(StmtKind::ExprStmt,
                                                   ExprStmt(std::move(expr), tok.location));
@@ -126,7 +122,6 @@ namespace cuff
 
             default:
             {
-                // Expression statement (e.g. print(...), function call)
                 auto expr = ExpressionParser::parse(p);
                 stmt = std::make_unique<Stmt>(StmtKind::ExprStmt,
                                               ExprStmt(std::move(expr), tok.location));
@@ -134,7 +129,6 @@ namespace cuff
             }
             }
 
-            // Check for trailing or_else
             if (stmt && p.check(TokenType::OR_ELSE))
             {
                 stmt = OrElseParser::wrap(p, std::move(stmt));
@@ -143,11 +137,6 @@ namespace cuff
             return stmt;
         }
     };
-
-    // ---- Deferred implementations ----
-    // The following bodies all call StatementParser::parseStatement, so they must
-    // be defined here (after StatementParser is a complete type) even though
-    // they're declared as members of other parser classes in their own headers.
 
     inline std::vector<std::unique_ptr<Stmt>> FunctionParser::parseBlockBody(ParserCore &p)
     {
@@ -159,7 +148,6 @@ namespace cuff
             if (p.atEnd())
                 break;
 
-            // Check for terminators
             if (p.check(TokenType::END) || p.check(TokenType::ELSE) || p.check(TokenType::DEDENT))
             {
                 break;
@@ -179,18 +167,16 @@ namespace cuff
 
     inline std::vector<std::unique_ptr<Stmt>> ControlFlowParser::parseBranchBody(ParserCore &p)
     {
-        // If next token is NEWLINE → block form
         if (p.check(TokenType::NEWLINE))
         {
             p.skipNewlines();
             if (p.check(TokenType::INDENT))
             {
-                p.advance(); // consume INDENT
+                p.advance();
             }
             return FunctionParser::parseBlockBody(p);
         }
 
-        // One-line shorthand: parse a single statement on the same line
         std::vector<std::unique_ptr<Stmt>> body;
         auto stmt = StatementParser::parseStatement(p);
         if (stmt)
@@ -200,18 +186,16 @@ namespace cuff
 
     inline std::vector<std::unique_ptr<Stmt>> LoopParser::parseLoopBody(ParserCore &p)
     {
-        // One-line shorthand or block form
         if (p.check(TokenType::NEWLINE))
         {
             p.skipNewlines();
             if (p.check(TokenType::INDENT))
             {
-                p.advance(); // consume INDENT
+                p.advance();
             }
             return FunctionParser::parseBlockBody(p);
         }
 
-        // One-line shorthand
         std::vector<std::unique_ptr<Stmt>> body;
         auto stmt = StatementParser::parseStatement(p);
         if (stmt)
@@ -226,7 +210,6 @@ namespace cuff
         p.consume(TokenType::DO, "expected 'do' after 'or_else'");
         p.consume(TokenType::COLON, "expected ':' after 'do'");
 
-        // Parse fallback body — block form (newline + INDENT)
         std::vector<std::unique_ptr<Stmt>> fallbackBody;
 
         if (p.check(TokenType::NEWLINE))
@@ -234,13 +217,12 @@ namespace cuff
             p.skipNewlines();
             if (p.check(TokenType::INDENT))
             {
-                p.advance(); // consume INDENT
+                p.advance();
             }
             fallbackBody = FunctionParser::parseBlockBody(p);
         }
         else
         {
-            // One-line shorthand: single statement
             auto stmt = StatementParser::parseStatement(p);
             if (stmt)
                 fallbackBody.push_back(std::move(stmt));
@@ -257,4 +239,4 @@ namespace cuff
         return std::make_unique<Stmt>(StmtKind::OrElse, std::move(orElse));
     }
 
-} // namespace cuff
+}

@@ -1,4 +1,4 @@
-note: E3008
+note: E3-008
 if "x" is "\d" do:
     print("unreachable")
 end

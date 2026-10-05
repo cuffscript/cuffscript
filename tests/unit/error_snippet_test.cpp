@@ -58,6 +58,13 @@ int main()
     expectSnippet("runtime error caret", "set number a to 5\nset number b to 0\nprint(a / b)\n",
                   "print(a / b)", "        ^");
 
+    // An error inside an f-string's {...} must point at the f-string's own line
+    // in the file, not at line 1 of the fragment it was parsed from.
+    expectSnippet("f-string runtime error line", "print(\"ok\")\nprint(f\"v: {nope(1)}\")\n",
+                  "print(f\"v: {nope(1)}\")", "      ^");
+    expectSnippet("f-string syntax error line", "print(\"ok\")\nprint(f\"v: {1 +}\")\n",
+                  "print(f\"v: {1 +}\")", "      ^");
+
     std::cout << pass << " passed, " << fail << " failed\n";
     return fail == 0 ? 0 : 1;
 }

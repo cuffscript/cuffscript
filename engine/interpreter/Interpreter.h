@@ -34,64 +34,23 @@
 namespace cuff
 {
 
-    // =========================================================================
-    // Interpreter — tree-walking evaluator for a parsed CuffScript Program.
-    //
-    // Design choices worth knowing when extending this file:
-    //
-    //  - Functions are NOT first-class values (the spec explicitly rules out
-    //    closures/nested functions), so they live in their own registry
-    //    (userFunctions_) rather than as a Value variant, and are looked up
-    //    by name at call time.
-    //  - Lists/Maps are reference types (Value.h, shared_ptr-backed); scalars
-    //    are copied by value. `set` always declares into the *current* scope;
-    //    `change` mutates an existing binding wherever it's found (see
-    //    Environment.h for the exact scope-walking rules).
-    //  - `async`/`await`: the language spec explicitly defers the async
-    //    execution model to "a separate implementation spec" that doesn't
-    //    exist yet. This engine's model: calling an async function *with*
-    //    `await` runs it immediately and returns its value, exactly like a
-    //    normal call (and requires the target to actually be declared
-    //    `async`, so `await` still functions as useful documentation).
-    //    Calling an async function *without* `await` does NOT run it
-    //    immediately — it's queued (see taskQueue_) and runs after the
-    //    entire top-level script finishes, which is what actually makes
-    //    it "asynchronous": the rest of the program visibly runs first.
-    //    There is no real concurrency (single-threaded interpreter, no
-    //    thread-safety story for shared state), so this is cooperative
-    //    deferral to "the end", not parallelism — see
-    //    docs/IMPLEMENTATION_NOTES.md for the exact rules.
-    //  - Control flow for `return`/`stop` is NOT implemented with C++
-    //    exceptions — see Signals.h for why (performance) and what bug that
-    //    used to cause (stop leaking through function-call boundaries).
-    //    execStatement/execBlock/execIf/execLoop all return an ExecOutcome
-    //    that must be propagated (or consumed) by every caller; exceptions
-    //    are reserved for genuine CuffError conditions.
-    //  - Adding a new expression/statement kind: add the case to evalExpr /
-    //    execStatement below (the switch is exhaustive and -Werror=switch
-    //    will fail the build if a case is missed, which is intentional).
-    // =========================================================================
     class Interpreter
     {
     public:
         struct Config
         {
-            std::string rootDir;    // modules must resolve inside this directory (default: the script's directory)
-            uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
-            uint32_t timeoutMs = 0; // wall-clock budget for the whole run; 0 = unlimited
+            std::string rootDir; // modules must resolve inside this directory (default: the script's directory)
+            uint64_t maxSteps = 0;
+            uint32_t timeoutMs = 0;
             size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
-            bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
+            bool networkEnabled = true;
             bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
-            bool filesystemEnabled = true; // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
+            bool filesystemEnabled = true;
         };
 
         Interpreter() { registerBuiltins(natives_); }
         explicit Interpreter(Config config) : config_(std::move(config)) { registerBuiltins(natives_); }
 
-        // Entry point for the top-level script. `scriptDir` is used to
-        // resolve relative `use ... from ...` paths; the caller must keep
-        // `program` alive for the interpreter's whole lifetime (userById_
-        // stores raw pointers into it).
         void run(const Program &program, const std::string &scriptDir)
         {
             scriptDir_ = scriptDir.empty() ? std::string(".") : scriptDir;
@@ -101,9 +60,6 @@ namespace cuff
             size_t hardBudget = softBudget + 3 * 1024 * 1024;
             if (size_t avail = availableStackBytes(); avail && !config_.stackBudgetBytes)
             {
-                // Real stack size is known: interpreter recursion may use nearly
-                // all of it, keeping a reserve below for native helpers (regex
-                // matching also checks the hard floor and fails cleanly).
                 constexpr size_t kMargin = 256 * 1024;
                 constexpr size_t kLeafReserve = 768 * 1024;
                 hardBudget = avail > kMargin ? avail - kMargin : avail / 2;
@@ -123,14 +79,7 @@ namespace cuff
         Config config_;
         Environment globalEnv_;
         std::unordered_map<std::string, NativeFn> natives_;
-        std::vector<const FunctionDecl *> userById_;  // indexed by interned function name id
-        // Recycled buffers for the two allocations every function call would
-        // otherwise make from scratch: evalCall's argument vector and the
-        // callee's Environment::vars_. Both are plain LIFO pools — a call
-        // returns its buffer right after it's done with it, so a recursive
-        // call chain naturally reuses the buffer its own child just freed.
-        // Capped so a script that briefly makes many concurrent calls (e.g.
-        // queuing a lot of async tasks) can't grow this without bound.
+        std::vector<const FunctionDecl *> userById_;
         static constexpr size_t kCallPoolCap = 256;
         std::vector<std::vector<Value>> argsPool_;
         std::vector<std::vector<std::pair<uint32_t, Value>>> envVarsPool_;
@@ -153,10 +102,6 @@ namespace cuff
             }
         }
 
-        // RAII: recovers `env`'s vars_ storage into envVarsPool_ once the
-        // environment is done with it, on every exit path (normal return or
-        // an exception unwinding through callUserFunction) — declared right
-        // after the Environment it guards, so it's destroyed first.
         struct EnvPoolReturner
         {
             Interpreter *interp;
@@ -168,19 +113,14 @@ namespace cuff
             }
         };
 
-        std::vector<const NativeFn *> nativeById_;    // lazily filled cache into natives_ (node-stable)
-        std::vector<std::unique_ptr<Program>> loadedModules_; // keeps imported-module ASTs alive
+        std::vector<const NativeFn *> nativeById_;
+        std::vector<std::unique_ptr<Program>> loadedModules_;
         std::unordered_set<std::string> importedPaths_;
         std::string scriptDir_ = ".";
         std::filesystem::path moduleRoot_;
         int moduleDepth_ = 0;
         regex::RegexEngine regexEngine_;
 
-        // An async function called without `await` doesn't run immediately —
-        // it's appended here and drained (FIFO) after the entire top-level
-        // script finishes (see execProgram/drainTaskQueue). Its result is
-        // discarded either way: without `await` there is no expression to
-        // receive a value.
         struct QueuedTask
         {
             const FunctionDecl *decl;
@@ -191,13 +131,11 @@ namespace cuff
         int callDepth_ = 0;
         bool inFunctionBody_ = false;
         bool currentFunctionReturnable_ = false;
-        bool currentFunctionPure_ = false; // 'pure': body cannot touch global-scope variables
+        bool currentFunctionPure_ = false;
         static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
 
-        // Native-stack safety net. The call-depth counter above bounds
-        // recursion in the common case, but a function body with deeply nested
-        // blocks/expressions uses far more stack per call, so every evaluation
-        // step also compares the real stack pointer against a fixed budget.
+        // Deeply nested blocks use more stack per call than the depth cap assumes, so each step also checks the real
+        // stack.
         uintptr_t stackLimit_ = 0;
         uint64_t stepsLeft_ = UINT64_MAX;
         uint32_t tickCount_ = 0;
@@ -210,9 +148,6 @@ namespace cuff
             ~StackFloorScope() { stackFloor() = 0; }
         };
 
-        // RAII guard for entering/leaving a user function call — keeps the
-        // call-depth counter and the two "current frame" flags correct even
-        // when a Return outcome or an error unwinds through callUserFunction.
         struct FrameGuard
         {
             Interpreter *interp;
@@ -238,8 +173,6 @@ namespace cuff
             }
         };
 
-        // ==== Resource guards ===================================================
-
         template <typename Node>
         CUFF_ALWAYS_INLINE void guardStack(const Node &node)
         {
@@ -249,20 +182,19 @@ namespace cuff
 
         [[noreturn]] CUFF_COLD void stackExhausted(const Expr &e) const
         {
-            throwStackExhausted(std::visit([](const auto &n) { return n.loc; }, e.data));
+            throwStackExhausted(std::visit([](const auto &n)
+                                           { return n.loc; }, e.data));
         }
         [[noreturn]] CUFF_COLD void stackExhausted(const Stmt &s) const
         {
-            throwStackExhausted(std::visit([](const auto &n) { return n.loc; }, s.data));
+            throwStackExhausted(std::visit([](const auto &n)
+                                           { return n.loc; }, s.data));
         }
         [[noreturn]] CUFF_COLD static void throwStackExhausted(const SourceLocation &loc)
         {
             throw StackOverflowError("native stack budget exhausted — calls and blocks are nested too deeply", loc);
         }
 
-        // Charged once per loop iteration and per user-function call, which is
-        // enough to bound any non-terminating program: expression trees are
-        // finite and regex work has its own limits.
         CUFF_ALWAYS_INLINE void tick(const SourceLocation &loc)
         {
             if (--stepsLeft_ == 0)
@@ -296,13 +228,8 @@ namespace cuff
                 throwSizeLimit("collection", loc);
         }
 
-        // ==== Program / statement execution ====================================
-
         void execProgram(const Program &program, Environment &env)
         {
-            // Hoist top-level function declarations so call order in the
-            // source doesn't matter (a function may be used before its
-            // textual definition, as long as both are top-level).
             for (auto &s : program.statements)
                 if (s->kind == StmtKind::FunctionDecl)
                     registerFunction((*std::get_if<FunctionDecl>(&s->data)));
@@ -310,7 +237,7 @@ namespace cuff
             for (auto &s : program.statements)
             {
                 if (s->kind == StmtKind::FunctionDecl)
-                    continue; // already registered above
+                    continue;
 
                 ExecOutcome outcome = execStatement(*s, env);
 
@@ -322,19 +249,10 @@ namespace cuff
                                            "'stop' cannot be used outside of a loop", outcome.loc);
             }
 
-            // All synchronous top-level code has now run. Anything that was
-            // queued along the way (an async function called anywhere,
-            // without await) runs now, in the order it was queued — this is
-            // what makes "called without await" visibly asynchronous: it
-            // always happens after the rest of the script, not inline.
+            // Un-awaited async calls run FIFO after top-level synchronous execution ends.
             drainTaskQueue();
         }
 
-        // Runs any async calls that were queued (by evalExpr's FunctionCall
-        // case, anywhere in the program) but haven't executed yet, once the
-        // whole top-level script has finished. A task can itself queue more
-        // tasks (by calling another async function without await); those
-        // are processed too, in the order queued, before this returns.
         void drainTaskQueue()
         {
             while (!taskQueue_.empty())
@@ -412,7 +330,7 @@ namespace cuff
                 const auto &decl = (*std::get_if<FunctionDecl>(&stmt.data));
                 if (inFunctionBody_)
                     throwNestedFunction(decl);
-                registerFunction(decl); // reached for functions nested in top-level if/loop bodies
+                registerFunction(decl);
                 return ExecOutcome::normal();
             }
             case StmtKind::IfStmt:
@@ -432,7 +350,7 @@ namespace cuff
             case StmtKind::AwaitStmt:
             {
                 const auto &aw = (*std::get_if<AwaitStmt>(&stmt.data));
-                invokeAwaited(*aw.expr->call, env, aw.loc); // result intentionally discarded
+                invokeAwaited(*aw.expr->call, env, aw.loc);
                 return ExecOutcome::normal();
             }
             case StmtKind::UseStmt:
@@ -450,8 +368,6 @@ namespace cuff
             throw InternalEngineError("unhandled statement kind");
         }
 
-        // ---- Declarations & assignment ----
-
         static bool isValidConstantName(const std::string &name)
         {
             bool hasUpper = false;
@@ -466,7 +382,7 @@ namespace cuff
         }
 
         [[noreturn]] CUFF_COLD static void throwDeclarationMismatch(const std::string &varType, const Value &v,
-                                                                       const std::string &name, const SourceLocation &loc)
+                                                                    const std::string &name, const SourceLocation &loc)
         {
             throw CuffRuntimeError(ErrorCode::DeclarationTypeMismatch,
                                    "cannot assign a " + valueTypeName(v.type()) + " value to " + varType + " variable '" + name + "'",
@@ -475,10 +391,6 @@ namespace cuff
 
         static void checkDeclaredType(const std::string &varType, const Value &v, const std::string &name, const SourceLocation &loc)
         {
-            // `empty` is a universal "no value" sentinel — any declared type
-            // may hold it (this is what lets `find`/`match`/map lookups that
-            // come up empty be stored directly in a typed variable, to then
-            // be handled with `or_else` or an `is empty` check).
             if (v.isEmpty() || varType.empty())
                 return;
 
@@ -498,7 +410,7 @@ namespace cuff
                 ok = v.isBool();
                 break;
             case 'm':
-                ok = varType.size() == 3 ? v.isMap() : v.isMatch(); // "map" / "match"
+                ok = varType.size() == 3 ? v.isMap() : v.isMatch();
                 break;
             case 'e':
                 ok = false; // a non-empty value can never satisfy `empty`
@@ -514,7 +426,7 @@ namespace cuff
         {
             std::string out = s;
             std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c)
-                            { return std::toupper(c); });
+                           { return std::toupper(c); });
             return out;
         }
 
@@ -535,14 +447,7 @@ namespace cuff
             env.declare(decl.nameId, std::move(v), decl.isConstant);
         }
 
-        // `constant list` (a tuple): rather than flip isConstant on whatever
-        // ValueList the initializer happened to produce — which, if it came
-        // from an existing variable, would silently freeze that variable's
-        // list too, since List is a reference type — always hand back an
-        // independent copy. Only the copy's top-level slots are frozen: an
-        // element that is itself a list/map keeps its own, separate
-        // isConstant (false unless it too was declared constant), the same
-        // shallow immutability a Python tuple gives a list it contains.
+        // Freeze a shallow copy: only its top-level slots are immutable; nested containers keep their own mutability.
         static Value freezeList(const Value &v)
         {
             auto frozen = std::make_shared<ValueList>();
@@ -591,15 +496,6 @@ namespace cuff
                 throwPureGlobalAccess(c.name, c.loc);
             if (env.isConstantIn(look.owner, c.nameId))
             {
-                // Whole-variable reassignment is always blocked. An indexed
-                // write into a constant *list* is instead let through to
-                // resolveContainerSlot, which enforces immutability exactly
-                // at the frozen list's own slots (ValueList::isConstant,
-                // set by freezeList) while still permitting a mutation that
-                // lands on a plain, non-frozen container nested inside it —
-                // the same shallow immutability a Python tuple gives a list
-                // it contains. There's no 'constant map' yet, so any other
-                // indexed type keeps the simpler, all-or-nothing block.
                 if (c.indices.empty() || !look.value->isList())
                     throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + c.name + "'", c.loc);
             }
@@ -628,8 +524,6 @@ namespace cuff
                                     "cannot use constant '" + loop.repeatVar + "' as a loop variable", loop.loc);
             }
         }
-
-        // ---- Control flow ----
 
         ExecOutcome execIf(const IfStmt &ifs, Environment &env)
         {
@@ -661,9 +555,9 @@ namespace cuff
                         assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
                         ExecOutcome outcome = execBlock(loop.body, env);
                         if (outcome.result == ExecResult::Stop)
-                            return ExecOutcome::normal(); // consumed here — loop ends normally
+                            return ExecOutcome::normal();
                         if (outcome.result == ExecResult::Return)
-                            return outcome; // propagate up to the enclosing function
+                            return outcome;
                     }
                 }
                 else
@@ -682,7 +576,6 @@ namespace cuff
             }
             else
             {
-                // LoopKind::While: re-check a boolean condition every iteration.
                 while (evalExpr(*loop.condition, env).truthy())
                 {
                     tick(loop.loc);
@@ -707,10 +600,7 @@ namespace cuff
                 if (!e.recoverable)
                     throw;
 
-                // If the primary was a declaration that never completed (its
-                // value expression threw before `env.declare` ran), make sure
-                // the name still exists — as `empty` — so the fallback body's
-                // `change` can find and fix it up.
+                // If a declaration threw before declare ran, bind the name to `empty` so the fallback can `change` it.
                 if (oe.primaryStmt->kind == StmtKind::Declaration)
                 {
                     const auto &decl = (*std::get_if<DeclarationStmt>(&oe.primaryStmt->data));
@@ -722,8 +612,6 @@ namespace cuff
                 return execBlock(oe.fallbackBody, blockEnv);
             }
         }
-
-        // ---- Collections ----
 
         void execCollectionOp(const CollectionOpStmt &co, Environment &env)
         {
@@ -775,7 +663,7 @@ namespace cuff
                     else
                     {
                         auto it = std::find_if(items.begin(), items.end(), [&](const Value &v)
-                                                { return valuesEqual(v, rv, co.loc); });
+                                               { return valuesEqual(v, rv, co.loc); });
                         if (it == items.end())
                             throw ElementNotFoundError("value not found in list — nothing to remove", co.loc);
                         items.erase(it);
@@ -785,7 +673,7 @@ namespace cuff
                 {
                     if (!rv.isStr())
                         throw TypeError("map keys are strings; cannot remove using a " + valueTypeName(rv.type()), co.loc);
-                    target.asMap()->remove(rv.asStr()); // no-op if the key doesn't exist
+                    target.asMap()->remove(rv.asStr());
                 }
                 else
                 {
@@ -795,8 +683,6 @@ namespace cuff
             }
             }
         }
-
-        // ---- Indexing / slicing ----
 
         struct ContainerSlot
         {
@@ -843,13 +729,9 @@ namespace cuff
             }
         };
 
-        // Indices and range bounds must be whole numbers. Silently rounding a
-        // fractional value (the previous behavior) hides real bugs — a
-        // computed index like `total / 2` landing on 2.5 almost always means
-        // the calculation is wrong, not that element 2 or 3 was intended.
         static long long expectWholeNumber(double d, const char *what, const SourceLocation &loc)
         {
-            constexpr double kExactLimit = 9007199254740992.0; // 2^53: every whole number up to here is exactly representable
+            constexpr double kExactLimit = 9007199254740992.0;
             if (!std::isfinite(d) || d != std::floor(d))
             {
                 throw CuffRuntimeError(ErrorCode::FractionalIndex,
@@ -968,7 +850,7 @@ namespace cuff
 
         ContainerSlot resolveContainerSlot(const Value &baseValue, const std::vector<Value> &indexValues, const SourceLocation &loc)
         {
-            Value current = baseValue; // shallow copy — List/Map alias the same underlying storage
+            Value current = baseValue;
             for (size_t i = 0; i + 1 < indexValues.size(); ++i)
                 current = indexInto(current, indexValues[i], loc);
 
@@ -991,8 +873,6 @@ namespace cuff
             throw TypeError("cannot index-assign into a " + valueTypeName(current.type()) + " value", loc);
         }
 
-        // ==== Expression evaluation =============================================
-
         [[noreturn]] CUFF_COLD static void throwUndefinedVariable(const std::string &name, const SourceLocation &loc)
         {
             throw UndefinedVariableError("undefined variable '" + name + "'", loc);
@@ -1004,10 +884,6 @@ namespace cuff
                                          "check the spelling, or make sure it's declared before this point");
         }
 
-        // A plain "undefined function" is misleading when `name` actually IS
-        // defined, just not as anything callable (e.g. a number) — checked
-        // right before giving up in evalCall/invokeAwaited, once findUser()
-        // and findNative() have both already missed.
         [[noreturn]] CUFF_COLD static void throwNotCallable(const std::string &name, const Value &v, const SourceLocation &loc)
         {
             throw UndefinedFunctionError("'" + name + "' is a " + valueTypeName(v.type()) + ", not a function",
@@ -1148,8 +1024,6 @@ namespace cuff
             Value l = evalExpr(*b.left, env);
             Value r = evalExpr(*b.right, env);
 
-            // Fast path: both operands numeric, which is the overwhelmingly
-            // common case for arithmetic and ordering.
             if (l.isNumber() && r.isNumber())
             {
                 const double x = l.asNumber(), y = r.asNumber();
@@ -1266,10 +1140,14 @@ namespace cuff
                 double a = l.asNumber(), c = r.asNumber();
                 switch (op)
                 {
-                case BinOp::Greater: return Value::makeBool(a > c);
-                case BinOp::Less: return Value::makeBool(a < c);
-                case BinOp::GreaterEq: return Value::makeBool(a >= c);
-                default: return Value::makeBool(a <= c);
+                case BinOp::Greater:
+                    return Value::makeBool(a > c);
+                case BinOp::Less:
+                    return Value::makeBool(a < c);
+                case BinOp::GreaterEq:
+                    return Value::makeBool(a >= c);
+                default:
+                    return Value::makeBool(a <= c);
                 }
             }
             if (l.isStr() && r.isStr())
@@ -1278,18 +1156,20 @@ namespace cuff
                 const std::string &c = r.asStr();
                 switch (op)
                 {
-                case BinOp::Greater: return Value::makeBool(a > c);
-                case BinOp::Less: return Value::makeBool(a < c);
-                case BinOp::GreaterEq: return Value::makeBool(a >= c);
-                default: return Value::makeBool(a <= c);
+                case BinOp::Greater:
+                    return Value::makeBool(a > c);
+                case BinOp::Less:
+                    return Value::makeBool(a < c);
+                case BinOp::GreaterEq:
+                    return Value::makeBool(a >= c);
+                default:
+                    return Value::makeBool(a <= c);
                 }
             }
             throw TypeError(std::string("cannot compare ") + valueTypeName(l.type()) + " and " +
                                 valueTypeName(r.type()) + " with '" + binOpName(op) + "'",
                             loc, "comparisons work on two numbers or two strings");
         }
-
-        // ---- Function calls ----
 
         [[noreturn]] CUFF_COLD static void throwAwaitOnNonAsync(const std::string &name, const SourceLocation &loc)
         {
@@ -1303,6 +1183,54 @@ namespace cuff
             throw ArgumentError(decl.name + "() expects " + std::to_string(decl.params.size()) +
                                     " argument(s), got " + std::to_string(got),
                                 loc);
+        }
+
+        [[noreturn]] CUFF_COLD static void throwParamTypeMismatch(const FunctionDecl &decl, size_t i, const Value &v,
+                                                                  const SourceLocation &loc)
+        {
+            const std::string typeName = paramTypeName(decl.paramTypes[i]);
+            throw CuffRuntimeError(ErrorCode::ParameterTypeMismatch,
+                                   decl.name + "(): parameter '" + decl.params[i] + "' expects " + typeName +
+                                       ", got " + valueTypeName(v.type()),
+                                   loc, "declared as '" + typeName + " " + decl.params[i] + "' in the parameter list");
+        }
+
+        // Only called for functions with a typed parameter, so untyped calls pay nothing.
+        static void checkParamTypes(const FunctionDecl &decl, const std::vector<Value> &args, const SourceLocation &loc)
+        {
+            const size_t n = std::min(args.size(), decl.paramTypes.size());
+            for (size_t i = 0; i < n; ++i)
+            {
+                const Value &v = args[i];
+                if (v.isEmpty())
+                    continue;
+                bool ok = true;
+                switch (decl.paramTypes[i])
+                {
+                case ParamType::Number:
+                    ok = v.isNumber();
+                    break;
+                case ParamType::Str:
+                    ok = v.isStr();
+                    break;
+                case ParamType::Boolean:
+                    ok = v.isBool();
+                    break;
+                case ParamType::List:
+                    ok = v.isList();
+                    break;
+                case ParamType::Map:
+                    ok = v.isMap();
+                    break;
+                case ParamType::Match:
+                    ok = v.isMatch();
+                    break;
+                case ParamType::Any:
+                    break;
+                }
+                if (!ok)
+                    throwParamTypeMismatch(decl, i, v, loc);
+            }
         }
 
         [[noreturn]] CUFF_COLD static void throwCallDepth(const FunctionDecl &decl, const SourceLocation &loc)
@@ -1319,15 +1247,7 @@ namespace cuff
             taskQueue_.push_back(QueuedTask{&decl, std::move(args)});
         }
 
-        // A pure function's body may call itself, another `pure` function, or
-        // any native/DLC function (natives never touch CuffScript's Environment
-        // at all, so they can't reach globals through this route) — but never
-        // a non-pure *user-defined* function. Without this, `pure` could be
-        // trivially defeated by wrapping the global access in an ordinary
-        // helper and calling that instead, which is exactly the sandbox-escape
-        // this check closes. Checked at the call site (not statically), so it
-        // also naturally covers a pure function that only reaches the impure
-        // call conditionally, deep in a branch.
+        // A pure function may call only itself, pure functions and natives; any other helper would bypass `pure`.
         [[noreturn]] CUFF_COLD static void throwPureImpureCall(const std::string &calleeName, const SourceLocation &loc)
         {
             throw CuffRuntimeError(ErrorCode::PureFunctionImpureCall,
@@ -1355,16 +1275,14 @@ namespace cuff
             for (auto &a : fc.args)
                 args.push_back(evalExpr(*a, env));
 
-            // User-defined functions are checked first: it's the hot path for
-            // any recursive/heavily-called script function, and the same
-            // lookup answers the async-deferral question.
+            // User functions are looked up first: it's the hot path, and it answers the async question.
             if (const FunctionDecl *user = findUser(fc.functionNameId))
             {
                 checkPureCallAllowed(user->isPure, fc.functionName, fc.loc);
+                if (user->hasTypedParams)
+                    checkParamTypes(*user, args, fc.loc);
                 if (user->isAsync)
                 {
-                    // Called without await: doesn't run now — see the
-                    // class-level comment on taskQueue_ above.
                     queueTask(*user, std::move(args), fc.loc);
                     return Value::makeEmpty();
                 }
@@ -1377,9 +1295,6 @@ namespace cuff
             throwUndefinedFunction(fc.functionName, fc.loc);
         }
 
-        // `await f(...)`: runs the call immediately. A user function must be
-        // declared async; native/DLC functions aren't classified async/sync,
-        // so awaiting one just calls it normally.
         CUFF_NOINLINE Value invokeAwaited(const FunctionCall &call, Environment &env, const SourceLocation &loc)
         {
             const FunctionDecl *user = findUser(call.functionNameId);
@@ -1399,7 +1314,11 @@ namespace cuff
             for (auto &a : call.args)
                 args.push_back(evalExpr(*a, env));
             if (user)
+            {
+                if (user->hasTypedParams)
+                    checkParamTypes(*user, args, loc);
                 return callUserFunction(*user, args, loc);
+            }
             if (const NativeFn *native = findNative(call))
                 return (*native)(args, loc);
             if (Environment::Lookup notFn = env.resolve(call.functionNameId); notFn.value)
@@ -1437,16 +1356,14 @@ namespace cuff
             return Value::makeEmpty();
         }
 
-        // ---- Pattern-matching commands (docs/REGEX.md) ----
-
         std::shared_ptr<regex::CompiledPattern> compilePatternArg(const PatternArg &pat, Environment &env, const SourceLocation &loc)
         {
             if (pat.isLiteral)
-                return regexEngine_.compile(pat.literalPattern, loc); // already validated at parse time; hits cache
+                return regexEngine_.compile(pat.literalPattern, loc);
             Value v = evalExpr(*pat.dynamicExpr, env);
             if (!v.isStr())
                 throw TypeError("a pattern must be a str, got " + valueTypeName(v.type()), loc);
-            return regexEngine_.compile(v.asStr(), loc); // may throw RegexSyntaxError here (dynamic pattern)
+            return regexEngine_.compile(v.asStr(), loc);
         }
 
         Value evalRegexMatch(const RegexMatchExpr &rm, Environment &env)
@@ -1539,8 +1456,6 @@ namespace cuff
             return Value::makeNumber(static_cast<double>(n));
         }
 
-        // ---- Modules (use / from / DLC) ----
-
         void execUse(const UseStmt &use, Environment &env)
         {
             if (use.isDLC)
@@ -1551,7 +1466,8 @@ namespace cuff
                 FilesystemDLCOptions fsOpts;
                 fsOpts.enabled = config_.filesystemEnabled;
                 fsOpts.root = moduleRoot_;
-                registerDLC(use.name, natives_, use.loc, netOpts, fsOpts);
+                for (const auto &lib : use.dlcs)
+                    registerDLC(lib.name, natives_, lib.loc, netOpts, fsOpts);
                 return;
             }
             loadCustomModule(use.name, use.path, use.loc, env);
@@ -1565,10 +1481,6 @@ namespace cuff
             fs::path canon = fs::weakly_canonical(root, ec);
             moduleRoot_ = ec ? root.lexically_normal() : canon;
         }
-
-        // isInsideRoot() itself now lives in ../common/PathSandbox.h, shared
-        // with DLC:filesystem (see NativeFunctions.h), which needs the exact
-        // same containment check for its own root-confined path resolution.
 
         struct ImportMark
         {
@@ -1613,9 +1525,6 @@ namespace cuff
 
             const std::string key = canon.string();
 
-            // Idempotent: a module already loaded (including the diamond- or
-            // circular-import case) is treated as a no-op rather than
-            // re-parsed/re-executed or flagged as an error.
             if (importedPaths_.count(key))
                 return;
 
@@ -1642,7 +1551,7 @@ namespace cuff
             file.read(source.data(), static_cast<std::streamsize>(size));
             source.resize(static_cast<size_t>(file.gcount()));
 
-            importedPaths_.insert(key); // mark before parsing to make self-cycles a safe no-op too
+            importedPaths_.insert(key);
             ImportMark mark{importedPaths_, key};
 
             std::unique_ptr<Program> modProgram;
@@ -1661,16 +1570,10 @@ namespace cuff
                                   "failed to parse module '" + shown + "': " + e.message, loc);
             }
 
-            // The module's AST must outlive its functions, which stay
-            // registered in userById_ even if the module body fails midway.
+            // The module's AST must outlive its functions, which stay registered even if the module body fails.
             loadedModules_.push_back(std::move(modProgram));
             const Program &program = *loadedModules_.back();
 
-            // Execute the module's top level into its own environment, then
-            // merge its top-level variables into the importer's current
-            // scope. Function declarations are automatically visible to the
-            // importer too, since userById_ is a single registry shared
-            // by the whole interpreter (execProgram registers them there).
             ImportDepthGuard depthGuard(moduleDepth_);
             Environment moduleEnv;
             execProgram(program, moduleEnv);
@@ -1680,4 +1583,4 @@ namespace cuff
         }
     };
 
-} // namespace cuff
+}

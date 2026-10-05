@@ -1,4 +1,4 @@
-note: E4027
+note: E4-027
 set number x to 1
 set pure func f() do:
     change x to global

@@ -1,4 +1,4 @@
-note: E3001
+note: E3-001
 if "x" is "(abc" do:
     print("unreachable")
 end

@@ -11,13 +11,8 @@
 namespace cuff
 {
 
-    // Forward declaration
     class StatementParser;
 
-    // Parses control flow: if / else if / else ... end
-    //
-    //   if [cond] do: [stmt] end                          (one-line shorthand)
-    //   if [cond] do: <newline> <INDENT> ... <DEDENT> end (block form)
     class ControlFlowParser
     {
     public:
@@ -34,23 +29,18 @@ namespace cuff
             IfStmt ifStmt;
             ifStmt.loc = loc;
 
-            // Parse the first branch
             IfStmt::Branch firstBranch;
             firstBranch.condition = std::move(condition);
             firstBranch.body = parseBranchBody(p);
             ifStmt.branches.push_back(std::move(firstBranch));
 
-            // Parse else if / else branches
-            // After branch body, we may see: else / else if / end
-            // The parseBranchBody consumes up to (but not including) else/end
             while (p.check(TokenType::ELSE))
             {
-                p.advance(); // consume 'else'
+                p.advance();
 
                 if (p.check(TokenType::IF))
                 {
-                    // else if
-                    p.advance(); // consume 'if'
+                    p.advance();
                     auto elseCond = ExpressionParser::parse(p);
                     p.consume(TokenType::DO, "expected 'do' after else-if condition");
                     p.consume(TokenType::COLON, "expected ':' after 'do'");
@@ -62,7 +52,6 @@ namespace cuff
                 }
                 else
                 {
-                    // plain else
                     p.consume(TokenType::DO, "expected 'do' after else");
                     p.consume(TokenType::COLON, "expected ':' after 'do'");
 
@@ -70,7 +59,7 @@ namespace cuff
                     elseBranch.condition = nullptr;
                     elseBranch.body = parseBranchBody(p);
                     ifStmt.branches.push_back(std::move(elseBranch));
-                    break; // else is always last
+                    break;
                 }
             }
 
@@ -80,12 +69,7 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::IfStmt, std::move(ifStmt));
         }
 
-        // Parse the body of a branch — either:
-        //   1. One-line shorthand: single statement on the same line
-        //   2. Block form: newline + INDENT + statements + DEDENT
-        // (Body deferred to the bottom of StatementParser.h: it calls
-        //  StatementParser::parseStatement, which is only forward-declared here.)
         static std::vector<std::unique_ptr<Stmt>> parseBranchBody(ParserCore &p);
     };
 
-} // namespace cuff
+}

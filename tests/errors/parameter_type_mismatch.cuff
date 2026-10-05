@@ -1,0 +1,5 @@
+note: E4-030 -- 타입이 다른 인자를 넘기면 호출 지점에서 에러
+set returnable func add_num(number n1, number n2) do:
+    return n1 + n2
+end
+print(add_num(1, "2"))

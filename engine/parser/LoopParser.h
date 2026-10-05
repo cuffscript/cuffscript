@@ -11,12 +11,8 @@
 namespace cuff
 {
 
-    // Forward declaration
     class StatementParser;
 
-    // Parses loop statements:
-    //   loop repeat [var] to [start] ~ [end] do: ... end
-    //   loop while [cond] do: ... end
     class LoopParser
     {
     public:
@@ -32,7 +28,6 @@ namespace cuff
             {
                 loop.kind = LoopStmt::LoopKind::Repeat;
 
-                // Parse loop variable
                 if (isWordLikeToken(p.current()))
                 {
                     loop.repeatVar = p.current().value;
@@ -44,7 +39,6 @@ namespace cuff
                     throw SyntaxError("expected variable name after 'repeat'", p.current().location);
                 }
 
-                // 'to' keyword (not '=' in CuffScript)
                 p.consume(TokenType::TO, "expected 'to' in repeat loop");
 
                 loop.repeatStart = ExpressionParser::parse(p);
@@ -78,9 +72,7 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::LoopStmt, std::move(loop));
         }
 
-        // (Body deferred to the bottom of StatementParser.h — see ControlFlowParser
-        //  for why: it needs StatementParser::parseStatement to be complete.)
         static std::vector<std::unique_ptr<Stmt>> parseLoopBody(ParserCore &p);
     };
 
-} // namespace cuff
+}

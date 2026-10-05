@@ -40,17 +40,11 @@ namespace cuff::regex
                     f.caseInsensitive = true;
                 else if (c == 'm')
                     f.multiline = true;
-                // Unknown flag characters are ignored rather than treated as
-                // an error — flags are meant to be a small, low-ceremony
-                // convenience, not another place to trip a syntax error.
             }
             return f;
         }
     };
 
-    // Compiles CuffScript pattern strings into RNode trees, caching by
-    // (pattern text) so a pattern used inside a loop is only compiled once.
-    // One engine instance is shared for the whole interpreter run.
     class RegexEngine
     {
     public:
@@ -73,8 +67,6 @@ namespace cuff::regex
             compiled->groupCount = groupCount;
             compiled->source = pattern;
 
-            // Patterns built at run time can be unbounded in number; callers
-            // keep their own shared_ptr, so dropping the cache is always safe.
             if (cache_.size() >= limits::kMaxRegexCacheEntries)
                 cache_.clear();
             cache_[pattern] = compiled;
@@ -84,7 +76,7 @@ namespace cuff::regex
         bool fullMatch(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                         bool caseInsensitive, const cuff::SourceLocation &loc, MatchOutcome &out)
         {
-            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive, /*multiline=*/false, loc, limitsUntil(deadlineFor(text)));
+            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive,false, loc, limitsUntil(deadlineFor(text)));
             return matcher.fullMatch(text, out);
         }
 
@@ -94,8 +86,6 @@ namespace cuff::regex
             return searchUntil(pat, text, fromPos, flags, loc, out, deadlineFor(text));
         }
 
-        // Start/end byte offsets of every non-overlapping match. Much lighter
-        // than searchAll(), which also materializes capture groups.
         std::vector<std::pair<size_t, size_t>> searchAllSpans(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                                                               const Flags &flags, const cuff::SourceLocation &loc)
         {
@@ -129,12 +119,11 @@ namespace cuff::regex
                 if (results.size() >= limits::kMaxCollectionItems)
                     throwTooManyMatches(loc);
                 results.push_back(out);
-                pos = (out.end > out.start) ? out.end : out.end + 1; // always advance on empty matches
+                pos = (out.end > out.start) ? out.end : out.end + 1;
             }
             return results;
         }
 
-        // replace: without 'g' replaces only the first match, with 'g' all of them.
         std::string replace(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                              const std::string &replacement, const Flags &flags, const cuff::SourceLocation &loc)
         {
@@ -160,8 +149,6 @@ namespace cuff::regex
                 }
                 else
                 {
-                    // Zero-width match: keep the character under it (if any)
-                    // so it isn't silently dropped, then advance by one.
                     if (out.end < text.size())
                         result += text[out.end];
                     pos = out.end + 1;
@@ -172,7 +159,6 @@ namespace cuff::regex
             return result;
         }
 
-        // split: cut `text` on every non-overlapping match of `pat`.
         std::vector<std::string> split(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                                         const cuff::SourceLocation &loc)
         {
@@ -189,7 +175,6 @@ namespace cuff::regex
                     break;
                 if (out.end == out.start)
                 {
-                    // Avoid infinite loop / degenerate zero-width splits.
                     pos = out.end + 1;
                     continue;
                 }
@@ -224,8 +209,6 @@ namespace cuff::regex
 
     private:
         using Clock = std::chrono::steady_clock;
-        // A whole find/replace/split/count over a large text is legitimately
-        // slower than over a small one, so the allowance grows with the input.
         static constexpr int kBaseTimeMs = 5000;
         static constexpr int kTimeMsPerMiB = 2000;
         static constexpr long long kMaxTimeMs = 10LL * 60 * 1000;
@@ -265,4 +248,4 @@ namespace cuff::regex
         }
     };
 
-} // namespace cuff::regex
+}

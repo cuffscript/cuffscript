@@ -6,29 +6,9 @@
 #include <functional>
 #include <cctype>
 
-// =========================================================================
-// CuffScript's regular-expression dialect (docs/REGEX.md) intentionally has
-// no `\d`, `\w`, `^`, `$`, etc. Instead every atom is either a plain literal
-// character or a bracketed word-token like [num]/[one:...]/<name:...>.
-//
-// This file defines the compiled pattern AST that engine/regex/RegexParser.h
-// produces and engine/regex/RegexMatcher.h executes. It is intentionally a
-// flat, uniform node shape (one struct with tagged fields) rather than a
-// polymorphic class hierarchy, matching the style already used for the
-// language's own AST in engine/parser/ASTNodes.h — keeps the whole engine
-// consistent and makes it easy to add a new atom kind later (add an enum
-// value + fields here, a case in RegexParser.h, and a case in
-// RegexMatcher.h; nothing else changes).
-// =========================================================================
-
 namespace cuff::regex
 {
 
-    // Toggle the ASCII case of a character. Used uniformly by the matcher to
-    // implement case-insensitive matching for *every* atom kind (literals,
-    // classes, presets, alternatives) without needing every predicate to know
-    // about case-insensitivity itself: the matcher just also tries the
-    // opposite-case character whenever ci is requested.
     inline unsigned char toggleAsciiCase(unsigned char c)
     {
         if (c >= 'a' && c <= 'z')
@@ -45,16 +25,16 @@ namespace cuff::regex
 
     enum class RNodeKind
     {
-        CharTest,     // single-character predicate (literal, [num]/[let]/.../[hex], custom sets, negation)
-        Preset,       // variable-length preset: [int] [float] [email] [phone] [url]
-        WordBoundary, // [edge]
-        StartAnchor,  // [start]
-        EndAnchor,    // [end]
-        Group,        // (...)          numbered capture
-        NamedGroup,   // <name:...>     named capture
-        OneOf,        // [one:a|b|c]    literal alternatives
-        Sequence,     // concatenation of already-quantified children
-        Quantified,   // wraps exactly one child with a repetition count
+        CharTest,
+        Preset,
+        WordBoundary,
+        StartAnchor,
+        EndAnchor,
+        Group,
+        NamedGroup,
+        OneOf,
+        Sequence,
+        Quantified,
     };
 
     enum class PresetKind
@@ -73,29 +53,23 @@ namespace cuff::regex
     {
         RNodeKind kind;
 
-        // CharTest
-        std::function<bool(unsigned char)> charTest; // ASCII-range predicate (only ever tested against single-byte codepoints)
-        bool negated = false;                        // matters again for multi-byte codepoints — see RegexMatcher::matchCharTest
-        bool isAnyCodepoint = false;                  // [any]: matches one whole UTF-8 codepoint (1-4 bytes), not one byte
-        std::string multiByteLiteral;                 // non-empty for a literal multi-byte UTF-8 character from the pattern text
+        std::function<bool(unsigned char)> charTest;
+        bool negated = false;
+        bool isAnyCodepoint = false;
+        std::string multiByteLiteral;
 
-        // Preset
         PresetKind presetKind = PresetKind::Int;
 
-        // Group / NamedGroup
-        int groupIndex = -1;      // 1-based, only for Group
-        std::string groupName;    // only for NamedGroup
-        RNodePtr child;           // Group / NamedGroup / Quantified wrap exactly one child
+        int groupIndex = -1;  // 1-based, only for Group
+        std::string groupName;  // only for NamedGroup
+        RNodePtr child;
 
-        // OneOf
         std::vector<std::string> alternatives;
 
-        // Sequence
         std::vector<RNodePtr> children;
 
-        // Quantified
         int minCount = 1;
-        int maxCount = 1; // -1 means unbounded
+        int maxCount = 1;
         bool lazy = false;
 
         explicit RNode(RNodeKind k) : kind(k) {}
@@ -105,14 +79,6 @@ namespace cuff::regex
     {
         return std::make_shared<RNode>(k);
     }
-
-    // ---- Character-class predicate builders (case-sensitive; the matcher
-    // layers case-insensitivity on top uniformly via toggleAsciiCase). These
-    // are ASCII-range tests by design (matching REGEX.md's own definitions
-    // for [num]/[let]/etc.) — the matcher is responsible for never applying
-    // them to anything but a single-byte codepoint. [any] is handled
-    // separately via RNode::isAnyCodepoint, not a predicate here, since it
-    // must match a whole (possibly multi-byte) codepoint.
 
     inline bool classNum(unsigned char c) { return c >= '0' && c <= '9'; }
     inline bool classLow(unsigned char c) { return c >= 'a' && c <= 'z'; }
@@ -124,4 +90,4 @@ namespace cuff::regex
     inline bool classNl(unsigned char c) { return c == '\n' || c == '\r'; }
     inline bool classHex(unsigned char c) { return classNum(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
 
-} // namespace cuff::regex
+}

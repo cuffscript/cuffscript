@@ -7,10 +7,8 @@
 namespace cuff
 {
 
-    // ---- DLC:math ----
     inline void registerMathDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
-        // Applies a one-argument function whose result must be a real number.
         auto unary = [&reg](const char *name, double (*fn)(double), const char *problem)
         {
             reg[name] = [name, fn, problem](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -89,7 +87,6 @@ namespace cuff
             return Value::makeNumber(x > 0 ? 1.0 : (x < 0 ? -1.0 : 0.0));
         };
 
-        // min/max accept either separate numbers or a single list of numbers.
         auto extremum = [&reg](const char *name, bool wantMax)
         {
             reg[name] = [name, wantMax](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -210,4 +207,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}
