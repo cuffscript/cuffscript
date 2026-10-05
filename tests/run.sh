@@ -50,7 +50,11 @@ run_error_case() {
         extra_args=($(cat "$args_file"))
     fi
     local actual
-    actual=$(timeout 10 "$BIN" "${extra_args[@]}" "$cuff" 2>&1)
+    if [ "${#extra_args[@]}" -gt 0 ]; then
+        actual=$(timeout 10 "$BIN" "${extra_args[@]}" "$cuff" 2>&1)
+    else
+        actual=$(timeout 10 "$BIN" "$cuff" 2>&1)
+    fi
     local code=$?
     if [ $code -eq 0 ]; then
         echo "FAIL (expected nonzero exit): $cuff"

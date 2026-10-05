@@ -3,7 +3,6 @@ REM Builds cuffsh.exe (the interactive shell) against the CuffScript engine
 REM exactly as shipped in ..\engine — nothing under the project root is
 REM modified or overwritten by this script. Run from anywhere; paths below
 REM are relative to this file's own folder.
-REM
 REM Requires a MinGW-w64 g++ (or MSVC's own toolchain adapted similarly) on
 REM PATH. Produces cuffsh.exe in this same cli\ folder.
 
