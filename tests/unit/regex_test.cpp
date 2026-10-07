@@ -222,6 +222,14 @@ int main() {
         MatchOutcome out;
         check(eng.fullMatch(p, "-42", false, loc, out), "[int] preset matches -42");
         check(eng.fullMatch(p, "42", false, loc, out), "[int] preset matches 42");
+        check(!eng.fullMatch(p, "+", false, loc, out), "[int] needs a digit after a bare '+'");
+        check(!eng.fullMatch(p, "-", false, loc, out), "[int] needs a digit after a bare '-'");
+    }
+    {
+        auto p = eng.compile("[int][one:5]", loc);
+        MatchOutcome out;
+        check(!eng.fullMatch(p, "+5", false, loc, out), "[int] cannot give up its digits and match only the sign");
+        check(eng.fullMatch(p, "+15", false, loc, out), "[int] followed by a literal still backtracks over digits");
     }
     {
         auto p = eng.compile("[float]", loc);

@@ -18,10 +18,10 @@ namespace
                   << "                     (default: the script's own directory)\n"
                   << "  --max-steps <n>    stop after <n> loop iterations + function calls\n"
                   << "  --timeout <ms>     stop after <ms> milliseconds of run time\n"
-                  << "  --no-network        disable 'use DLC:network' entirely\n"
+                  << "  --no-network       disable 'use DLC:network' entirely\n"
                   << "  --allow-private-network\n"
                   << "                     let DLC:network reach loopback/private/link-local addresses\n"
-                  << "  --no-filesystem     disable 'use DLC:filesystem' entirely\n";
+                  << "  --no-filesystem    disable 'use DLC:filesystem' entirely\n";
     }
 
     // Reads at most limit+1 bytes so an oversized input is detected (and

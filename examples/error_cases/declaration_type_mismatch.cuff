@@ -1,2 +1,2 @@
-note: 선언 타입과 값 타입 불일치 -> TypeError
+note: declared type does not match the value type -> TypeError
 set number age to "not a number"

@@ -51,6 +51,7 @@ namespace
                   << "  --no-network           disable 'use DLC:network' entirely\n"
                   << "  --allow-private-network\n"
                   << "                         let DLC:network reach loopback/private addresses\n"
+                  << "  --no-filesystem        disable 'use DLC:filesystem' entirely\n"
                   << "  --no-color             disable colored output\n"
                   << "  --no-banner            skip the startup banner\n"
                   << "  -h, --help             show this help and exit\n"
@@ -121,6 +122,10 @@ int main(int argc, char **argv)
         else if (arg == "--allow-private-network")
         {
             options.engineConfig.allowPrivateNetworkTargets = true;
+        }
+        else if (arg == "--no-filesystem")
+        {
+            options.engineConfig.filesystemEnabled = false;
         }
         else if (arg == "--root")
         {

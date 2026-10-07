@@ -1,9 +1,9 @@
-1번째 글자: 안
-2~3번째 글자: 녕하
-마지막 글자: 요
-글자 수: 5
-섞인 문자열의 3번째 글자: 안
-섞인 문자열 글자 수: 5
-[any]5 가 한글 5글자와 매칭됨
-이름 캡처: 홍길동
-[let]은 영문 전용이라 한글과 매칭되지 않음 (의도된 동작)
+1st character: 안
+2nd-3rd characters: 녕하
+last character: 요
+character count: 5
+3rd character of the mixed string: 안
+mixed string character count: 5
+[any]5 matched five Hangul characters
+captured name: 홍길동
+[let] is English-only, so it does not match Hangul (intended)

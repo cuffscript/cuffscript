@@ -1,2 +1,2 @@
-note: E5-004 -- 목록 중간의 모르는 라이브러리를 정확히 지적해야 합니다
+note: E5-004 -- an unknown library in the middle of the list must be pinpointed exactly
 use DLC:math, DLC:nope, DLC:string

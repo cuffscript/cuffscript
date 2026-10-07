@@ -36,7 +36,6 @@ namespace cuff
         }
 
     public:
-    public:
         static std::unique_ptr<Stmt> parse(ParserCore &p)
         {
             SourceLocation loc = p.current().location;

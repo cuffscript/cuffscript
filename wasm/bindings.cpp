@@ -30,7 +30,7 @@ RunOutcome cuffRun(const std::string &source, const std::string &scriptDir)
 }
 
 // Parses `source` only and writes the token/AST dump to stdout, mirroring
-// `cuffc --ast`. Used by the IDE's "AST 보기" panel.
+// `cuffc --ast`. Used by the IDE's AST view panel.
 RunOutcome cuffDump(const std::string &source)
 {
     cuff::CuffEngine::Result result = cuff::CuffEngine::run(source);

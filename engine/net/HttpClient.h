@@ -259,8 +259,10 @@ namespace cuff::net
             if (addr->sa_family == AF_INET6)
             {
                 const unsigned char *ip = reinterpret_cast<const sockaddr_in6 *>(addr)->sin6_addr.s6_addr;
+                // `::` (unspecified) connects to the local host on Linux, so it counts as loopback too.
+                static const unsigned char unspecified[16] = {};
                 static const unsigned char loopback[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
-                if (std::memcmp(ip, loopback, 16) == 0)
+                if (std::memcmp(ip, unspecified, 16) == 0 || std::memcmp(ip, loopback, 16) == 0)
                     return true;
                 if ((ip[0] & 0xFE) == 0xFC)
                     return true;
@@ -448,7 +450,8 @@ namespace cuff::net
                         }
                         break;
                     }
-                    if (out.body.size() + chunkSize > opts.maxResponseBytes)
+                    // Compare against the remaining budget: body.size() + chunkSize can wrap around for a hostile size.
+                    if (chunkSize > opts.maxResponseBytes - out.body.size())
                     {
                         err = "response exceeded the maximum allowed size";
                         return false;

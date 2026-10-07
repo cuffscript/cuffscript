@@ -1,0 +1,6 @@
+note: E4-001
+set number x to 1
+set func f() do:
+    change x to 2
+end
+f()

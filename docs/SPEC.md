@@ -1,45 +1,45 @@
-# CuffScript (Cuff) 공식 명세서
+# CuffScript (Cuff) Official Specification
 
-### 1\. 선언 및 변경 (set & change)
+### 1\. Declaring and changing (set & change)
 
-- **설명:** 데이터 최초 생성이나 메모리 공간 등록 시에는 무조건 `set [타입]` 구조를 사용합니다. 이때 값을 저장(대입)하는 기호는 자연어 키워드 `to`입니다.
+- **Description:** Creating data for the first time, or registering a memory slot, always uses the `set [type]` structure. The symbol that stores (assigns) a value here is the natural-language keyword `to`.
 
-- **문법:**
-    - 변수 선언: `set [자료형] [변수명] to [값]`
-    - 변수 변경: `change [변수명] to [값]`
-- **예시:**
+- **Syntax:**
+    - Variable declaration: `set [type] [variable name] to [value]`
+    - Variable change: `change [variable name] to [value]`
+- **Example:**
 
 ```cuff
 set number age to 25
 set str name to "Alice"
-set empty data to empty  note: 값이 비어있음을 선언할 때는 empty 사용
+set empty data to empty  note: use empty to declare that the value is blank
 
 change age to 26
 change name to "Bob"
 ```
 
-    변수/함수/매개변수/`loop repeat` 반복 변수의 이름 자리는 `add`, `count`,
-    `find`, `split`, `replace`, `match`, `in`, `by`, `not`, `global`처럼
-    문법 키워드로도 쓰이는 단어라도 그대로 이름으로 쓸 수 있습니다 —
-    `set number count to 10`, `set returnable func add(x, y) do: ... end`
-    모두 정상 동작합니다. 다만 `match`/`find`/`replace`/`split`/`count`는
-    각각 자기만의 표현식 문법(`match [대상] from [패턴]` 등)도 가지고
-    있으므로, 바로 뒤에 그 문법이 이어지는 모양이면 이름이 아니라 그
-    문법으로 해석됩니다.
+    The name position of a variable, function, parameter or `loop repeat` loop
+    variable may hold a word that doubles as a syntax keyword elsewhere, such as
+    `add`, `count`, `find`, `split`, `replace`, `match`, `in`, `by`, `not` and
+    `global` — `set number count to 10` and `set returnable func add(x, y) do: ... end`
+    both work as written. However, `match`/`find`/`replace`/`split`/`count` also
+    have their own expression syntax (`match [target] from [pattern]`, etc.), so
+    when that syntax follows right after, the word is read as that syntax rather
+    than as a name.
 
 ---
 
-### 2\. 상수 선언 규칙 (set constant)
+### 2\. Constant declaration rules (set constant)
 
-- **설명:** 한 번 지정하면 변경할 수 없는 상수를 선언할 때는 `set` 키워드 바로 뒤에 `constant`를 붙입니다. 상수의 대입 기호는 `=`를 허용하지 않으며 오직 `to`만 사용합니다.
+- **Description:** To declare a constant that cannot be changed once set, put `constant` right after the `set` keyword. A constant's assignment symbol does not allow `=`; only `to` is used.
 
-    상수의 이름은 식별의 가독성과 안전성을 보장하기 위해 단어의 글자 수나 결합 개수와 전혀 상관없이 무조건 전체 대문자(UPPER_CASE)로 작성해야 합니다.
+    To keep constants readable and safe to identify, a constant's name must always be written entirely in uppercase (UPPER_CASE), regardless of how many letters or joined words it has.
 
-    이 명명 규칙을 위반하거나 상수를 대상으로 값을 변경하는 `change` 구문을 실행하면 인터프리터 엔진이 즉시 구동을 차단하고 런타임 에러를 발생시킵니다.
+    If this naming rule is violated, or a `change` statement that modifies a constant is executed, the interpreter engine blocks the run immediately and raises a runtime error.
 
-- **문법:** `set constant [자료형] [상수명] to [값]`
+- **Syntax:** `set constant [type] [constant name] to [value]`
 
-- **예시:**
+- **Example:**
 
 ```cuff
 set constant number X to 10
@@ -47,162 +47,166 @@ set constant number PI to 3.14
 set constant str API_URL to "https://cufflang.dev"
 ```
 
-- **리스트 상수 (튜플):** `constant`는 `list`에도 붙일 수 있습니다 (`set constant list [상수명] to [...]`). 이렇게 선언한 리스트는 파이썬의 튜플처럼, 이후 `add`/`remove`/`change [i]`로 내용을 바꾸려는 시도가 전부 런타임 에러(`ConstantReassignment`)로 즉시 차단되는 완전한 읽기 전용 값이 됩니다. 이 불변성은 리스트 값 자체에 붙어 있어서, 그 값을 다른 변수에 대입하거나 함수 인자로 넘겨도 (별명을 통해서도) 그대로 따라갑니다 — 변수 이름 하나만 상수인 것이 아닙니다. 다만 파이썬 튜플과 마찬가지로 **얕은(shallow)** 불변성이라, 튜플 안에 든 리스트나 맵 원소 자체는 별도로 `constant`를 붙이지 않는 한 여전히 자유롭게 변경할 수 있습니다.
+- **List constants (tuples):** `constant` can also be attached to `list` (`set constant list [constant name] to [...]`). A list declared this way is, like a Python tuple, a completely read-only value: every later attempt to change its contents with `add`/`remove`/`change [i]` is blocked immediately by a runtime error (`ConstantReassignment`). This immutability is attached to the list value itself, so it follows the value even when it is assigned to another variable or passed as a function argument (that is, through an alias) — it is not just one variable name that is constant. However, as with a Python tuple, the immutability is **shallow**: the list or map elements inside the tuple can still be changed freely unless they are declared `constant` separately.
 
 ```cuff
 set constant list PRIMES to [2, 3, 5, 7]
-add 11 to PRIMES         note: 즉시 에러 -> ConstantReassignment
+add 11 to PRIMES         note: immediate error -> ConstantReassignment
 
 set list mutable to [1, 2, 3]
-set constant list SNAPSHOT to mutable  note: mutable의 내용을 복사해서 얼립니다
-add 99 to mutable                      note: 원본 mutable은 여전히 자유롭게 바뀝니다
-print(SNAPSHOT)                        note: [1, 2, 3] -- 영향받지 않음
+set constant list SNAPSHOT to mutable  note: copies the contents of mutable and freezes the copy
+add 99 to mutable                      note: the original mutable can still change freely
+print(SNAPSHOT)                        note: [1, 2, 3] -- unaffected
 
 set constant list NESTED to [1, [2, 3]]
-change NESTED[2][1] to 999             note: 허용 -- 얕은 불변성 (튜플 안의 리스트는 별개)
+change NESTED[2][1] to 999             note: allowed -- shallow immutability (the list inside the tuple is separate)
 
-set list copy to PRIMES + []           note: 탈출구: 이어붙이면 새 mutable 리스트가 나옵니다
+set list copy to PRIMES + []           note: escape hatch: concatenating produces a new mutable list
 ```
 
 ---
 
-### 3\. 콜론(:) 공백 규격 및 주석 (note:, endnote)
+### 3\. Colon (:) spacing rule and comments (note:, endnote)
 
-- **설명:** 소스코드 파일의 정갈함을 언어 차원에서 강제하기 위해, 문자열을 제외한 제어문 분기나 주석 등에 사용하는 모든 콜론(`:`) 기호에는 **콜론 앞 공백 절대 금지**, **콜론 뒤 공백 권장**의 규격이 적용됩니다.
+- **Description:** To enforce tidy source files at the language level, every colon (`:`) used outside strings, in control-flow branches, comments and so on, follows the rule **no space before the colon, a space after the colon recommended**.
 
-    이를 위반하면 렉서(Lexer)가 토큰을 쪼개는 단계에서 즉시 문법 에러(Syntax Error)를 선언합니다.
+    If this is violated, the lexer declares a syntax error (Syntax Error) immediately, at the stage where it splits tokens.
 
-    주석은 단일 줄 주석인 `note:`와 여러 줄 주석인 `note: ~ endnote` 구조를 제공합니다. 여러 줄 주석 블록 내부의 줄바꿈과 들여쓰기는 개발자가 자유롭게 구성할 수 있습니다.
+    Comments come in a single-line `note:` and a multi-line `note: ~ endnote` structure. Line breaks and indentation inside a multi-line comment block are left entirely to the developer.
 
-- **문법:**
-    - 단일 줄 주석: `note: [내용]`
-    - 여러 줄 주석: `note: [줄바꿈] [자유로운 다중 줄 내용] [줄바꿈] endnote`
-    - 구문 구분자: `[구문] do: [실행]` (`do:` 뒤의 실행부가 한 줄에서 완결되는 경우 해당 구문은 한 줄 축약형으로 취급하며 들여쓰기를 요구하지 않습니다.)
-- **예시:**
+- **Syntax:**
+    - Single-line comment: `note: [content]`
+    - Multi-line comment: `note: [line break] [free multi-line content] [line break] endnote`
+    - Statement separator: `[statement] do: [body]` (when the body after `do:` is complete on one line, the statement is treated as a one-line shorthand and does not require indentation.)
+- **Example:**
 
 ```cuff
-note: 올바른 한 줄 주석 양식입니다.
-if X is 10 do: print("통과") note: do: 기호 또한 앞 공백은 금지되고 뒤 공백은 권장입니다.
+note: this is the correct single-line comment form.
+if X is 10 do: print("Passed") note: the do: symbol also forbids a space before it and recommends one after.
 
 note:
-이곳은 여러 줄 주석 영역입니다.
-앞의 들여쓰기 공간이나 줄바꿈 횟수에 전혀 제약을 받지 않으며 자유롭게 작성 가능합니다.
+This is a multi-line comment area.
+It is not constrained at all by the indentation or the number of line breaks before it, and can be written freely.
 endnote
 ```
 
 ---
 
-### 4\. 비교 및 부정 연산자 (is, IS, !)
+### 4\. Comparison and negation operators (is, IS, !)
 
-- **설명:** 조건 검증을 위한 동등 비교 연산자는 알파벳 구성은 동일하나 대소문자 형태(`is` / `IS`)에 따라 내부 판정 엔진이 완전히 이원화됩니다.
+- **Description:** The equality comparison operators used for condition checks have the same letters, but the internal judging engine is split in two depending on the case form (`is` / `IS`).
 
-    소문자 `is`는 일반 동등 비교 연산자로 사용됩니다. 영문 대소문자 및 데이터의 자료형 규격 등을 포함한 판정 방식은 CuffScript의 타입 규칙에 따릅니다.
+    Lowercase `is` is the ordinary equality comparison operator. How it judges, including English case and the data type, follows CuffScript's type rules.
 
-    대문자 `IS`는 **영문 문자열에 대한 대소문자 무시 비교 연산자**입니다. 영문 문자열을 검사할 때 영문 알파벳의 대소문자 구분을 완전히 소멸시키고 오직 글자의 알파벳 순서만 검증합니다.
+    Uppercase `IS` is a **case-insensitive comparison operator for English strings**. When checking English strings it removes the distinction between upper and lower case entirely and verifies only the alphabetical order of the letters.
 
-    느낌표 기호(`!`)는 참을 거짓으로, 거짓을 참으로 반전시키는 글로벌 표준의 부정 연산자(NOT) 역할을 담당합니다.
+    The exclamation mark (`!`) is the globally standard negation operator (NOT) that turns true into false and false into true.
 
-    괄호가 사용된 경우에는 괄호 내부의 표현식이 우선적으로 평가됩니다. 괄호가 없는 복합 표현식의 해석 순서는 CuffScript의 연산자 우선순위 규칙에 따릅니다.
+    When parentheses are used, the expression inside them is evaluated first. The evaluation order of compound expressions without parentheses follows CuffScript's operator precedence rules.
 
-- **문법:**
-    - `[값] is [값]`
-    - `[영문 문자열] IS [영문 문자열]`
-    - `![불리언값]`
-- **예시:**
+- **Syntax:**
+    - `[value] is [value]`
+    - `[English string] IS [English string]`
+    - `![boolean value]`
+- **Example:**
 
 ```cuff
 set str input_text to "Apple"
 
-if input_text is "apple" do: print("대소문자가 달라서 이 문장은 실행되지 않습니다.") end
-if input_text IS "apple" do: print("대소문자를 무시하므로 이 문장은 정상 실행됩니다.") end
+if input_text is "apple" do: print("The case differs, so this statement does not run.") end
+if input_text IS "apple" do: print("Case is ignored, so this statement runs normally.") end
 
 set boolean is_active to false
 
-if !is_active do: print("false가 참(true)으로 반전되어 이 문장이 구동됩니다.") end
+if !is_active do: print("false is flipped to true, so this statement runs.") end
 ```
 
 ---
 
-### 5\. 1-Based 인덱싱 및 물결 범위 슬라이싱 (~)
+### 5\. 1-based indexing and tilde range slicing (~)
 
-- **설명:** 자연어 직관을 반영하여 CuffScript 내의 연속형 자료구조(배열, 리스트, 문자열 등)의 시작 인덱스 번호는 **0이 아닌 1을 첫 번째 주소로 지정**합니다.
+- **Description:** Reflecting natural-language intuition, the start index of the sequential data structures in CuffScript (arrays, lists, strings, etc.) is **1, not 0, as the first address**.
 
-    CuffScript 런타임 시스템 내에 인덱스 0 주소는 정의되어 있지 않으며, 0에 접근을 시도하면 가상 머신이 즉시 경고 에러를 송출하고 정지합니다.
+    Address 0 is not defined in the CuffScript runtime; if you try to access 0, the virtual machine immediately emits a warning error and stops.
 
-    마이너스(`-`) 부호가 결합된 인덱스는 데이터의 맨 뒤에서부터 거꾸로 순위를 매겨 역방향으로 접근하며, 맨 뒤의 첫 번째 칸은 `-1` 주소를 부여받습니다.
+    An index with a minus (`-`) sign counts backward from the end of the data and accesses it in reverse; the first slot from the end is given the address `-1`.
 
-    데이터의 일부분을 잘라내는 슬라이싱 영역은 물결 기호 `~`를 대괄호 내부에 배치하여 수행하며, 시작 인덱스와 끝 인덱스 번호에 걸친 데이터를 **양쪽 경계 포함(Inclusive)**하여 추출합니다.
+    Slicing, which cuts out part of the data, is done by placing the tilde `~` inside the brackets, and extracts the data between the start and end index numbers **inclusive on both boundaries**.
 
-- **문법:**
-    - `[컬렉션명][인덱스]`
-    - `[컬렉션명][시작인덱스~끝인덱스]`
-- **예시:**
+- **Syntax:**
+    - `[collection name][index]`
+    - `[collection name][start index~end index]`
+- **Example:**
 
 ```cuff
 set list colors to ["red", "green", "blue", "yellow"]
 
-print(colors[1])  note: 첫 번째 요소인 "red"가 화면에 출력됩니다. 0은 존재하지 않습니다.
-print(colors[-1]) note: 역순 맨 뒷주소인 "yellow"가 출력됩니다.
+print(colors[1])  note: the first element, "red", is printed. 0 does not exist.
+print(colors[-1]) note: the last address in reverse order, "yellow", is printed.
 
 set list sub_colors to colors[2~3]
-print(sub_colors) note: 2번(green)과 3번(blue)을 모두 포함하여 ["green", "blue"]가 추출됩니다.
+print(sub_colors) note: items 2 (green) and 3 (blue) are both included, so ["green", "blue"] is extracted.
 ```
 
 ---
 
-### 6\. 정규식 및 패턴 매칭 (is, IS)
+### 6\. Regex and pattern matching (is, IS)
 
-- **설명:** 자바스크립트 수준의 정규식 기능을 지원하면서도 복잡한 특수기호(`^`, `$`, `\d`, `\w` 등)를 완전히 소멸시켰습니다.
+- **Description:** It supports JavaScript-level regex features while eliminating the complicated special symbols (`^`, `$`, `\d`, `\w`, etc.) entirely.
 
-    문자열 리터럴 내부에 대괄호 형태의 직관적 토큰(`[num]`, `[str]`, `[let]` 등)과 수량자(`+`, `*`, `?`), 범위 기호(`~`) 등을 조합하여 패턴을 구성할 수 있습니다. 패턴이 포함된 조건문은 문자열 **전체 일치(Full Match)**를 기본으로 검증합니다.
+    Patterns are built inside a string literal by combining intuitive bracket tokens (`[num]`, `[str]`, `[let]`, etc.) with quantifiers (`+`, `*`, `?`) and the range symbol (`~`). A condition that contains a pattern verifies a **full match** of the string by default.
 
-    정규식의 상세한 토큰 목록, 수량자 규칙, 고급 기능(캡처, 검색, 치환, 분할)은 별도의 정규식 명세서(`REGEX.md`)에서 정의합니다.
+    The detailed token list, quantifier rules and advanced features (capture, search, replace, split) of regex are defined in the separate regex specification (`REGEX.md`).
 
-- **기본 토큰 규격:**
-    - `[num]` : 숫자 1개 (0~9)
-    - `[let]` : 영문 알파벳 1개 (a~z, A~Z)
-    - `[str]` : 영문자 또는 숫자 1개 (a~zA~Z0~9)
-    - `[up]` : 영문 대문자 1개 (A~Z)
-    - `[low]` : 영문 소문자 1개 (a~z)
-    - `[sp]` : 공백 문자 1개 (띄어쓰기, 탭)
-    - `[any]` : 임의의 문자 1개
-- **수량자:**
-    - `N` : 정확히 N개
-    - `+` : 1개 이상
-    - `*` : 0개 이상
-    - `?` : 0개 또는 1개
-    - `N~M` : N개 이상 M개 이하
-- **선택 토큰:**
-    - `[one:apple|banana|orange]` : 제시된 단어/기호 중 정확히 하나와 일치
-- **예시:**
+- **Basic token specification:**
+    - `[num]` : one digit (0~9)
+    - `[let]` : one English letter (a~z, A~Z)
+    - `[str]` : one English letter or digit (a~zA~Z0~9)
+    - `[up]` : one uppercase English letter (A~Z)
+    - `[low]` : one lowercase English letter (a~z)
+    - `[sp]` : one whitespace character (space, tab)
+    - `[any]` : any one character
+- **Quantifiers:**
+    - `N` : exactly N
+    - `+` : one or more
+    - `*` : zero or more
+    - `?` : zero or one
+    - `N~M` : N or more and M or fewer
+- **Choice token:**
+    - `[one:apple|banana|orange]` : matches exactly one of the listed words/symbols
+- **Example:**
 
 ```cuff
-note: 휴대전화 번호 검사 (010-숫자4개-숫자4개 패턴)
-if phone is "010-[num]4-[num]4" do: print("올바른 번호") end
+note: mobile phone number check (010-4 digits-4 digits pattern)
+if phone is "[one:010]-[num]4-[num]4" do: print("Valid number") end
 
-note: 영문자 또는 숫자로 시작하고 @ 기호와 도메인 패턴
-if email is "[str]+@[str]2~10" do: print("유사 이메일 형식") end
+note: starts with English letters or digits, then an @ sign and a domain pattern
+if email is "[str]+@[str]2~10" do: print("Looks like an email format") end
 
-note: 파일 확장자 중 하나와 일치
-if filename is "[str]+[one:.jpg|.png|.gif]" do: print("지원 이미지 포맷") end
+note: matches one of the file extensions
+if filename is "[str]+[one:.jpg|.png|.gif]" do: print("Supported image format") end
 ```
+
+Note that a run of digits right after an atom is always read as a repeat count
+(`"v2"` means `v` twice), which is why the literal digits `010` above are wrapped in
+`[one:010]`. See `REGEX.md`.
 
 ---
 
-### 7\. 컬렉션(List, Map) 데이터 조작 문법 (add, change, remove)
+### 7\. Collection (List, Map) manipulation syntax (add, change, remove)
 
-- **설명:** 연속형 데이터 묶음인 리스트(list)와 키-값 쌍의 맵(map)을 다룰 때, 메서드 호출 대신 자연어 구문 구조로 데이터 입출력을 통제합니다.
+- **Description:** When working with lists (list), which are ordered bundles of data, and maps (map) of key-value pairs, data input and output is controlled with natural-language syntax instead of method calls.
 
-    리스트에 새로운 단일 원소를 맨 뒤로 추가할 때는 `add to` 명령어를 사용하며, 리스트 내부의 특정 인덱스 칸 값이나 맵의 키-값을 수정할 때는 `change` 명령어를 사용합니다. 컬렉션에서 원소를 제거할 때는 `remove from` 명령어를 사용합니다.
+    To append a single new element to the end of a list use the `add to` command; to modify the value at a particular index slot inside a list, or a key-value in a map, use the `change` command. To remove an element from a collection use the `remove from` command.
 
-    리스트의 대괄호(`[]`) 내부에는 1-Based 인덱스를 사용합니다. 맵의 대괄호(`[]`) 내부에는 문자열 키를 사용합니다. 맵에 존재하지 않는 키에 값을 할당하면 C 언어처럼 빈 값으로 초기화되어 새로운 키-값 쌍이 생성됩니다.
+    Inside the brackets (`[]`) of a list, use a 1-based index. Inside the brackets (`[]`) of a map, use a string key. Assigning a value to a key that does not exist in the map creates a new key-value pair, initialized from an empty value as in C.
 
-- **문법:**
-    - 리스트 맨 뒤 원소 삽입: `add [추가할값] to [리스트명]`
-    - 리스트 특정 인덱스 수정: `change [리스트명][인덱스] to [새로운값]`
-    - 맵 특정 키 추가 및 수정: `change [맵이름]["키값"] to [새로운값]`
-    - 컬렉션 원소 파괴 및 이탈: `remove [인덱스 혹은 키 혹은 실제값] from [컬렉션명]`
-- **예시:**
+- **Syntax:**
+    - Append an element to the end of a list: `add [value to add] to [list name]`
+    - Modify a particular list index: `change [list name][index] to [new value]`
+    - Add or modify a particular map key: `change [map name]["key"] to [new value]`
+    - Destroy and remove a collection element: `remove [index or key or actual value] from [collection name]`
+- **Example:**
 
 ```cuff
 set list inventory to ["sword", "shield"]
@@ -219,70 +223,70 @@ remove "level" from user_profile
 
 ---
 
-### 8\. 조건문 및 2대 즉시 실행 반복문 (if, loop, end, stop)
+### 8\. Conditionals and the two immediate-execution loops (if, loop, end, stop)
 
-- **설명:** 조건 분기 처리는 `if`, `else if`, `else` 체인을 사용하며 실행부 코드 영역으로 전환되기 직전에 `do:` 키워드를 배치합니다.
+- **Description:** Conditional branching uses an `if`, `else if`, `else` chain, with the `do:` keyword placed right before switching to the execution body.
 
-    반복 처리하는 루프(loop)문은 메모리 변수 상주 작업이 아닌 즉시 명령 실행의 기조를 띠므로 문두에 변수 생성자 `set`을 절대로 붙이지 않습니다.
+    A loop (loop) statement is about immediate command execution rather than work that stays resident in a memory variable, so the variable constructor `set` must never be put at the start of it.
 
-    범위를 지정하여 순회하는 `loop repeat`와 조건식이 참인 동안 실행하는 `loop while` 두 가지 형태가 제공됩니다.
+    Two forms are provided: `loop repeat`, which iterates over a specified range, and `loop while`, which runs while a condition is true.
 
-    제어문 블록을 마감하는 종착역은 `end` 키워드가 마크하며, 짧은 구조의 실행부는 개발자의 시각적 선택에 맞춰 `end`를 한 줄로 연이어 배치할 수 있습니다.
+    The terminus that closes a control-flow block is marked by the `end` keyword, and for short bodies `end` may be placed on the same line, at the developer's visual preference.
 
-    루프, 함수, 조건문 등 블록형 구문은 Python과 같이 들여쓰기를 필수로 요구합니다. 단, 한 줄에서 모든 실행부와 종료부가 완결되는 축약형 실행문은 들여쓰기를 요구하지 않습니다.
+    Block statements such as loops, functions and conditionals require indentation, as in Python. The exception is a one-line shorthand statement whose body and ending are complete on one line, which does not require indentation.
 
-    `end`는 생략하거나 부족하게 작성하거나 불필요하게 추가할 수 없습니다. 중첩된 블록을 포함하여 열린 블록의 수와 닫는 `end`의 수가 정확히 일치해야 합니다.
+    `end` cannot be omitted, shorted or added unnecessarily. The number of open blocks, including nested ones, and the number of closing `end`s must match exactly.
 
-    루프의 즉시 탈출은 `stop` 키워드를 사용하며, `stop`은 **가장 가까운 loop 하나만 종료**합니다.
+    To leave a loop immediately, use the `stop` keyword; `stop` ends **only the single nearest loop**.
 
-- **문법:**
-    - 다중 조건문 라인: `if [조건] do: [코드] else if [조건] do: [코드] else do: [코드] end`
-    - 범위 반복 제어: `loop repeat [루프변수] to [시작값] ~ [끝값] do: [코드] end`
-    - 논리 조건 반복: `loop while [논리조건식] do: [코드] end`
-- **예시:**
+- **Syntax:**
+    - Multi-condition line: `if [condition] do: [code] else if [condition] do: [code] else do: [code] end`
+    - Range repeat control: `loop repeat [loop variable] to [start value] ~ [end value] do: [code] end`
+    - Logical-condition repeat: `loop while [logical condition] do: [code] end`
+- **Example:**
 
 ```cuff
-if score >= 90 do: print("우수") else if score >= 80 do: print("장려") else do: print("노력") end
+if score >= 90 do: print("Excellent") else if score >= 80 do: print("Encouraging") else do: print("Keep trying") end
 
 loop repeat i to 1 ~ 10 do:
     if i is 4 do:
         stop
     end
-    print(f"회전 라운드: {i}")
+    print(f"Round: {i}")
 end
 ```
 
 ---
 
-### 9\. 함수의 고급 정의 및 제어 (async, returnable, await)
+### 9\. Advanced function definition and control (async, returnable, await)
 
-- **설명:** 함수의 정의 영역은 가독성 보존을 위해 **한 줄 뭉치기 작성을 문법적으로 절대 금지**하며, 반드시 물리적인 줄바꿈 처리를 이행해야 합니다.
+- **Description:** To preserve readability, a function definition area **syntactically forbids being written compressed onto one line**, and must always use physical line breaks.
 
-    변수 선언 일관성에 따라 함수 정의는 항상 `set` 키워드로 시작합니다. 파라미터는 타입을 생략할 수도 있고(`set func add(a, b)`), `타입 이름` 형태로 타입을 지정할 수도 있습니다(`set func add_num(number n1, number n2) do:`). 한 함수 안에서 타입 지정 파라미터와 생략한 파라미터를 섞어 써도 됩니다.
+    For consistency with variable declarations, a function definition always starts with the `set` keyword. A parameter may omit its type (`set func add(a, b)`) or specify it in the form `type name` (`set func add_num(number n1, number n2) do:`). Typed and untyped parameters may be mixed within one function.
 
-    파라미터에 쓸 수 있는 타입은 `number`, `str`, `boolean`, `list`, `map`, `match`입니다. 타입을 지정한 파라미터에 다른 타입의 값을 넘기면 **호출하는 줄에서** 즉시 런타임 에러(`ParameterTypeMismatch`, `E4-030`)가 발생합니다 — `async` 함수도 큐에 쌓기 전에 호출 시점에서 검사합니다. `empty`는 `set`과 같은 규칙으로 모든 타입의 파라미터가 받을 수 있습니다. 타입 키워드 바로 뒤에 이름이 오지 않으면(`(number)`, `(number, x)`) 타입이 아니라 그 이름의 평범한 파라미터로 취급합니다.
+    The types usable for parameters are `number`, `str`, `boolean`, `list`, `map` and `match`. Passing a value of a different type to a typed parameter raises a runtime error (`ParameterTypeMismatch`, `E4-030`) immediately **on the calling line** — an `async` function is also checked at the call, before it is queued. `empty` is accepted by a parameter of any type, by the same rule as `set`. If a name does not follow the type keyword right away (`(number)`, `(number, x)`), it is treated as an ordinary parameter with that name, not as a type.
 
-    비동기 함수는 `async`, 반환값이 있는 함수는 `returnable`을 선언하며 값을 실제로 반환할 때는 `return`을 사용합니다.
+    Declare an asynchronous function with `async` and a function that has a return value with `returnable`; use `return` to actually return a value.
 
-    `async` 비동기 함수를 구동시켜 완료될 때까지 대기시킬 때는 호출문 정면에 `await` 키워드를 배치합니다.
+    To start an `async` function and wait for it to finish, place the `await` keyword in front of the call.
 
-    함수 호출 시에는 `do:` 기호를 사용하지 않고 오직 괄호 `()`만 사용합니다.
+    A function call does not use the `do:` symbol, only the parentheses `()`.
 
-    함수 정의는 반드시 여러 줄의 블록형 구문으로 작성하며, 함수 본문은 반드시 들여쓰기를 사용해야 합니다. 함수 정의에는 한 줄 축약형을 허용하지 않습니다.
+    A function definition must always be written as a multi-line block statement, and the function body must be indented. One-line shorthand is not allowed for a function definition.
 
-    비동기 함수의 실제 실행 모델과 세부 동작은 별도의 구현 명세에서 정의합니다.
+    The actual execution model and detailed behavior of asynchronous functions are defined in a separate implementation specification.
 
-- **문법:**
-    - 순수 보이드 함수 정의: `set func [함수명]([매개변수]) do: [줄바꿈] [실행코드] end`
-    - 결괏값 리턴 함수 정의: `set returnable func [함수명](...) do: [줄바꿈] return [출력값] end`
-    - 비동기 함수 정의: `set async func [함수명](...) do: [줄바꿈] [실행코드] end`
-    - 전역 접근 차단 함수 정의: `set pure func [함수명](...) do: [줄바꿈] [실행코드] end`
-    - 비동기 함수 호출 대기: `await [비동기함수명]()`
+- **Syntax:**
+    - Pure void function definition: `set func [function name]([parameters]) do: [line break] [code] end`
+    - Value-returning function definition: `set returnable func [function name](...) do: [line break] return [output value] end`
+    - Asynchronous function definition: `set async func [function name](...) do: [line break] [code] end`
+    - Global-access-blocking function definition: `set pure func [function name](...) do: [line break] [code] end`
+    - Waiting for an asynchronous function call: `await [async function name]()`
 
-    `async`, `returnable`, `pure`는 서로 독립적인 수식어라 순서에 상관없이 자유롭게 조합할 수 있습니다 (`set returnable pure func`, `set async pure func` 등 모두 가능).
+    `async`, `returnable` and `pure` are independent modifiers, so they can be combined freely in any order (`set returnable pure func`, `set async pure func`, and so on, all work).
 
-    `pure`가 붙은 함수는 함수 본문에서 파라미터·지역 변수·`use DLC:...`로 불러온 내장 함수는 평소처럼 자유롭게 쓸 수 있지만, 함수 바깥의 최상위 전역 변수를 읽거나(`change ... to global`로 다리를 놓는 것 포함) 쓰려고 하면 그 즉시 런타임 에러(`PureFunctionGlobalAccess`)가 발생합니다. 이 제약은 호출 그래프 전체로 전파됩니다: `pure` 함수는 자기 자신, 다른 `pure` 함수, 그리고 내장/DLC 함수만 호출할 수 있고, **순수하지 않은 사용자 정의 함수를 호출하면** 그 즉시 런타임 에러(`PureFunctionImpureCall`)가 발생합니다 — 그렇지 않으면 전역을 만지는 일반 함수를 한 겹 감싸서 호출하는 것만으로 `pure`의 전역 접근 차단을 우회할 수 있기 때문입니다. 제약을 풀고 싶으면 `pure` 키워드만 지우면 됩니다.
-- **예시:**
+    In the body of a `pure` function, parameters, local variables and the built-in functions loaded with `use DLC:...` can be used freely as usual, but trying to read (including bridging with `change ... to global`) or write a top-level global variable outside the function raises a runtime error (`PureFunctionGlobalAccess`) at once. This restriction propagates through the whole call graph: a `pure` function can call only itself, other `pure` functions, and built-in/DLC functions, and **calling a user-defined function that is not pure** raises a runtime error (`PureFunctionImpureCall`) at once — otherwise you could get around `pure`'s global-access block just by wrapping a general function that touches globals in one more call. To lift the restriction, simply delete the `pure` keyword.
+- **Example:**
 
 ```cuff
 set returnable func calculate_bonus(base_pay) do:
@@ -291,7 +295,7 @@ set returnable func calculate_bonus(base_pay) do:
 end
 
 set async func download_graphics() do:
-    print("그래픽 데이터를 비동기로 로드합니다.")
+    print("Loading the graphics data asynchronously.")
 end
 
 set number final_reward to calculate_bonus(5000)
@@ -306,101 +310,105 @@ print(hypotenuse(3, 4))
 
 ---
 
-### 10\. 전역/지역 변수 및 스코프 (global)
+### 10\. Global/local variables and scope (global)
 
-- **설명:** CuffScript는 Python과 동일한 함수 레벨 스코프(Function-Level Scope)를 사용합니다. 함수 내부에서 선언한 변수는 해당 함수 내에서만 유효하며, 함수 종료 후 자동으로 소멸합니다.
+- **Description:** CuffScript uses the same function-level scope as Python. A variable declared inside a function is valid only within that function and disappears automatically when the function ends.
 
-    전역 변수를 함수 내에서 수정하려면 먼저 `change [변수명] to global`을 사용하여 해당 변수를 전역으로 선언한 후, 그 다음 줄에서 실제 값을 변경합니다.
+    A function does not see global variables on its own. To read or modify a global variable inside a function (constants included), first declare that variable as global with `change [variable name] to global`; the lines after that can use it, and `change [variable name] to [new value]` modifies the real global. Without the bridge, a global name is simply undefined inside the function (`UndefinedVariable`), and trying to change it does not touch the global. A local variable declared with `set` always takes precedence over a bridge of the same name.
 
-    중첩 함수(함수 내 함수 정의)와 클로저(함수를 값으로 취급)는 지원하지 않습니다. 함수는 전역 스코프와 자신의 로컬 스코프만 인식할 수 있습니다.
+    Nested functions (defining a function inside a function) and closures (treating a function as a value) are not supported. A function can see only its own local scope and the globals it has bridged.
 
-- **문법:**
-    - 전역 변수 선언: `set [자료형] [변수명] to [값]` (함수 외부)
-    - 지역 변수 선언: `set [자료형] [변수명] to [값]` (함수 내부)
-    - 함수 내에서 전역 변수 수정: `change [변수명] to global` → `change [변수명] to [새로운값]`
-- **예시:**
+- **Syntax:**
+    - Global variable declaration: `set [type] [variable name] to [value]` (outside a function)
+    - Local variable declaration: `set [type] [variable name] to [value]` (inside a function)
+    - Using a global variable inside a function: `change [variable name] to global` → then read it or `change [variable name] to [new value]`
+- **Example:**
 
 ```cuff
 set number global_count to 0
 
 set func increment() do:
-    change global_count to global  note: 전역 변수로 선언
+    change global_count to global  note: declare it as the global variable
     change global_count to global_count + 1
 end
 
+set func peek() do:
+    print(global_count)  note: Undefined Variable Error (a global is not visible without the bridge)
+end
+
 set func test_local() do:
-    set number local_var to 100  note: 로컬 변수 (함수 내에서만 유효)
+    set number local_var to 100  note: local variable (valid only inside the function)
     print(local_var)             note: 100
 end
 
 increment()
-print(global_count)  note: 1 (전역 변수 수정됨)
+print(global_count)  note: 1 (the global variable was modified)
 
 test_local()
-print(local_var)     note: Undefined Variable Error (로컬 변수는 함수 외 접근 불가)
+print(local_var)     note: Undefined Variable Error (a local variable cannot be accessed outside the function)
 ```
 
 ---
 
-### 11\. 안전장치 에러 핸들링 문법 (or_else do:)
+### 11\. Safety-net error handling syntax (or_else do:)
 
-- **설명:** 무겁고 가독성을 해치는 기존 언어의 `try-catch` 블록 대신, 에러가 발생할 위험이 있는 함수나 명령 행 바로 뒤에 한 칸 띄우고 `or_else do:` 구문을 배치하여 에러 상황을 처리합니다.
+- **Description:** Instead of the heavy, readability-damaging `try-catch` block of older languages, an error situation is handled by placing an `or_else do:` clause, one space after, right behind the function or command line that risks an error.
 
-    `or_else` 블록 내에서 기존 변수를 재할당할 때는 `change` 키워드를 사용합니다. 새로운 변수를 선언할 수도 있으며, 이 경우 블록 내 로컬 스코프를 갖습니다.
+    To reassign an existing variable inside an `or_else` block, use the `change` keyword. You can also declare a new variable, in which case it has a block-local scope.
 
-    `or_else`의 구체적인 실행 방식 및 반환값 처리 규칙은 별도의 구현 명세에서 정의합니다.
+    The concrete execution method and return-value handling rules of `or_else` are defined in a separate implementation specification.
 
-- **문법:** `[위험한구문] or_else do: [에러시실행코드] end`
+- **Syntax:** `[risky statement] or_else do: [code to run on error] end`
 
-- **예시:**
+- **Example:**
 
 ```cuff
 set str config to read_file("config.txt") or_else do:
-    print("파일 읽기 실패! 기본 환경 옵션을 대신 불러옵니다.")
+    print("Failed to read the file! Loading the default environment options instead.")
     change config to "default_mode"
 end
 ```
 
 ---
 
-### 12\. 화면 출력 및 키보드 입력 기본 함수 (print, input)
+### 12\. Basic screen output and keyboard input functions (print, input)
 
-- **설명:** 화면에 텍스트를 출력하는 기능은 표준적인 `print()` 함수를 사용하고, 키보드로부터 사용자의 텍스트 입력을 받는 기능은 표준적인 `input()` 함수를 사용합니다.
+- **Description:** Printing text to the screen uses the standard `print()` function, and receiving the user's text input from the keyboard uses the standard `input()` function.
 
-    변수 내부 삽입은 문자열 정면에 접두사 `f`를 붙이는 f-스트링 방식을 따르며, f-스트링 내에는 간단한 표현식도 포함할 수 있습니다. 중괄호를 리터럴로 출력하려면 이중 중괄호 `{{` `}}`를 사용합니다.
+    Embedding variables follows the f-string style, with the prefix `f` in front of the string, and an f-string may contain simple expressions. To print a brace literally, use double braces `{{` `}}`.
 
-- **문법:**
-    - `print([값])`
-    - `input([안내메시지])`
-    - f-스트링: `f"텍스트 {변수} 텍스트"`
-- **예시:**
+- **Syntax:**
+    - `print([value])`
+    - `input([prompt message])`
+    - f-string: `f"text {variable} text"`
+- **Example:**
 
 ```cuff
-set str user_name to input("이름을 입력해 주세요: ")
-print(f"환영합니다, {user_name}님!")
+set str user_name to input("Please enter your name: ")
+print(f"Welcome, {user_name}!")
 
 set number x to 5
 print(f"x + 1 = {x + 1}")
 
-note: 중괄호 리터럴 출력
+note: printing literal braces
 print(f"JSON: {{\"name\": \"Alice\"}}")
 ```
 
 ---
 
-### 13\. 모듈 및 라이브러리(DLC) 로드 시스템 (use & from)
+### 13\. Module and library (DLC) loading system (use & from)
 
-- **설명:** CuffScript 공식 내장 라이브러리 패키지 세트는 본 언어의 유머 코드를 투영하여 DLC라고 명칭합니다.
+- **Description:** The set of official built-in library packages of CuffScript is called DLC, reflecting the humor of this language.
 
-    개발자가 메인 소스코드 파일 외부에 직접 생성해 놓은 로컬 파일 컴포넌트를 결합하고자 할 때는 `use` 키워드와 파일 상대경로를 지정하는 `from` 키워드를 사용합니다.
+    To combine a local file component that the developer created outside the main source file, use the `use` keyword with the `from` keyword that specifies a relative file path.
 
-    패키지 호출부의 파편화를 완전히 차단하기 위해, 모듈 로드 관련 모든 명령은 반드시 단 한 줄(Single Line)로만 작성되어야 합니다. 내장 라이브러리는 `use` 문 하나에 쉼표로 여러 개를 묶어 불러올 수도 있고, 줄마다 `use` 문을 따로 써도 됩니다 — 결과는 같습니다.
+    To completely prevent the fragmentation of package-loading code, every module-loading command must be written on a single line (Single Line). Built-in libraries can be loaded several at a time in one `use` statement separated by commas, or each can have its own `use` statement on its own line — the result is the same.
 
-- **문법:**
-    - 내장 공식 라이브러리 흡수: `use DLC:[코어라이브러리명]`
-    - 내장 공식 라이브러리 여러 개를 한 줄에: `use DLC:[이름1], DLC:[이름2], DLC:[이름3]` (목록의 모든 항목에 정확한 이름, `DLC:` 접두어가 필요합니다)
-    - 커스텀 로컬 모듈 부품 흡수: `use [모듈파일명] from [상대폴더경로]`
-- **예시:**
+- **Syntax:**
+    - Absorb a built-in official library: `use DLC:[core library name]`
+    - Several built-in official libraries on one line: `use DLC:[name1], DLC:[name2], DLC:[name3]` (every entry in the list needs the exact name and the `DLC:` prefix)
+    - Absorb a custom local module part: `use [module file name] from [relative folder path]`
+- **Example:**
 
 ```cuff
 use DLC:network
@@ -408,45 +416,45 @@ use DLC:math, DLC:string, DLC:convert
 use dlc_graphic_pack from ./assets/plugins
 ```
 
-- **`DLC:network`:** 평범한 HTTP(HTTPS 아님) GET/POST 요청을 보내는 초경량 클라이언트입니다.
-    - `network_get(url)` / `network_post(url, body[, content_type])` — 둘 다 `{"status": 상태코드, "ok": 200~299 여부, "body": 응답본문}` 형태의 `map`을 돌려줍니다.
-    - `url`은 반드시 `http://`로 시작해야 합니다 (`https://`는 이 클라이언트가 TLS를 구현하지 않으므로 명확한 에러로 거절됩니다).
-    - 연결 실패·타임아웃·차단된 주소 등은 전부 `or_else`로 잡을 수 있는 런타임 에러입니다.
-    - 기본적으로 로컬호스트/사설망 주소로는 연결할 수 없습니다 (SSRF 방지). 호스트 실행 옵션으로 네트워크 자체를 끄거나 사설망 접근을 허용할 수 있습니다 — 자세한 내용과 위험성은 `SECURITY.md`를 참고하세요.
+- **`DLC:network`:** An ultra-light client that sends plain HTTP (not HTTPS) GET/POST requests.
+    - `network_get(url)` / `network_post(url, body[, content_type])` — both return a `map` of the form `{"status": status code, "ok": whether it is 200~299, "body": response body}`.
+    - `url` must start with `http://` (`https://` is rejected with a clear error, because this client does not implement TLS).
+    - Connection failures, timeouts, blocked addresses and the like are all runtime errors that `or_else` can catch.
+    - By default it cannot connect to localhost/private network addresses (SSRF protection). Host run options can turn the network off altogether or allow private network access — see `SECURITY.md` for details and the risks.
 
-- **`DLC:filesystem`:** 스크립트가 있는 폴더(또는 호스트가 지정한 `--root`) 안의 파일을 읽고 쓰는 라이브러리입니다.
+- **`DLC:filesystem`:** A library that reads and writes files inside the folder the script is in (or the `--root` the host specified).
 
-    | 함수 | 반환 타입 | 설명 |
+    | Function | Return type | Description |
     | :--- | :--- | :--- |
-    | `file_exist(path)` | boolean | 파일이 존재하는지 확인합니다. |
-    | `file_size(path)` | number | 파일의 크기를 바이트 단위 숫자로 돌려줍니다. (실패 시 `empty`) |
-    | `file_read(path)` | str | 파일의 모든 글자를 읽어옵니다. (실패 시 `empty`) |
-    | `file_readlines(path)` | list | 파일을 줄바꿈 기준으로 나누어 리스트로 읽어옵니다. (실패 시 `empty`) |
-    | `file_write(path, text)` | boolean | 파일이 있으면 덮어쓰고, 없으면 새로 생성하여 작성합니다. |
-    | `file_add(path, text)` | boolean | 파일 내용 끝에 글을 덧붙입니다. 없으면 새로 생성합니다. |
-    | `file_remove(path)` | boolean | 파일을 완전히 삭제합니다. 성공 여부를 반환합니다. |
+    | `file_exist(path)` | boolean | Checks whether the file exists. |
+    | `file_size(path)` | number | Returns the file's size as a number of bytes. (`empty` on failure) |
+    | `file_read(path)` | str | Reads all the text of the file. (`empty` on failure) |
+    | `file_readlines(path)` | list | Splits the file on line breaks and reads it as a list. (`empty` on failure) |
+    | `file_write(path, text)` | boolean | Overwrites the file if it exists, otherwise creates it and writes. |
+    | `file_add(path, text)` | boolean | Appends text to the end of the file's contents. Creates it if missing. |
+    | `file_remove(path)` | boolean | Deletes a file permanently and returns whether it succeeded. Only regular files are deleted; a directory (even an empty one) is left alone and `false` is returned. |
 
-    - 모든 경로는 스크립트가 있는 폴더(또는 `--root`)를 기준으로 해석되며, 그 밖으로 벗어나는 경로(절대경로, `../` 탈출 등)는 `FilesystemAccessDenied` 에러로 즉시 거절됩니다. `use ... from`으로 모듈을 불러올 때와 완전히 같은 샌드박스 루트를 공유합니다.
-    - 파일이 없거나 권한이 없는 등 일반적인 OS 수준 실패는 에러가 아니라 표에 적힌 대로 조용히 `empty`/`false`를 돌려줍니다 — 존재 여부는 `file_exist()`로 먼저 확인하세요.
-    - 호스트 실행 옵션(`--no-filesystem`)으로 이 라이브러리를 통째로 끌 수 있습니다 — 자세한 내용과 위험성은 `SECURITY.md`를 참고하세요.
+    - Every path is resolved relative to the folder the script is in (or `--root`), and a path that escapes it (an absolute path, a `../` escape, etc.) is rejected immediately with a `FilesystemAccessDenied` error. It shares exactly the same sandbox root as loading modules with `use ... from`.
+    - Ordinary OS-level failures, such as a missing file or no permission, are not errors; they quietly return `empty`/`false` as the table says — check existence first with `file_exist()`.
+    - The host run option (`--no-filesystem`) can turn this library off altogether — see `SECURITY.md` for details and the risks.
 
-- **함수 이름 규칙:** DLC 함수는 `라이브러리_동사` 형태(`math_sqrt`, `str_upper`, `list_sort`, `map_keys`, `time_now`, `random_int`, `network_get`, `file_read` 등)로 이름이 붙어 어느 라이브러리 소속인지 이름만으로 알 수 있습니다. 예외는 `length`/`contains`/`index_of`(문자열·리스트·맵에 공통으로 쓰이는 다형 함수)와 `to_json`/`from_json`/`to_number`/`to_str`/`to_boolean`(이름에 이미 도메인이 드러남)입니다.
+- **Function naming rule:** DLC functions are named in the `library_verb` form (`math_sqrt`, `str_upper`, `list_sort`, `map_keys`, `time_now`, `random_int`, `network_get`, `file_read`, etc.), so the name alone tells you which library a function belongs to. The exceptions are `length`/`contains`/`index_of` (polymorphic functions shared by strings, lists and maps) and `to_json`/`from_json`/`to_number`/`to_str`/`to_boolean` (whose names already show their domain).
 
 ---
 
-# CuffScript 종합 검증 코드
+# CuffScript Comprehensive Verification Code
 
 ```cuff
-note: 1단계: 외부 공식 라이브러리(DLC) 및 커스텀 모듈 로드 (한 줄 작성 규칙 엄수)
+note: Step 1: load the official libraries (DLC) and a custom module (one statement per line)
 use DLC:network
 use stage_data from ./maps/core_engine
 
 note:
-이 영역은 여러 줄 주석 영역입니다.
-1-Based 인덱스, or_else, 패턴 매칭, 전역/지역 변수 등이 통합된 최종 검증용 코드입니다.
+This block is a multi-line comment.
+It is the final end-to-end check covering 1-based indexes, or_else, pattern matching, and global/local variables.
 endnote
 
-note: 2단계: 핵심 변수 및 고정 상수 라인 마운트 (상수는 오직 to만 사용)
+note: Step 2: core variables and fixed constants (constants use only `to`)
 set constant number MAX_LEVEL to 99
 set constant str ENGINE_SIGNATURE to "CUFF_LANG_V1"
 
@@ -454,17 +462,19 @@ set number current_lvl to 1
 set str user_email to "Player_One@CuffLang.com"
 set list reward_tier_list to ["Gold", "Silver", "Bronze"]
 
-note: 3단계: 논리 검증 및 텍스트 패턴 매칭을 담당하는 리턴 제어 함수 선언
+note: Step 3: declare the returnable functions that handle logic checks and text pattern matching
 set returnable func audit_and_assess_user(email, lvl) do:
 
-    note: 패턴 매칭을 통한 이메일 구조 검증 (is 연산자 사용)
+    change MAX_LEVEL to global
+
+    note: validate the email's structure with pattern matching (the `is` operator)
     if email is "[str]+@[str]2~10" do:
-        print("패턴 매칭 엔진: 이메일 구조 정밀 검증 완료")
+        print("Pattern matching engine: email structure verified")
     end
 
-    note: 느낌표(!) 표준 부정 연산자와 소문자 is 엄격 동등 매칭의 조합
+    note: the `!` negation operator combined with a strict, lowercase `is` comparison
     if !lvl is MAX_LEVEL do:
-        print(f"현재 레벨 {lvl}은 최고 레벨 상태가 아닙니다.")
+        print(f"Current level {lvl} is not the highest level.")
     end
 
     if lvl is MAX_LEVEL do:
@@ -476,50 +486,50 @@ set returnable func audit_and_assess_user(email, lvl) do:
     end
 end
 
-note: 4단계: 비동기 데이터 처리를 대행하는 독립형 함수 개설
+note: Step 4: define a standalone async function for background data processing
 set async func backup_user_cloud_data() do:
-    print("가상 머신 내부 데이터 스냅샷을 원격 클라우드 인프라로 전송 동기화합니다.")
+    print("Sending a snapshot of the virtual machine's internal data to the remote cloud infrastructure.")
 end
 
-note: 5단계: 메인 런타임 비즈니스 로직 실행 및 1-Based 컬렉션 데이터 조작 테스팅
+note: Step 5: run the main program logic and exercise 1-based collection operations
 set str evaluation_result to audit_and_assess_user(user_email, current_lvl)
 
-note: or_else 안전장치 탑재형 함수 실행 구문 테스트
+note: call a function with the or_else safety net
 await backup_user_cloud_data() or_else do:
-    print("네트워크 환경으로 인한 클라우드 동기화 실패 상황을 우회합니다.")
+    print("Working around the cloud sync failure caused by the network environment.")
 end
 
-note: 1-Based 인덱싱에 의거해 1번이 즉시 첫 번째 요소인 "Gold"를 겨냥합니다.
-print(f"최고 등급의 보상 엠블럼 식별 데이터: {reward_tier_list[1]}")
+note: with 1-based indexing, index 1 is the first element, "Gold".
+print(f"Data identifying the top-tier reward emblem: {reward_tier_list[1]}")
 
-note: 독립 명령어 구문인 add to 와 change를 통해 리스트 내부 정보 수정
+note: modify list contents with the standalone `add ... to` and `change` statements
 add "None_Tier" to reward_tier_list
-change reward_tier_list[1] to "Platinum_Tier" note: 1번째 주소의 기존 단어를 플래티넘으로 변경
+change reward_tier_list[1] to "Platinum_Tier" note: replace the existing word at position 1 with Platinum
 
-note: 6단계: 물결 범위 지시 기호(~)와 loop repeat 제어 구조를 활용한 고속 반복 제어
+note: Step 6: fast repetition using the range operator (~) and the `loop repeat` structure
 loop repeat step to 1 ~ 5 do:
     if step is 4 do:
-        print("반복 강제 정지를 발동합니다.")
+        print("Forcing the loop to stop.")
         stop
     end
-    print(f"CuffScript 고속 가상 머신 동기화 엔진 가동 중... 현재 루프 마디 번호: {step}")
+    print(f"CuffScript fast VM sync engine running... current loop step: {step}")
 end
 ```
 
 ---
 
-### 14\. 에러 코드 표기
+### 14\. Error code notation
 
-- **설명:** 에러 메시지의 코드는 `E<분류>-<번호>` 형태입니다 (예: `E4-005`, `E2-001`). 분류 숫자는 에러의 종류를, 하이픈 뒤 세 자리는 그 분류 안의 번호를 뜻합니다. 하이픈이 있어서 분류 번호가 두 자리가 되어도(`E10-001`) 모호하지 않습니다.
+- **Description:** The code in an error message has the form `E<category>-<number>` (for example `E4-005`, `E2-001`). The category number means the kind of error, and the three digits after the hyphen are the number within that category. Thanks to the hyphen it stays unambiguous even if a category number reaches two digits (`E10-001`).
 
-    | 분류 | 종류 |
+    | Category | Kind |
     | :--- | :--- |
-    | `E1-xxx` | 토큰화(Lexical) 에러 |
-    | `E2-xxx` | 문법(Syntax) 에러 |
-    | `E3-0xx` / `E3-1xx` | 정규식/패턴 문법 에러 / 정규식 실행 에러 |
-    | `E4-xxx` | 런타임 에러 |
-    | `E5-xxx` | 모듈/라이브러리 에러 |
-    | `E6-xxx` | 자원 한도 에러 (`or_else`로 잡히지 않음) |
-    | `E9-xxx` | 내부 에러 |
+    | `E1-xxx` | Tokenization (Lexical) error |
+    | `E2-xxx` | Syntax error |
+    | `E3-0xx` / `E3-1xx` | Regex/pattern syntax error / regex runtime error |
+    | `E4-xxx` | Runtime error |
+    | `E5-xxx` | Module/library error |
+    | `E6-xxx` | Resource limit error (not caught by `or_else`) |
+    | `E9-xxx` | Internal error |
 
-    에러가 난 줄은 메시지 아래에 그대로 출력되고, 정확한 위치 아래에 `^` 표시가 붙습니다. f-string의 `{...}` 안에서 난 에러는 그 f-string이 있는 줄을 가리킵니다.
+    The line where the error occurred is printed as is below the message, with a `^` marker under the exact position. An error inside an f-string's `{...}` points at the line that holds the f-string.

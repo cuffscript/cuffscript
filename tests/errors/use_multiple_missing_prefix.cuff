@@ -1,2 +1,2 @@
-note: E2-001 -- 목록의 두 번째부터도 DLC: 접두어가 필요합니다
+note: E2-001 -- the second and later entries in the list also need the DLC: prefix
 use DLC:math, string

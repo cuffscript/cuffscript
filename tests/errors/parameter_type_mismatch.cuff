@@ -1,4 +1,4 @@
-note: E4-030 -- 타입이 다른 인자를 넘기면 호출 지점에서 에러
+note: E4-030 -- passing an argument of the wrong type is an error at the call site
 set returnable func add_num(number n1, number n2) do:
     return n1 + n2
 end

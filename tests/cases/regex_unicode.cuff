@@ -18,7 +18,7 @@ note: named capture spanning multi-byte text
 set match m to match "이름: 홍길동" from "이름: <name:[any]+>"
 print(m["name"])
 
-note: per spec, [let]/[str]/[word] are English-only (영문자)
+note: per spec, [let]/[str]/[word] are English-only (ASCII letters)
 print("안녕" is "[let]+")
 
 note: [edge] treats non-ASCII letters as word characters (spec 17)

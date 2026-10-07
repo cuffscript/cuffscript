@@ -1,4 +1,4 @@
-note: returnable / async 함수 조합
+note: combining returnable and async functions
 
 set returnable func fib(n) do:
     if n <= 1 do:
@@ -12,4 +12,4 @@ set async returnable func fetch_value() do:
     return 42
 end
 set number v to await fetch_value()
-print(f"async 결과 = {v}")
+print(f"async result = {v}")

@@ -42,8 +42,8 @@ cuffsh [options] [file.cuff]
 ```
 
 `file.cuff` runs in the session before the prompt appears (after the logo).
-`--root`, `--max-steps`, `--timeout`, `--no-network`, `--allow-private-network`
-set the same engine options they do for `cuffc`. `--no-color`, `--no-banner`,
+`--root`, `--max-steps`, `--timeout`, `--no-network`, `--allow-private-network`,
+`--no-filesystem` set the same engine options they do for `cuffc`. `--no-color`, `--no-banner`,
 `--version`, `-h` are shell options.
 
 ### Editing

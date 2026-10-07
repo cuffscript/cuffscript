@@ -76,7 +76,7 @@ namespace cuff::regex
         bool fullMatch(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                         bool caseInsensitive, const cuff::SourceLocation &loc, MatchOutcome &out)
         {
-            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive,false, loc, limitsUntil(deadlineFor(text)));
+            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive, false, loc, limitsUntil(deadlineFor(text)));
             return matcher.fullMatch(text, out);
         }
 

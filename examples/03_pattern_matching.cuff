@@ -22,13 +22,13 @@ print(parts)
 
 print(count "[num]+" in article)
 
-note: 대소문자 구분 없는 IS
+note: case-insensitive IS
 set str answer to "YES"
 if answer IS "yes" do:
-    print("IS는 대소문자를 구분하지 않습니다")
+    print("IS is case-insensitive")
 end
 
-note: [one:...] 대체 토큰과 이스케이프된 마침표(\.)
+note: the [one:...] alternative token and an escaped dot (\.)
 if "photo.jpg" is "[str]+\.[one:jpg|png|gif]" do:
-    print("이미지 파일명 패턴 일치")
+    print("Image filename pattern matched")
 end

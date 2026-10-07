@@ -21,7 +21,7 @@ set number safe_value to nums[99] or_else do:
 end
 print(f"safe_value = {safe_value}")
 
-note: 문자열 슬라이싱과 음수 범위
+note: string slicing and negative ranges
 set str greeting to "Hello World"
 print(greeting[1~5])
 print(greeting[-5~-1])

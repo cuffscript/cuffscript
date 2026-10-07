@@ -1,4 +1,4 @@
-0으로 나누기 실패, 기본값으로 대체합니다
+Division by zero failed; falling back to the default value
 result = -1
 config = default_mode
-safe_item = (없음)
+safe_item = (none)

@@ -1,4 +1,4 @@
-note: async가 아닌 함수에 await 사용 -> AwaitOnNonAsync
+note: await on a non-async function -> AwaitOnNonAsync
 set func greet() do:
     print("hi")
 end

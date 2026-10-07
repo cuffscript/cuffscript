@@ -1,0 +1,8 @@
+read blocked
+write blocked
+add blocked
+total after blocked calls = 10
+total after bridged call = 13
+items after bridged call = [1, 2, 3]
+local total = 2
+total after local shadow = 13

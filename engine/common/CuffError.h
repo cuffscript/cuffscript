@@ -40,7 +40,6 @@ namespace cuff
         {
         }
 
-        // Constructor for callers that provide a category directly.
         CuffError(const std::string &kind, const std::string &msg, const SourceLocation &loc)
             : std::runtime_error(loc.toString() + ": " + kind + ": " + msg),
               code(ErrorCode::InternalError),

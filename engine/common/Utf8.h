@@ -7,6 +7,7 @@
 namespace cuff::utf8
 {
 
+    // A stray continuation or invalid lead byte counts as one character, so scanning always advances.
     inline size_t seqLen(unsigned char c)
     {
         if ((c & 0x80) == 0x00) return 1;

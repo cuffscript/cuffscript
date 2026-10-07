@@ -1,4 +1,4 @@
-note: returnable이 아닌 함수에서 값 반환 시도 -> UnsupportedOperation
+note: returning a value from a non-returnable function -> UnsupportedOperation
 set func greet() do:
     return 5
 end

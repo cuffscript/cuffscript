@@ -1,29 +1,29 @@
-# 예제 스크립트
+# Example scripts
 
-번호 순서대로 훑어보면 언어 기능을 단계적으로 익힐 수 있습니다. 전부 실제로
-실행되는 것을 확인했습니다 (`make && ./cuffc examples/0X_....cuff`).
+Read them in numeric order to pick up the language one feature at a time. Every
+one of them has been run for real (`make && ./cuffc examples/0X_....cuff`).
 
-| 파일 | 보여주는 기능 |
+| File | What it shows |
 |---|---|
-| `01_hello.cuff` | 가장 단순한 `print` |
-| `02_comprehensive_demo.cuff` | 상수, 함수(`returnable`), `is`/`!` 결합, `async`+`await`+`or_else`, 1-Based 리스트, `loop repeat`+`stop`, `use DLC:`/`use ... from ...` — 명세 문서의 종합 검증 코드 그대로 |
-| `03_pattern_matching.cuff` | `match/find/replace/split/count`, 이름 있는 캡처(`<name:...>`), 번호 캡처, `[one:...]`, `IS` 대소문자 무시, 이스케이프(`\.`) |
-| `04_collections.cuff` | 리스트/맵 `add`/`change`/`remove`, 슬라이싱(`[2~4]`, 음수 인덱스), `or_else`로 인덱스 초과 복구 |
-| `05_scoping_and_globals.cuff` | 함수 레벨 스코프, `change x to global` |
-| `06_error_recovery.cuff` | `or_else`가 실패한 선언을 어떻게 복구하는지 |
-| `07_functions_async.cuff` | 재귀 `returnable` 함수, `async`+`returnable` 조합 |
-| `08_dlc_libraries.cuff` | `DLC:math`/`DLC:string`/`DLC:random`/`DLC:list`/`DLC:convert` (함수 이름은 `math_sqrt`, `str_upper`, `list_sort`처럼 `라이브러리_동사` 형태, `use DLC:a, DLC:b`로 한 줄에 여러 개도 가능) |
-| `09_modules_demo.cuff` + `lib/greetings.cuff` | `use <이름> from <경로>`로 다른 `.cuff` 파일 불러오기 |
-| `10_async_ordering.cuff` | `await` 없이 부른 `async` 함수가 동기 코드가 끝난 뒤 큐 순서대로(FIFO) 실행되는 것 확인 (협력적 스케줄링이며 동시 실행이 아님) |
-| `11_utf8_strings.cuff` | 한글 등 멀티바이트 문자열의 UTF-8 코드포인트 기준 인덱싱/슬라이싱/`length()` |
-| `12_filesystem.cuff` | `DLC:filesystem`: `file_write`/`file_add`/`file_readlines`/`file_size`/`file_remove` (스크립트 폴더 안에서만, 임시 파일은 스스로 정리) |
-| `02_comprehensive_demo.cuff`가 참조하는 `maps/core_engine/stage_data.cuff` | 위와 같은 커스텀 모듈 로딩의 두 번째 예시 |
+| `01_hello.cuff` | The simplest `print` |
+| `02_comprehensive_demo.cuff` | Constants, `returnable` functions, combining `is` and `!`, `async` + `await` + `or_else`, 1-based lists, `loop repeat` + `stop`, `use DLC:` / `use ... from ...` — the comprehensive check code from the spec, as is |
+| `03_pattern_matching.cuff` | `match/find/replace/split/count`, named captures (`<name:...>`), numbered captures, `[one:...]`, case-insensitive `IS`, escapes (`\.`) |
+| `04_collections.cuff` | List/map `add`/`change`/`remove`, slicing (`[2~4]`, negative indexes), recovering from an out-of-range index with `or_else` |
+| `05_scoping_and_globals.cuff` | Function-level scope, `change x to global` |
+| `06_error_recovery.cuff` | How `or_else` recovers a failed declaration |
+| `07_functions_async.cuff` | Recursive `returnable` functions, combining `async` + `returnable` |
+| `08_dlc_libraries.cuff` | `DLC:math` / `DLC:string` / `DLC:random` / `DLC:list` / `DLC:convert` / `DLC:json` (function names follow the `library_verb` form, such as `math_sqrt`, `str_upper`, `list_sort`; `use DLC:a, DLC:b` loads several on one line) |
+| `09_modules_demo.cuff` + `lib/greetings.cuff` | Loading another `.cuff` file with `use <name> from <path>` |
+| `10_async_ordering.cuff` | An `async` function called without `await` runs after the synchronous code finishes, in queue (FIFO) order (cooperative scheduling, not concurrency) |
+| `11_utf8_strings.cuff` | Indexing, slicing and `length()` of multi-byte strings such as Hangul, counted in UTF-8 code points |
+| `12_filesystem.cuff` | `DLC:filesystem`: `file_write` / `file_add` / `file_readlines` / `file_size` / `file_remove` (only inside the script's folder; the temporary file cleans itself up) |
+| `maps/core_engine/stage_data.cuff`, referenced by `02_comprehensive_demo.cuff` | A second example of loading a custom module, like the one above |
 
 ## error_cases/
 
-일부러 실패하도록 만든 스크립트들 — 각 에러 종류가 실제로 어떤 메시지를 내는지
-확인하는 용도입니다. (`or_else`로 감싸지 않았으므로 전부 0이 아닌 종료 코드로
-끝나는 게 정상입니다.)
+Scripts that are built to fail — use them to see the message each kind of error
+actually produces. (They are not wrapped in `or_else`, so it is normal for all of
+them to end with a non-zero exit code.)
 
 ```bash
 for f in examples/error_cases/*.cuff; do
@@ -32,10 +32,10 @@ for f in examples/error_cases/*.cuff; do
 done
 ```
 
-## 직접 실행하기
+## Running them yourself
 
 ```bash
 make
 ./cuffc examples/01_hello.cuff
-./cuffc --ast examples/01_hello.cuff   # 실행 대신 토큰/AST만 보기
+./cuffc --ast examples/01_hello.cuff   # print the tokens/AST instead of running
 ```

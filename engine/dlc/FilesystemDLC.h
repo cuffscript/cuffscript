@@ -171,6 +171,9 @@ namespace cuff
                 throwFilesystemDisabled("file_remove", loc);
             auto resolved = resolveSandboxedPath("file_remove", expectStr("file_remove", args, 0, loc), opts, loc);
             std::error_code ec;
+            // remove() would also delete an empty directory.
+            if (!std::filesystem::is_regular_file(resolved, ec) || ec)
+                return Value::makeBool(false);
             bool removed = std::filesystem::remove(resolved, ec);
             return Value::makeBool(removed && !ec);
         };

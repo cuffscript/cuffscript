@@ -1,2 +1,2 @@
-note: E2-001 -- 쉼표를 빠뜨린 경우
+note: E2-001 -- a missing comma
 use DLC:math DLC:string

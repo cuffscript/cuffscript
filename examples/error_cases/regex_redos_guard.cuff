@@ -1,4 +1,4 @@
-note: 파국적 백트래킹 패턴 -> 스텝/시간 제한에 걸려 RegexRuntimeError로 안전 종료 (행 걸리지 않음)
+note: catastrophic backtracking pattern -> stopped safely by the step/time limit as RegexRuntimeError (never hangs)
 set str target to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaX"
 if target is "([any]+)+end" do:
     print("matched")

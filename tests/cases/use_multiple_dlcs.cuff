@@ -1,16 +1,16 @@
-note: 한 줄에 여러 라이브러리를 쉼표로 불러오기 -- 따로 여러 줄로 쓰는 것과 같아야 합니다.
+note: load several libraries on one line separated by commas -- must equal writing them on separate lines.
 use DLC:math, DLC:string, DLC:convert
 print(math_sqrt(16))
 print(str_upper("hi"))
 print(to_number("42"))
 
-note: 여러 번에 나눠서 섞어 써도 됩니다
+note: loading them in several mixed batches also works
 use DLC:list
 use DLC:map, DLC:json
 print(list_sum([1, 2, 3]))
 print(to_json(map_keys({"a": 1})))
 
-note: 줄마다 따로 불러오는 방식도 그대로 됩니다 (모듈 로드 명령은 한 줄에 하나의 use 문)
+note: one library per line still works (a module-load command is one use statement per line)
 use DLC:time
 use DLC:random
 print(type_of(time_now()))

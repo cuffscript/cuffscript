@@ -1,5 +1,5 @@
-note: DLC:filesystem -- 스크립트가 있는 폴더 안에서 파일 읽기/쓰기.
-note: 이 예제는 임시 파일을 만들었다가 마지막에 지우므로 반복 실행해도 안전합니다.
+note: DLC:filesystem -- read and write files inside the script's folder.
+note: this example creates a temporary file and deletes it at the end, so it is safe to rerun.
 
 use DLC:filesystem
 
@@ -12,7 +12,7 @@ print(file_add(path, "\n셋째 줄"))
 print(file_size(path))
 print(file_readlines(path))
 
-note: 파일이 없으면 에러가 아니라 empty/false가 돌아옵니다
+note: a missing file gives empty/false rather than an error
 print(file_read("_no_such_file.txt"))
 
 print(file_remove(path))

@@ -488,12 +488,8 @@ namespace cuff
 
             auto look = env.resolve(c.nameId);
             if (!look.value)
-            {
-                throw UndefinedVariableError("cannot change undefined variable '" + c.name + "'", c.loc,
-                                             "declare it first with 'set', or bridge a global with 'change " + c.name + " to global'");
-            }
-            if (currentFunctionPure_ && look.owner == &globalEnv_)
-                throwPureGlobalAccess(c.name, c.loc);
+                throwUnresolved(c.nameId, c.name, "cannot change undefined variable '" + c.name + "'", c.loc,
+                                "declare it first with 'set', or bridge a global with 'change " + c.name + " to global'");
             if (env.isConstantIn(look.owner, c.nameId))
             {
                 if (c.indices.empty() || !look.value->isList())
@@ -617,9 +613,7 @@ namespace cuff
         {
             auto look = env.resolve(co.collectionNameId);
             if (!look.value)
-                throw UndefinedVariableError("undefined collection '" + co.collectionName + "'", co.loc);
-            if (currentFunctionPure_ && look.owner == &globalEnv_)
-                throwPureGlobalAccess(co.collectionName, co.loc);
+                throwUnresolved(co.collectionNameId, co.collectionName, "undefined collection '" + co.collectionName + "'", co.loc);
             if (env.isConstantIn(look.owner, co.collectionNameId))
                 throw ConstantError(ErrorCode::ConstantReassignment, "cannot modify constant collection '" + co.collectionName + "'", co.loc);
 
@@ -873,9 +867,18 @@ namespace cuff
             throw TypeError("cannot index-assign into a " + valueTypeName(current.type()) + " value", loc);
         }
 
-        [[noreturn]] CUFF_COLD static void throwUndefinedVariable(const std::string &name, const SourceLocation &loc)
+        // A global that isn't bridged into the running function resolves to nothing; say why instead of "undefined".
+        [[noreturn]] CUFF_COLD void throwUnresolved(uint32_t nameId, const std::string &name, const std::string &message,
+                                                    const SourceLocation &loc, const std::string &hint = "") const
         {
-            throw UndefinedVariableError("undefined variable '" + name + "'", loc);
+            if (inFunctionBody_ && globalEnv_.isDeclaredHere(nameId))
+            {
+                if (currentFunctionPure_)
+                    throwPureGlobalAccess(name, loc);
+                throw UndefinedVariableError("global variable '" + name + "' is not visible inside a function unless it is bridged",
+                                             loc, "add 'change " + name + " to global' before using it");
+            }
+            throw UndefinedVariableError(message, loc, hint);
         }
 
         [[noreturn]] CUFF_COLD static void throwUndefinedFunction(const std::string &name, const SourceLocation &loc)
@@ -913,9 +916,7 @@ namespace cuff
                 const auto &id = (*std::get_if<IdentifierExpr>(&expr.data));
                 auto look = env.resolve(id.nameId);
                 if (!look.value)
-                    throwUndefinedVariable(id.name, id.loc);
-                if (currentFunctionPure_ && look.owner == &globalEnv_)
-                    throwPureGlobalAccess(id.name, id.loc);
+                    throwUnresolved(id.nameId, id.name, "undefined variable '" + id.name + "'", id.loc);
                 return *look.value;
             }
             case ExprKind::List:
@@ -1575,6 +1576,8 @@ namespace cuff
             const Program &program = *loadedModules_.back();
 
             ImportDepthGuard depthGuard(moduleDepth_);
+            // Only the module's top level runs here; its functions later run against globalEnv_, so they reach
+            // these names through `change x to global` after the copy below.
             Environment moduleEnv;
             execProgram(program, moduleEnv);
             for (const auto &kv : moduleEnv.localVars())

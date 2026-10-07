@@ -25,7 +25,7 @@ namespace cuff
                 {
                     if (tok.value.empty())
                         continue;
-                    tok.type = KeywordClassifierImpl::classify(tok.value);
+                    tok.type = KeywordClassifier::classify(tok.value);
                 }
             }
 

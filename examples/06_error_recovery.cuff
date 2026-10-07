@@ -1,24 +1,24 @@
-note: or_else 에러 복구 패턴
+note: or_else error recovery pattern
 
 set number a to 10
 set number b to 0
 set number result to a / b or_else do:
-    print("0으로 나누기 실패, 기본값으로 대체합니다")
+    print("Division by zero failed; falling back to the default value")
     change result to -1
 end
 print(f"result = {result}")
 
-note: find가 매치에 실패하면 예외 없이 그냥 empty를 반환합니다 — or_else는
-note: "예외가 던져졌을 때"만 반응하므로 이 경우엔 or_else가 실행되지 않습니다.
+note: when find fails to match it simply returns empty, without an exception -- or_else
+note: only reacts when an exception is thrown, so or_else does not run in that case.
 set str config to find "[num]+" from "no digits here"
 if config is empty do:
     change config to "default_mode"
 end
 print(f"config = {config}")
 
-note: 반대로 진짜 예외가 나는 경우(범위 밖 인덱스)엔 or_else가 실행됩니다
+note: conversely, a real exception (an out-of-range index) does run or_else
 set list items to ["a", "b", "c"]
 set str safe_item to items[99] or_else do:
-    change safe_item to "(없음)"
+    change safe_item to "(none)"
 end
 print(f"safe_item = {safe_item}")

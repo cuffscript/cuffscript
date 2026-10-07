@@ -4,9 +4,31 @@ set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
 
-BIN=./cuffc
+# CUFFC and UNIT_FLAGS let a sanitizer build be tested, e.g.
+#   CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g -fsanitize=address,undefined" tests/run.sh
+BIN=${CUFFC:-./cuffc}
+UNIT_FLAGS=${UNIT_FLAGS:--O2}
 PASS=0
 FAIL=0
+
+# macOS has no `timeout` unless coreutils is installed (as `gtimeout`); without either, run unbounded.
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_CMD=timeout
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_CMD=gtimeout
+else
+    TIMEOUT_CMD=
+fi
+
+with_timeout() {
+    local seconds="$1"
+    shift
+    if [ -n "$TIMEOUT_CMD" ]; then
+        "$TIMEOUT_CMD" "$seconds" "$@"
+    else
+        "$@"
+    fi
+}
 
 check_bin() {
     if [ ! -x "$BIN" ]; then
@@ -19,7 +41,7 @@ run_success_case() {
     local cuff="$1"
     local expected="${cuff%.cuff}.expected"
     local actual
-    actual=$(timeout 10 "$BIN" "$cuff" 2>&1)
+    actual=$(with_timeout 10 "$BIN" "$cuff" 2>&1)
     local code=$?
     if [ $code -ne 0 ]; then
         echo "FAIL (exit $code): $cuff"
@@ -51,9 +73,9 @@ run_error_case() {
     fi
     local actual
     if [ "${#extra_args[@]}" -gt 0 ]; then
-        actual=$(timeout 10 "$BIN" "${extra_args[@]}" "$cuff" 2>&1)
+        actual=$(with_timeout 10 "$BIN" "${extra_args[@]}" "$cuff" 2>&1)
     else
-        actual=$(timeout 10 "$BIN" "$cuff" 2>&1)
+        actual=$(with_timeout 10 "$BIN" "$cuff" 2>&1)
     fi
     local code=$?
     if [ $code -eq 0 ]; then
@@ -83,13 +105,13 @@ check_bin
 echo "== tests/unit (C++ unit tests) =="
 for src in tests/unit/*.cpp; do
     bin="/tmp/cuff_unit_$(basename "${src%.cpp}")"
-    if ! g++ -std=c++17 -Wall -Wextra -O2 -I. "$src" -o "$bin" 2>/tmp/cuff_unit_build.log; then
+    if ! g++ -std=c++17 -Wall -Wextra $UNIT_FLAGS -I. "$src" -o "$bin" 2>/tmp/cuff_unit_build.log; then
         echo "FAIL (build): $src"
         cat /tmp/cuff_unit_build.log
         FAIL=$((FAIL + 1))
         continue
     fi
-    if out=$(timeout 60 "$bin" 2>&1); then
+    if out=$(with_timeout 60 "$bin" 2>&1); then
         echo "  $(basename "$src"): $(echo "$out" | tail -1)"
         PASS=$((PASS + 1))
     else

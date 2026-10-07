@@ -1,9 +1,9 @@
-note: 회귀 테스트 -- `change name to global`로 브리지한 이름과 같은 이름의
-note: 진짜 로컬(루프 변수, or_else 복구용 플레이스홀더 등)이 같은 함수 호출
-note: 안에서 함께 쓰일 때, 로컬이 항상 브리지보다 우선해야 합니다. 예전
-note: 구현은 Environment::resolve()가 globalDeclared_ 검사를 findLocal보다
-note: 먼저 수행해서, 브리지된 이름과 같은 이름의 루프 변수를 읽으면 매
-note: 반복마다 전역값만 보이는 버그가 있었습니다.
+note: regression test -- when a real local with the same name as a name bridged by
+note: `change name to global` (a loop variable, an or_else recovery placeholder, ...) is used
+note: in the same call, the local must always win over the bridge. The old
+note: implementation checked globalDeclared_ before findLocal in Environment::resolve(),
+note: so reading a loop variable named like a bridged name only ever showed the global
+note: value on every iteration.
 
 set number i to 100
 
@@ -18,7 +18,7 @@ end
 loop_var_shadow()
 print(f"global i untouched = {i}")
 
-note: or_else의 선언 복구 플레이스홀더도 같은 이름의 브리지를 가려야 함
+note: the or_else declaration-recovery placeholder must also shadow a bridge of the same name
 set number counter to 0
 
 set func or_else_shadow() do:

@@ -1,6 +1,6 @@
-note: 내장 DLC 라이브러리 사용 예제
+note: using the built-in DLC libraries
 
-note: 라이브러리는 한 줄에 쉼표로 묶어서 불러와도 되고, 줄마다 따로 불러와도 됩니다 (결과는 같음)
+note: libraries can be loaded on one comma-separated line or on separate lines (same result)
 use DLC:math, DLC:string, DLC:random
 use DLC:list
 use DLC:convert
@@ -13,28 +13,28 @@ print(str_trim("  padded  "))
 print(contains("hello world", "world"))
 
 set number roll to random_int(1, 6)
-print(f"주사위: {roll} (1~6 사이여야 함)")
+print(f"Dice: {roll} (should be between 1 and 6)")
 
-note: DLC:list — 원본을 바꾸지 않고 새 리스트를 반환하는 함수형 스타일
+note: DLC:list -- functional style: returns a new list without changing the original
 set list scores to [5, 2, 8, 1, 9, 2]
 print(list_sort(scores))
 print(list_reverse(scores))
 print(list_unique(scores))
 
-note: list_join()은 문자열 리스트만 받으므로, 숫자 리스트는 to_str()로 먼저 변환
+note: list_join() only accepts lists of strings, so convert a number list with to_str() first
 set list score_strs to []
 loop repeat i to 1 ~ 5 do:
     add to_str(scores[i]) to score_strs
 end
 print(list_join(score_strs, ", "))
 
-note: DLC:convert — 명시적 타입 변환
+note: DLC:convert -- explicit type conversion
 set number n to to_number("42.5")
 print(n + 1)
 print(to_str(123) + "!")
 print(to_boolean(""))
 
-note: DLC:json — 맵/리스트를 JSON 문자열로, 또는 그 반대로
+note: DLC:json -- map/list to a JSON string, or the reverse
 use DLC:json
 set map config to {"name": "홍길동", "level": 42, "tags": ["a", "b"]}
 print(to_json(config))

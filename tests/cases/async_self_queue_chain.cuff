@@ -1,5 +1,5 @@
-note: 큐에 쌓인 async 작업이 자기 안에서 또 다른 async 작업을 큐잉하면,
-note: 그 작업도 (먼저 쌓인 순서대로) 같은 드레인 과정에서 처리되어야 합니다.
+note: when a queued async job queues another async job from inside itself,
+note: that job must also run, in queue order, during the same drain.
 
 set async func level_c() do:
     print("C ran")

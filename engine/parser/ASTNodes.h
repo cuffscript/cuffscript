@@ -410,7 +410,6 @@ namespace cuff
         SourceLocation loc;
     };
 
-    // Parameter type categories represented by this AST node.
     enum class ParamType : uint8_t
     {
         Any,
@@ -453,7 +452,6 @@ namespace cuff
         uint32_t nameId = 0;
         std::vector<std::string> params;
         std::vector<uint32_t> paramIds;
-        // Parameter type information stored for the function declaration.
         std::vector<ParamType> paramTypes;
         bool hasTypedParams = false;
         std::vector<std::unique_ptr<Stmt>> body;

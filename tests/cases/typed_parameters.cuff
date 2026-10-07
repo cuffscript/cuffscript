@@ -1,4 +1,4 @@
-note: 매개변수 타입 지정 -- `타입 이름` 형태, 타입은 생략해도 됩니다 (섞어 써도 됨).
+note: typed parameters -- written as `type name`; the type may be omitted (mixing is fine).
 set returnable func add_num(number n1, number n2) do:
     return n1 + n2
 end
@@ -15,19 +15,19 @@ set returnable func mixed(a, number b) do:
 end
 print(mixed(5, 6))
 
-note: 타입이 지정된 매개변수도 `empty`는 받습니다 (set과 동일 규칙)
+note: a typed parameter still accepts `empty` (same rule as set)
 set returnable func maybe(str s) do:
     return s is empty
 end
 print(maybe(empty))
 
-note: map / boolean / match 타입
+note: map / boolean / match types
 set func show(map m, boolean flag) do:
     print(f"{length(m)} {flag}")
 end
 show({"a": 1}, true)
 
-note: async 함수도 호출하는 시점에 타입을 검사합니다
+note: async functions are also type-checked at call time
 set async func later(number n) do:
     print(f"later {n}")
 end

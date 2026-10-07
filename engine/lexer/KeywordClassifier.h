@@ -8,26 +8,6 @@
 namespace cuff
 {
 
-    class KeywordClassifier
-    {
-    public:
-        static TokenType classify(const std::string &word)
-        {
-            auto it = keywords_.find(word);
-            if (it != keywords_.end())
-                return it->second;
-            return TokenType::IDENTIFIER;
-        }
-
-        static bool isKeyword(const std::string &word)
-        {
-            return keywords_.count(word) > 0;
-        }
-
-    private:
-        static const std::unordered_map<std::string, TokenType> keywords_;
-    };
-
     inline const std::unordered_map<std::string, TokenType> &keywordMap()
     {
         static const std::unordered_map<std::string, TokenType> m = {
@@ -79,7 +59,7 @@ namespace cuff
         return m;
     }
 
-    class KeywordClassifierImpl
+    class KeywordClassifier
     {
     public:
         static TokenType classify(const std::string &word)

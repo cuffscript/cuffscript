@@ -226,8 +226,19 @@ namespace cuff
             index_.erase(it);
             order_.erase(order_.begin() + static_cast<long>(idx));
             values_.erase(values_.begin() + static_cast<long>(idx));
-            for (size_t i = idx; i < order_.size(); ++i)
-                index_[order_[i]] = i;
+            size_t later = order_.size() - idx;
+            if (later * 8 < index_.size())
+            {
+                for (size_t i = idx; i < order_.size(); ++i)
+                    index_[order_[i]] = i;
+            }
+            else
+            {
+                // Many keys moved: walking the index is cheaper than re-hashing each one.
+                for (auto &entry : index_)
+                    if (entry.second > idx)
+                        --entry.second;
+            }
             return true;
         }
 

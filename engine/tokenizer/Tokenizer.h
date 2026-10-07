@@ -172,7 +172,6 @@ namespace cuff
     private:
         ScanState state_;
 
-        // Check if the upcoming text is a "note" comment
         bool isCommentAhead() const
         {
             return state_.peek(0) == 'n' && state_.peek(1) == 'o' && state_.peek(2) == 't' && state_.peek(3) == 'e' && !isAlphaNum(state_.peek(4));

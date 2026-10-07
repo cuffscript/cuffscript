@@ -390,11 +390,9 @@ namespace cuff::regex
                     ++i;
                 if (i == digitsStart)
                     return results;
-                for (size_t len = i - pos; len >= 1; --len)
-                {
-                    if (pos + len <= n)
-                        results.push_back(len);
-                }
+                // Backtrack over the digits only; a bare sign is not an integer.
+                for (size_t len = i - pos; len > digitsStart - pos; --len)
+                    results.push_back(len);
                 break;
             }
             case PresetKind::Float:

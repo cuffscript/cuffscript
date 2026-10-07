@@ -59,7 +59,8 @@ its own:
   before you need it, not after.
 - **SSRF is blocked by default, not eliminated.** Every resolved address is checked against
   loopback/private/link-local ranges (including the common cloud-metadata address,
-  `169.254.169.254`) right before connecting, so a script cannot reach `localhost`, your
+  `169.254.169.254`, and the IPv6 unspecified address `::`, which reaches the local host on
+  Linux) right before connecting, so a script cannot reach `localhost`, your
   internal network, or instance metadata through it. This check is deliberately on the
   resolved IP, not the hostname text, but it is a single point-in-time check, not a general
   DNS-rebinding defense. `allowPrivateNetworkTargets` / `--allow-private-network` turns it off
@@ -106,7 +107,8 @@ separate, more permissive one:
   check-then-use: something *other than the script* (another process) creating or swapping a
   symlink between the check and the open could still redirect an access — scripts have no
   way to create symlinks themselves, but don't expose a root that untrusted processes can
-  write to. `file_remove` calls `std::filesystem::remove` directly — there is no trash/undo.
+  write to. `file_remove` deletes regular files only (a directory is never removed) and goes
+  straight to `std::filesystem::remove` — there is no trash/undo.
 - **No size cap dedicated to `DLC:filesystem` beyond the language's own string limit** — a
   `file_read`/`file_readlines` on a file larger than the engine's normal string size ceiling
   (`engine/common/Limits.h`'s `kMaxStringBytes`) fails cleanly with `SizeLimitExceeded` (`E4-026`)

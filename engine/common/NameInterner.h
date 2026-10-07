@@ -8,7 +8,6 @@
 namespace cuff
 {
 
-    // Interns variable names into stable integer IDs.
     class NameInterner
     {
     public:

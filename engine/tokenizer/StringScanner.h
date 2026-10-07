@@ -49,7 +49,6 @@ namespace cuff
         s.advance();
 
         std::string value;
-        int braceDepth = 0;
 
         while (!s.atEnd())
         {
@@ -92,17 +91,6 @@ namespace cuff
                 s.advance();
                 TokenType tt = isFString ? TokenType::FSTRING : TokenType::STRING;
                 return Token(tt, value, start, s.pendingSpaceBefore);
-            }
-
-            if (isFString)
-            {
-                if (c == '{')
-                    ++braceDepth;
-                else if (c == '}')
-                {
-                    if (braceDepth > 0)
-                        --braceDepth;
-                }
             }
 
             value += static_cast<char>(c);

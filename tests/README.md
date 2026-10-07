@@ -18,11 +18,29 @@ It decodes output as UTF-8, normalizes line endings, closes stdin for each test,
 the unit tests with `-lws2_32` and an 8 MiB stack on Windows, as `Makefile.win` does.
 
 Runs, in order: `tests/unit/` (standalone C++ unit tests, compiled and run directly —
-currently the regex engine's own test suite, which can exercise it without going through
-the whole language pipeline), `tests/cases/` (exact output diff), `tests/errors/` (must fail
+the regex engine's own test suite, which can exercise it without going through the whole
+language pipeline, plus engine-level checks such as the parser/stack limits and the DLC
+network/filesystem guards), `tests/cases/` (exact output diff), `tests/errors/` (must fail
 with a specific error code), `examples/` (exact output diff where a `.expected` exists,
 otherwise just checks exit 0 — used for the one example with genuinely random output), and
 `examples/error_cases/` (must fail with a specific error code).
+
+## Running under sanitizers (Linux/macOS)
+
+`run.sh` takes the binary and the unit-test compile flags from the environment, so the whole
+suite can run under AddressSanitizer + UndefinedBehaviorSanitizer:
+
+```bash
+SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+g++ -std=c++17 -O1 -g $SAN -o cuffc-asan main.cpp
+ASAN_OPTIONS=detect_leaks=0 CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g $SAN" bash tests/run.sh
+```
+
+Leak detection is switched off on purpose: a list or map that contains itself is reference
+counted and never freed (see `docs/IMPLEMENTATION_NOTES.md` item 11), and a few tests build
+exactly that. `run.sh` also falls back to `gtimeout` (or no timeout) where the `timeout`
+command is missing, as on a stock macOS. MinGW has no sanitizers, so this is not available
+through `run.ps1`.
 
 ## Adding a C++ unit test
 

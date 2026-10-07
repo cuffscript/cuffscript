@@ -13,9 +13,9 @@ end
 bump()
 print(counter)
 
-note: pure 함수는 다른 pure 함수는 자유롭게 호출할 수 있습니다 --
-note: 제약은 호출 그래프 전체에 전파되되, 순수한 쪽 안에서만 순수한
-note: 함수로 이어지면 문제없습니다.
+note: a pure function may freely call other pure functions --
+note: the restriction propagates through the whole call graph, but a chain
+note: that stays within pure functions is fine.
 set returnable pure func square_twice(n) do:
     return square(square(n))
 end

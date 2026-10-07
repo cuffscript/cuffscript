@@ -1,8 +1,8 @@
 use DLC:filesystem
 
-note: 이 테스트 파일이 있는 디렉터리(스크립트 루트) 안에서만 동작하는
-note: 임시 파일을 만들었다가 끝에 지웁니다 -- 반복 실행해도 흔적이
-note: 남지 않아야 합니다.
+note: this test only works inside the directory that holds it (the script root):
+note: it creates a temporary file and deletes it at the end -- repeated runs
+note: must leave no trace.
 
 print(file_exist("_dlc_filesystem_scratch.txt"))
 print(file_write("_dlc_filesystem_scratch.txt", "line1\nline2\nline3"))
@@ -17,7 +17,7 @@ print(file_readlines("_dlc_filesystem_scratch.txt"))
 print(file_remove("_dlc_filesystem_scratch.txt"))
 print(file_exist("_dlc_filesystem_scratch.txt"))
 
-note: 존재하지 않는 파일은 표에 정의된 대로 조용히 empty/false를 돌려줍니다
+note: missing files quietly give empty/false, as the table defines
 print(file_read("_dlc_filesystem_never_created.txt"))
 print(file_size("_dlc_filesystem_never_created.txt"))
 print(file_readlines("_dlc_filesystem_never_created.txt"))

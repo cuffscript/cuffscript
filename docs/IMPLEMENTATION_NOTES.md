@@ -1,250 +1,271 @@
-# 구현 노트 (Implementation Notes)
+# Implementation Notes
 
-`docs/SPEC.md`와 `docs/REGEX.md`는 언어의 문법과 의미를 대부분 정의하지만, 일부 지점은
-의도적으로(또는 실수로) 명세되어 있지 않습니다. 이 문서는 실제 인터프리터
-(`engine/interpreter/`)가 그런 지점들을 어떻게 구현했는지, 그리고 왜 그렇게
-결정했는지를 기록합니다. 명세와 실제 동작이 다르게 읽힐 수 있는 부분은 전부
-여기 있어야 합니다 — 새로 발견되면 이 문서에 추가해 주세요.
+`docs/SPEC.md` and `docs/REGEX.md` define most of the language's syntax and meaning, but
+some points are deliberately (or accidentally) left unspecified. This document records how
+the actual interpreter (`engine/interpreter/`) implements those points, and why it was
+decided that way. Anything where the spec and the real behavior might read differently should
+be here — if you find a new one, please add it to this document.
 
-## 1. `async` / `await` 실행 모델
+## 1. The `async` / `await` execution model
 
-`SPEC.md`는 "비동기 함수의 실제 실행 모델과 세부 동작은 별도의 구현 명세에서
-정의합니다"라며 명시적으로 결정을 미룹니다. 이 저장소에는 그 별도 명세가 없으므로,
-이 엔진은 다음과 같이 구현합니다 (v0.2.0에서 개선됨 — 아래 "변경 이력" 참고).
+`SPEC.md` explicitly defers the decision: "the actual execution model and detailed behavior of
+asynchronous functions are defined in a separate implementation specification." This
+repository has no such separate specification, so this engine implements it as follows
+(improved in v0.2.0 — see "change history" below).
 
-- `async` 함수를 **`await`로 호출**하면, 이벤트 루프나 스레드 없이 그 자리에서
-  동기적으로 끝까지 실행되고 값을 즉시 돌려받습니다.
-- `async` 함수를 **`await` 없이 호출**하면 지금 실행되지 않습니다. 호출은 내부 큐에
-  들어가고, **최상위 스크립트의 동기 코드가 전부 끝난 뒤** 큐에 들어간 순서대로(FIFO)
-  실행됩니다. 큐에 들어간 호출의 반환값은 관찰할 수 없습니다 (애초에 `await`를 안 썼으니
-  값을 받을 방법이 없음) — 항상 `empty`가 즉시 반환됩니다.
-    - 큐를 비우는 시점은 스크립트 전체 실행 종료 시 딱 한 번입니다. 도중에(예: 각 최상위
-      문장 끝마다) 비우는 방식도 고려했지만, 그러면 "큐에 넣은 바로 다음 줄이 실행되기도
-      전에 비동기 작업이 끝나버려서" 사실상 즉시 실행과 체감상 차이가 없었습니다. "동기
-      코드가 전부 끝난 뒤에 실행된다"는 규칙이 훨씬 이해하기 쉽고 실제로 "나중에
-      실행된다"는 걸 보여줍니다. (`examples/10_async_ordering.cuff` 참고)
-    - 실제 스레드/병렬성은 전혀 쓰지 않습니다 — 인터프리터의 공유 상태
-      (`Environment`, 함수 테이블, 정규식 캐시 등)가 스레드 안전하지 않으므로, 진짜
-      동시성을 도입하려면 그 전부를 뮤텍스로 감싸야 하는 큰 작업이 됩니다. 안정성을
-      우선해 "협조적 지연 실행"만 구현했습니다.
-- `await`를 `async`가 아닌 함수에 사용하면 `AwaitOnNonAsync` 런타임 오류가 발생합니다 —
-  이렇게 하면 `await`가 여전히 "이 함수는 비동기다"라는 문서 역할을 합니다.
-- `async`와 `returnable`은 서로 다른 수식어라서 함께 쓸 수 있습니다
-  (`set async returnable func ...`). 명세 예제에는 등장하지 않지만 문법상 자연스러운
-  조합이라 허용했습니다.
+- When an `async` function is **called with `await`**, it runs to completion right there,
+  synchronously, with no event loop or thread, and the value comes back immediately.
+- When an `async` function is **called without `await`**, it does not run now. The call goes
+  into an internal queue and runs, in the order queued (FIFO), **after all of the top-level
+  script's synchronous code has finished**. The return value of a queued call cannot be
+  observed (you did not use `await`, so there is no way to receive the value) — `empty` is
+  always returned immediately.
+    - The queue is drained exactly once, when the whole script finishes. Draining midway (for
+      example at the end of each top-level statement) was considered, but then "the async job
+      finished before the line right after the one that queued it even ran", which felt no
+      different from immediate execution. The rule "it runs after the synchronous code is
+      all done" is far easier to understand and actually shows that it runs "later".
+      (See `examples/10_async_ordering.cuff`.)
+    - No real threads or parallelism are used at all — the interpreter's shared state
+      (`Environment`, the function table, the regex cache, etc.) is not thread-safe, so
+      introducing true concurrency would be a big job that means wrapping all of it in
+      mutexes. Putting stability first, only "cooperative deferred execution" was implemented.
+- Using `await` on a function that is not `async` raises an `AwaitOnNonAsync` runtime error —
+  this way `await` still works as documentation saying "this function is asynchronous".
+- `async` and `returnable` are separate modifiers, so they can be used together
+  (`set async returnable func ...`). It does not appear in the spec examples, but it is a
+  natural combination grammatically, so it was allowed.
 
-## 2. 정규식에서 `.`(마침표)의 의미
+## 2. What `.` (the period) means in regex
 
-`docs/REGEX.md`의 이스케이프 대상 목록에는 `.`이 포함되어 있어서, 마치 `.`이 특수
-의미(다른 정규식 언어처럼 "임의의 한 문자")를 가지는 것처럼 읽힐 수 있습니다. 하지만
-CuffScript는 이미 그 역할을 하는 `[any]` 토큰을 명시적으로 제공하고, "복잡한 특수기호를
-완전히 소멸시켰다"는 것이 언어의 핵심 설계 철학입니다. 따라서:
+The escapable-symbol list in `docs/REGEX.md` includes `.`, which can make it read as if `.`
+had a special meaning ("any one character", as in other regex languages). But CuffScript
+already provides an explicit `[any]` token for that role, and "eliminating the complicated
+special symbols entirely" is the language's core design philosophy. Therefore:
 
-- **`.`은 기본적으로 리터럴 문자**입니다 (다른 문자와 동일하게 취급됩니다). 이메일,
-  파일명, 버전 문자열처럼 마침표가 흔히 등장하는 일반 문자열을 `is`로 비교할 때 예상치
-  못하게 동작이 바뀌는 것을 막기 위한 선택입니다.
-- `\.`도 똑같이 리터럴 마침표를 만듭니다 (허용되지만 필수는 아님).
+- **`.` is a literal character by default** (it is treated like any other character). This
+  choice keeps behavior from changing unexpectedly when you compare ordinary strings in which
+  periods commonly appear — emails, file names, version strings — with `is`.
+- `\.` also produces a literal period in exactly the same way (allowed but not required).
 
-## 3. f-string 안에서의 따옴표
+## 3. Quotes inside an f-string
 
-f-string은 바깥쪽 큰따옴표(`"`)로 감싸입니다. `{...}` 표현식 내부에서 문자열 리터럴이
-필요하면 (예: 맵/매치 결과에서 키로 접근할 때) **반드시 홑따옴표(`'...'`)를 사용해야
-합니다.** 안쪽에서 큰따옴표를 쓰면 토크나이저가 그 지점에서 f-string이 끝난 것으로
-인식합니다. 이것이 `docs/REGEX.md` section 23의 `f"연도: {res['year']}"` 예제가 굳이
-홑따옴표를 쓰는 이유입니다 — 이 엔진은 그 관례를 실제로 강제합니다.
+An f-string is wrapped in outer double quotes (`"`). If you need a string literal inside a
+`{...}` expression (for example to access a key of a map/match result), you **must use single
+quotes (`'...'`).** If you use double quotes inside, the tokenizer takes the f-string to end at
+that point. This is why the `f"Year: {res['year']}"` example in `docs/REGEX.md` section 23
+deliberately uses single quotes — this engine actually enforces that convention.
 
-`{{`와 `}}`는 각각 리터럴 `{`, `}`로 출력됩니다.
+`{{` and `}}` print as a literal `{` and `}` respectively.
 
-## 4. 선언 시점의 타입 검사
+## 4. Type checking at declaration time
 
-`set <타입> <이름> to <값>`은 **선언되는 순간에만** 값의 런타임 타입이 선언 타입과
-일치하는지 검사합니다. `change`는 이후 어떤 타입의 값이든 재대입할 수 있습니다 (타입은
-재검사되지 않음) — 이는 언어 전반의 "동적 타입 스타일" 철학과 일치합니다. 유일한
-예외는: `empty` 값은 선언된 타입과 상관없이 항상 허용됩니다. 이는 `find`/`match`가
-실패했을 때 돌려주는 `empty`를 원하는 타입의 변수에 그대로 담아 두었다가 `or_else`나
-`is empty` 검사로 다루기 위함입니다.
+`set <type> <name> to <value>` checks that the value's runtime type matches the declared type
+**only at the moment of declaration**. `change` can later reassign a value of any type (the
+type is not re-checked) — this matches the language's overall "dynamic typing style"
+philosophy. The one exception: an `empty` value is always allowed regardless of the declared
+type. This is so that the `empty` returned when `find`/`match` fails can be stored as is in a
+variable of the type you want, and then handled with `or_else` or an `is empty` check.
 
-## 5. 상수 이름 검사 시점
+## 5. When constant names are checked
 
-"전체 대문자가 아닌 상수 이름"과 "상수에 대한 `change`"는 모두 **런타임에 그 문장이
-실행되는 시점**에 검사됩니다 (파싱 시점이 아님). 조건부로만 실행되는 코드 안의 상수
-선언은 그 분기가 실제로 실행되기 전까지는 검증되지 않습니다.
+Both "a constant name that is not all uppercase" and "a `change` on a constant" are checked
+**at runtime, when that statement executes** (not at parse time). A constant declaration
+inside code that only runs conditionally is not verified until that branch actually executes.
 
-## 6. 컬렉션 `remove`의 대상 판별
+## 6. How the target of a collection `remove` is decided
 
-`remove <값> from <컬렉션>`에서 리스트를 대상으로 할 때: 값이 **숫자**면 1-based
-인덱스로, 그 외의 값이면 리스트 안에서 **값 자체**를 찾아 제거합니다 (없으면
-`ElementNotFoundError`, `or_else`로 잡을 수 있음). 맵을 대상으로 할 때는 문자열 키로
-제거하며, 존재하지 않는 키를 지우는 것은 조용히 아무 일도 하지 않습니다 (다른 언어의
-관례적인 맵 삭제 동작과 동일).
+For `remove <value> from <collection>` on a list: if the value is a **number**, it is treated
+as a 1-based index; for any other value, the engine looks for the **value itself** in the list
+and removes it (if it is not there, `ElementNotFoundError`, which `or_else` can catch). On a
+map it removes by string key, and deleting a key that does not exist quietly does nothing
+(the same as the conventional map-delete behavior of other languages).
 
-## 7. `loop match` 제거됨
+## 7. `loop match` removed
 
-한때 세 번째 loop 형태로 `loop match 대상 is/IS 상태 do: ... end`가 있었지만,
-인터프리터는 이를 `loop while`과 완전히 동일하게 — 매 반복마다 조건을 다시
-검사하는 것으로만 — 구현하고 있었습니다 (파서에서 조건식을 파싱하는 코드까지
-동일). 실제로 쓰이는 곳이 없어 혼란만 주는 완전한 중복이었으므로 언어에서
-제거했습니다. `LoopStmt::LoopKind`에는 이제 `Repeat`/`While` 두 값만 남아
-있습니다. 같은 효과가 필요하면 `loop while [조건] do: ... end`를 그대로 쓰면
-됩니다.
+There was once a third loop form, `loop match <target> is/IS <state> do: ... end`, but the
+interpreter implemented it exactly like `loop while` — only as re-checking the condition on
+every iteration (even the parser code that parses the condition expression was the same). It
+was a complete duplicate that nobody used and that only caused confusion, so it was removed
+from the language. `LoopStmt::LoopKind` now has only the two values `Repeat`/`While`. If you
+need the same effect, just use `loop while [condition] do: ... end`.
 
-## 8. 모듈 병합 (`use ... from ...`)
+## 8. Module merging (`use ... from ...`)
 
-- 모듈 파일은 `실행 중인 스크립트 디렉터리 / <path> / <name>.cuff` 경로로 해석됩니다.
-- 모듈의 최상위 함수는 인터프리터 전역 함수 테이블에 등록되어 자동으로 보이게 됩니다.
-- 모듈의 최상위 변수는 실행 후 `use`가 호출된 스코프로 복사됩니다.
-- 같은 모듈을 두 번 이상 불러오면 (다이아몬드 임포트나 순환 임포트 포함) 두 번째부터는
-  조용히 아무 일도 하지 않습니다 — 무한 루프를 방지하면서도 흔한 경우를 안전하게
-  처리하기 위함입니다.
+- A module file is resolved at the path `running script's directory / <path> / <name>.cuff`.
+- A module's top-level functions are registered in the interpreter's global function table and
+  become visible automatically.
+- A module's top-level variables are copied, after it runs, into the scope that called `use`.
+  Since a function is not given a view of global variables on its own (see item 40), a module
+  function that reads one of its module's top-level variables must bridge it with
+  `change name to global` first; the bridge resolves against the importing script's globals,
+  where the module's variables were copied.
+- If the same module is loaded more than once (including diamond or circular imports), the
+  second and later loads quietly do nothing — this prevents infinite loops while handling the
+  common cases safely.
 
-## 9. `DLC:*` 내장 라이브러리
+## 9. The `DLC:*` built-in libraries
 
-명세는 `use DLC:network`라는 예시 하나만 보여줄 뿐 구체적인 라이브러리 목록을 정의하지
-않습니다. 이 엔진은 다음을 제공합니다.
+The spec shows only a single example, `use DLC:network`, and does not define a concrete list of
+libraries. This engine provides the following.
 
-| 라이브러리        | 제공 함수                                                                                                                                                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library           | Functions provided                                                                                                                                                                                                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `DLC:math`        | `math_sqrt`, `math_abs`, `math_pow`, `math_round`, `math_floor`, `math_ceil`, `math_trunc`, `math_sign`, `math_min`, `math_max`, `math_clamp`, `math_mod`, `math_log`, `math_log2`, `math_log10`, `math_exp`, `math_sin`, `math_cos`, `math_tan`, `math_asin`, `math_acos`, `math_atan`, `math_atan2`, `math_pi`, `math_e` |
-| `DLC:string`      | `str_upper`, `str_lower`, `str_trim`, `str_trim_start`, `str_trim_end`, `length`, `contains`, `index_of`, `str_starts_with`, `str_ends_with`, `str_repeat`, `str_pad_left`, `str_pad_right`, `str_char_code`, `str_from_char_code` |
-| `DLC:time`        | `time_now`, `time_timestamp`                                                                                                                                                                                    |
-| `DLC:random`      | `random_float`, `random_int`, `random_seed`, `random_choice`, `random_shuffle`                                                                                                                                  |
-| `DLC:list`        | `list_sort`, `list_reverse`, `list_join`, `list_unique`, `list_sum`, `list_average`, `list_flatten`, `list_range`, `length`, `contains`, `index_of` — 전부 원본을 바꾸지 않고 새 값을 반환                    |
-| `DLC:map`         | `map_keys`, `map_values`, `map_has_key`, `map_entries`, `map_merge`, `length`, `contains` — 22~24번 항목 참고                                                                                                   |
-| `DLC:convert`     | `to_number`, `to_str`, `to_boolean` — 명시적 타입 변환 (핵심 내장 함수이기도 해서 `use` 없이도 항상 씀)                                                                                                        |
-| `DLC:json`        | `to_json`, `from_json` — 아래 19번 항목 참고                                                                                                                                                                    |
-| `DLC:network`     | `network_get`, `network_post` — 실제 HTTP/1.1 클라이언트. `SECURITY.md`의 "DLC:network" 항목 참고                                                                                                              |
-| `DLC:filesystem`  | `file_exist`, `file_size`, `file_read`, `file_readlines`, `file_write`, `file_add`, `file_remove` — 아래 30번 항목과 `SECURITY.md`의 "DLC:filesystem" 항목 참고                                                |
+| `DLC:string`      | `str_upper`, `str_lower`, `str_trim`, `str_trim_start`, `str_trim_end`, `length`, `contains`, `index_of`, `str_starts_with`, `str_ends_with`, `str_repeat`, `str_pad_left`, `str_pad_right`, `str_char_code`, `str_from_char_code`                                          |
+| `DLC:time`        | `time_now`, `time_timestamp`                                                                                                                                                                                                                                                   |
+| `DLC:random`      | `random_float`, `random_int`, `random_seed`, `random_choice`, `random_shuffle`                                                                                                                                                                                                 |
+| `DLC:list`        | `list_sort`, `list_reverse`, `list_join`, `list_unique`, `list_sum`, `list_average`, `list_flatten`, `list_range`, `length`, `contains`, `index_of` — all return a new value without changing the original                                                                    |
+| `DLC:map`         | `map_keys`, `map_values`, `map_has_key`, `map_entries`, `map_merge`, `length`, `contains` — see items 22–24                                                                                                                                                                    |
+| `DLC:convert`     | `to_number`, `to_str`, `to_boolean` — explicit type conversion (also core built-ins, so they are always usable without `use`)                                                                                                                                                  |
+| `DLC:json`        | `to_json`, `from_json` — see item 19 below                                                                                                                                                                                                                                      |
+| `DLC:network`     | `network_get`, `network_post` — a real HTTP/1.1 client. See the "DLC:network" entry in `SECURITY.md`                                                                                                                                                                            |
+| `DLC:filesystem`  | `file_exist`, `file_size`, `file_read`, `file_readlines`, `file_write`, `file_add`, `file_remove` — see item 30 below and the "DLC:filesystem" entry in `SECURITY.md`                                                                                                           |
 
-`length`/`contains`/`index_of`만 예외적으로 접두어가 없습니다 — str/list/map
-세 자료형에 걸쳐 의도적으로 동일한 다형 구현(`nativeLength`/`nativeContains`/
-`nativeIndexOf`)을 공유하도록 설계되어 있어서, `str_length`/`list_length`/
-`map_length`로 쪼개면 오히려 "아무 값이나 넣으면 되는" 이 함수들의 장점을
-잃게 됩니다. `to_json`/`from_json`/`to_number`/`to_str`/`to_boolean`도 이미
-이름 자체에 방향/도메인이 드러나 있어 그대로 두었습니다. 그 외 함수 이름은
-전부 `라이브러리_동사` 형태로 통일했습니다 (예: `math_sqrt`, `str_upper`,
-`list_sort`) — 이전 버전에서는 `sqrt`, `upper`, `sort`처럼 접두어가 전혀 없어서
-어느 라이브러리 소속인지 이름만으로 알 수 없었고, 여러 라이브러리가 같은
-이름을 등록하면 (의도치 않은) 충돌 위험도 있었습니다. **이것은 하위 호환을
-깨는 변경입니다** — 기존 스크립트는 함수 이름을 전부 새 이름으로 바꿔야
-합니다.
+Only `length`/`contains`/`index_of` are exceptions with no prefix — they are deliberately
+designed to share the same polymorphic implementation (`nativeLength`/`nativeContains`/
+`nativeIndexOf`) across the str/list/map types, and splitting them into `str_length`/
+`list_length`/`map_length` would instead lose the advantage of these functions that "accept
+any value". `to_json`/`from_json`/`to_number`/`to_str`/`to_boolean` were also left as they are,
+because their names already show their direction/domain. All other function names were
+unified to the `library_verb` form (for example `math_sqrt`, `str_upper`, `list_sort`) —
+in earlier versions they had no prefix at all, like `sqrt`, `upper`, `sort`, so you could not
+tell which library a function belonged to from the name alone, and there was also a risk of
+(unintended) collisions when several libraries registered the same name. **This is a
+backward-incompatible change** — existing scripts have to rename every function to the new
+names.
 
-`DLC:list`/`DLC:convert`를 추가하며 발견한 것: 라이브러리 이름이 `list`, `count`,
-`find`처럼 언어 예약어와 겹치면 `use DLC:list`가 파싱조차 안 되는 버그가 있었습니다
-(`ImportParser`가 `IDENTIFIER` 토큰만 이름으로 인정했기 때문). 지금은 IDENTIFIER든
-예약어든 "글자로 이루어진 토큰"이면 모두 이름으로 인정하도록 고쳤습니다 — 앞으로
-어떤 DLC/모듈 이름을 추가해도 이 문제가 재발하지 않습니다. 이후 같은 문제가
-변수/함수/매개변수/루프 변수 이름 선언 전반에도 있었다는 게 드러나서 (`add`,
-`count`, `find`, `split`, `replace`, `match`, `in`, `by`, `not`, `global`을 그
-자리에 쓸 수 없었음) 28번 항목에서 전체적으로 다룹니다.
+What was found while adding `DLC:list`/`DLC:convert`: when a library name overlapped with a
+language reserved word such as `list`, `count` or `find`, there was a bug where `use DLC:list`
+did not even parse (because `ImportParser` accepted only `IDENTIFIER` tokens as names). It is
+now fixed so that any "token made of letters", whether IDENTIFIER or reserved word, is
+accepted as a name — so the problem will not recur no matter which DLC/module names are added
+in the future. It later turned out that the same problem existed across variable/function/
+parameter/loop-variable name declarations in general (`add`, `count`, `find`, `split`,
+`replace`, `match`, `in`, `by`, `not` and `global` could not be used in that position), which
+item 28 covers as a whole.
 
-## 10. 정규식 매칭의 안전장치
+## 10. Safety nets for regex matching
 
-`docs/REGEX.md`가 요구하는 "최대 매칭 스텝 수(Step Limit)와 시간 제한(Timeout)"을
-직접 구현했습니다 (`engine/regex/RegexMatcher.h`): 기본값은 스텝 200,000회, 시간
-500ms, 재귀 깊이 20,000입니다. 셋 중 하나라도 넘으면 매칭을 멈추고 복구 가능한
-`RegexRuntimeError`를 던집니다 (스크립트가 멈추지 않고 `or_else`로 처리할 수 있음).
+The "maximum match step count (Step Limit) and time limit (Timeout)" that `docs/REGEX.md`
+requires are implemented directly (`engine/regex/RegexMatcher.h`): the defaults are 200,000
+steps, 500 ms, and a recursion depth of 3,000. If any of the three is exceeded, matching
+stops and a recoverable `RegexRuntimeError` is thrown (the script does not hang, and can
+handle it with `or_else`).
 
-## 11. 리스트/맵은 참조 타입
+## 11. Lists and maps are reference types
 
-리스트와 맵은 `shared_ptr`로 구현되어 있어, 변수 대입이나 함수 인자로 넘길 때 값이
-복사되지 않고 같은 저장소를 공유합니다 (Python/JS와 동일). 숫자·문자열·불리언·`empty`는
-값으로 복사됩니다.
+Lists and maps are implemented with `shared_ptr`, so when assigned to a variable or passed as
+a function argument the value is not copied and the same storage is shared (the same as
+Python/JS). Numbers, strings, booleans and `empty` are copied by value.
 
-## 12. 함수는 값이 아님
+Because they are reference-counted, a list or map that contains itself (`add a to a`) is never
+freed: the reference cycle keeps it alive until the process exits. Printing and comparing such
+structures is safe (see `tests/cases/value_semantics.cuff`), and a one-shot `cuffc` run is
+unaffected, but a long-lived host that runs many scripts in one process should be aware that a
+script which builds cycles leaks that memory.
 
-명세가 명시적으로 클로저/중첩 함수를 지원하지 않는다고 밝히고 있으므로, 함수는
-`Value`의 한 종류가 아니라 인터프리터 안의 별도 이름 테이블(`userFunctions_`)로
-관리됩니다. 최상위에 있지 않은 함수 선언(다른 함수 안에 중첩된 경우)은
-`NestedFunctionNotSupported` 오류를 던집니다.
+## 12. Functions are not values
 
-(v1.7.1 개발 중 한때 이 제약을 풀고 값으로 취급되는 클로저를 도입했었지만,
-캡처를 "값으로, 정의 시점에 한 번" 방식으로 구현한 결과 — 스택 기반
-`Environment`를 힙 기반으로 바꾸는 훨씬 큰 변경 없이 안전하게 구현할 수 있는
-유일한 방식이었음 — 숫자/문자열 같은 스칼라를 캡처한 클로저는 호출 사이에
-상태가 누적되지 않는 문제가 있었습니다. 클로저의 "국민 예제"인 카운터 패턴이
-동작하지 않는 절반짜리 기능은 이 언어의 방향성(초보자용, 쉽고 가볍게)에
-맞지 않는다고 판단해서 제거하고 이 항목으로 되돌렸습니다.)
+Since the spec explicitly says that closures and nested functions are not supported, a function
+is not a kind of `Value`; it is managed in a separate name table inside the interpreter
+(`userFunctions_`). A function declaration that is not at the top level (nested inside another
+function) throws a `NestedFunctionNotSupported` error.
 
-## 13. `return`/`stop`은 C++ 예외가 아님 (성능 + 정확성)
+(During v1.7.1 development this restriction was once lifted and closures treated as values
+were introduced, but the capture was implemented as "by value, once at definition time" — the
+only approach that could be implemented safely without the far bigger change of turning the
+stack-based `Environment` into a heap-based one — and as a result a closure that captured a
+scalar such as a number or string did not accumulate state between calls. The counter
+pattern, the "classic example" of closures, did not work; a half-finished feature like that
+did not fit the direction of this language (for beginners, easy and light), so it was removed
+and this item was restored.)
 
-v0.1.x에서는 `return`/`stop`을 C++ 예외(`ReturnSignal`/`StopSignal`)로 구현해서 함수
-호출/루프 경계에서 `catch`로 잡았습니다. 이건 **두 가지 문제**가 있었습니다.
+## 13. `return`/`stop` are not C++ exceptions (performance + correctness)
 
-- **성능**: C++ 예외를 던지고 잡는 데는 마이크로초 단위의 비용이 듭니다. 함수가
-  `return`할 때마다 매번 이 비용을 냈기 때문에, 재귀가 많은 스크립트에서는 실행 시간
-  대부분을 여기서 소모했습니다. 실측: `fib(27)` (호출 약 63만 회) 기준 **2.75초 →
-  0.26초로 개선** (약 10.7배).
-- **정확성**: `stop`을 잡는 `catch`가 오직 루프 몸통 주위에만 있었기 때문에, 함수 안에서
-  (그 함수 자신의 루프 없이) `stop`을 쓰면 함수 호출 경계를 그대로 뚫고 나가서 **그
-  함수를 호출한 쪽의 루프까지 끊어버리는** 버그가 있었습니다. 게다가 최상위에서 아무
-  루프/함수 없이 `stop`이나 `return`을 쓰면 아무도 못 잡는 예외가 그대로 `main()`
-  밖으로 튀어나가 **프로세스가 죽었습니다** (`std::terminate`, SIGABRT).
+In v0.1.x, `return`/`stop` were implemented as C++ exceptions (`ReturnSignal`/`StopSignal`)
+and caught with `catch` at function-call/loop boundaries. That had **two problems**.
 
-지금은 `execStatement`/`execBlock`/`execIf`/`execLoop`가 전부 `ExecOutcome`
-(`Normal`/`Return`/`Stop` + 값 + 위치)이라는 평범한 값을 리턴해서 위로 전달합니다
-(`engine/interpreter/Signals.h`). `catch`는 진짜 `CuffError`(실제 에러)에만 씁니다.
-결과적으로:
+- **Performance**: throwing and catching a C++ exception costs microseconds. Because that cost
+  was paid every time a function `return`ed, recursion-heavy scripts spent most of their run
+  time on it. Measured: for `fib(27)` (about 630,000 calls) it **improved from 2.75 s to
+  0.26 s** (about 10.7×).
+- **Correctness**: the `catch` that caught `stop` existed only around loop bodies, so using
+  `stop` inside a function (without a loop of its own in that function) passed straight through
+  the function-call boundary and had a bug that **cut off the loop of whoever called that
+  function**. On top of that, using `stop` or `return` at the top level with no loop/function
+  let an exception that nobody could catch escape out of `main()`, and **the process died**
+  (`std::terminate`, SIGABRT).
 
-- `stop`은 `execLoop`가 명시적으로 소비하고, 함수를 호출한 쪽까지는 절대 새어나가지
-  않습니다. 함수 안에서 루프 없이 `stop`을 쓰면 이제 `StopOutsideLoop`라는 깔끔한 런타임
-  오류가 됩니다 (크래시 아님).
-- 최상위에서 `return`/`stop`을 쓰면 `ReturnOutsideFunction`/`StopOutsideLoop` 오류로
-  깔끔하게 처리됩니다 (역시 크래시 아님).
+Now `execStatement`/`execBlock`/`execIf`/`execLoop` all return an ordinary value called
+`ExecOutcome` (`Normal`/`Return`/`Stop` + value + location) and pass it upward
+(`engine/interpreter/Signals.h`). `catch` is used only for real `CuffError`s (actual errors).
+As a result:
 
-새 제어 흐름을 추가할 때(예: `continue`, `break with label` 등)는 `ExecResult`에 새
-케이스를 추가하고, 그 신호를 "소비"해야 하는 지점(루프? 함수?)에서 명시적으로 처리하면
-됩니다 — 예외를 다시 꺼내 쓰지 마세요, 이번에 없앤 성능 문제가 그대로 돌아옵니다.
+- `stop` is explicitly consumed by `execLoop` and never leaks out to whoever called the
+  function. Using `stop` without a loop inside a function is now a clean `StopOutsideLoop`
+  runtime error (not a crash).
+- Using `return`/`stop` at the top level is handled cleanly as a `ReturnOutsideFunction`/
+  `StopOutsideLoop` error (again, not a crash).
 
-## 14. 문자열 인덱싱/슬라이싱은 UTF-8 코드포인트 기준
+When you add new control flow (for example `continue`, `break with label`), add a new case to
+`ExecOutcome` and handle that signal explicitly at the point that should "consume" it (a loop?
+a function?) — do not bring exceptions back, or the performance problem eliminated this time
+comes right back.
 
-`str[i]`, `str[i~j]`, `length()`(DLC:string)는 바이트가 아니라 **UTF-8 코드포인트** 단위로
-동작합니다 (`engine/interpreter/Utf8.h`). 한글은 완성형 한 글자가 코드포인트 하나이므로
-`"안녕하세요"[1]`은 "안"을 정확히 반환합니다 — 이전에는 바이트 단위였어서 한글 문자열을
-인덱싱/슬라이싱하면 멀티바이트 시퀀스 중간이 잘려 깨진 바이트가 나왔습니다.
+## 14. String indexing/slicing is by UTF-8 code point
 
-그래핌 클러스터(자모 결합, 이모지 ZWJ 시퀀스 등)까지는 다루지 않습니다 — 코드포인트
-단위로 충분한 이유는 한글이 조합형이 아니라 완성형(NFC)으로 입력되는 한 각 글자가 이미
-코드포인트 하나이기 때문입니다. `contains`/`starts_with`/`ends_with`/`+`(연결)은 원래도
-바이트 단위 그대로 두었습니다 — UTF-8은 자기동기화 인코딩이라 바이트 단위 검색/결합이
-코드포인트 경계를 침범하지 않아 이미 안전하게 동작합니다.
+`str[i]`, `str[i~j]` and `length()` (DLC:string) work by **UTF-8 code point**, not by byte
+(`engine/common/Utf8.h`). A precomposed Hangul syllable is a single code point, so
+`"안녕하세요"[1]` correctly returns "안" — previously it was byte-based, so indexing/slicing a
+Hangul string cut through the middle of a multi-byte sequence and produced broken bytes.
 
-정규식 엔진도 코드포인트 단위로 동작합니다 — 아래 17번 항목 참고.
+Grapheme clusters (jamo composition, emoji ZWJ sequences, etc.) are not handled — code points
+suffice because, as long as Hangul is typed as precomposed (NFC) rather than composed jamo,
+each character is already a single code point. `contains`/`starts_with`/`ends_with`/`+`
+(concatenation) were left byte-based as they always were — UTF-8 is a self-synchronizing
+encoding, so byte-wise search/concatenation never crosses a code point boundary and already
+works safely.
 
-## 15. 타입 변환 (`to_number`/`to_str`/`to_boolean`)은 기본 내장
+The regex engine also works per code point — see item 17 below.
 
-`use DLC:convert` 없이 바로 쓸 수 있습니다 (`registerBuiltins`가 내부적으로
-`registerConvertDLC`를 호출). `use DLC:convert`를 써도 여전히 동작합니다 — 같은 함수를
-한 번 더 등록할 뿐이라 무해합니다. 다른 DLC 함수들(`math`/`string`/`list`/`random`/`time`)은
-여전히 `use`가 필요합니다 — `input()`으로 받은 문자열을 숫자로 바꾸는 건 매우 흔한 패턴이라
-기본 제공으로 옮겼지만, 나머지까지 전부 기본 내장으로 만들면 `use` 자체의 의미가 없어지므로
-그렇게 하지 않았습니다.
+## 15. Type conversion (`to_number`/`to_str`/`to_boolean`) is built in by default
 
-## 16. 회귀 테스트 (`tests/`)
+They can be used right away without `use DLC:convert` (`registerBuiltins` calls
+`registerConvertDLC` internally). They still work if you write `use DLC:convert` — it only
+registers the same functions once more, which is harmless. The other DLC functions
+(`math`/`string`/`list`/`random`/`time`) still need `use` — converting a string received from
+`input()` into a number is a very common pattern, so it was moved into the defaults, but making
+everything else built in as well would leave `use` itself meaningless, so that was not done.
 
-`bash tests/run.sh` — `tests/cases/`(성공 케이스, 출력 diff), `tests/errors/`(실패 케이스,
-에러 코드 확인), `examples/`, `examples/error_cases/`를 전부 돌립니다. 새 기능/버그 수정
-시 관련 케이스를 `tests/`에 같이 추가하세요 (`tests/README.md` 참고). `.github/workflows/
-build-and-test.yaml`에서 push/PR마다 자동 실행됩니다.
+## 16. Regression tests (`tests/`)
 
-이 테스트를 만드는 과정에서 실제 버그 2개를 발견/수정했습니다:
+`bash tests/run.sh` runs all of `tests/cases/` (success cases, output diff), `tests/errors/`
+(failure cases, error code check), `examples/` and `examples/error_cases/`. When you add a
+feature or fix a bug, add the related case to `tests/` as well (see `tests/README.md`). It runs
+automatically on every push/PR from `.github/workflows/build-and-test.yaml`.
 
-**정규식 재귀 깊이 제한이 너무 높아서 진짜 스택 오버플로우(SIGSEGV)가 났음.** `[any]+`처럼
-선형으로 깊게 재귀하는 패턴을 25,000자 문자열에 매칭하면 프로세스가 죽었습니다 —
-`depthLimit`을 20,000으로 잡아뒀는데, 실측해보니 8MB 스택 기준 실제 크래시는 ~19,500
-근처에서 이미 발생해서 제가 만든 안전장치(예외 던지기)가 발동하기도 전에 진짜 스택이
-터진 것입니다. `depthLimit`을 3000으로 낮췄고(관측된 크래시 지점 대비 6배 이상 여유),
-100자부터 100만자까지 전 구간에서 크래시 없이 정상 종료 또는 `RegexRecursionLimitExceeded`
-(E3-103)를 깔끔하게 던지는 것을 확인했습니다. 교훈: "충분히 보수적"이라고 생각한 숫자도
-실측 없이는 믿으면 안 됩니다.
+Two real bugs were found and fixed while building these tests:
 
-**식별자로 예약어를 쓸 수 없는 범위가 생각보다 넓음 (미해결, 기록만 해둠).**
-`set number add to 5`, `set returnable func add(...) do:` 둘 다 파싱 에러가 납니다 —
-`add`/`count`/`find`/`split`/`replace`/`match`/`in`/`by`/`not`/`global` 등, 문법 키워드로
-쓰이는 흔한 단어들을 변수명/함수명으로 전혀 쓸 수 없습니다. `ImportParser`에서 DLC 이름이
-같은 문제였던 것과 동일한 원인(`TokenType::IDENTIFIER`만 엄격히 검사)인데, 이번엔
-`DeclarationParser`/`FunctionParser` 등 이름을 선언하는 모든 지점에 퍼져있어서 범위가 더
-큽니다. 아직 고치지 않았습니다 — `tests/errors/argument_count_mismatch.cuff`가 원래
-`add`라는 함수명을 쓰려다 이 문제에 걸려서 `combine`으로 우회했습니다.
+**The regex recursion depth limit was too high, causing a real stack overflow (SIGSEGV).**
+Matching a pattern that recurses deeply and linearly, such as `[any]+`, against a 25,000
+character string killed the process — `depthLimit` had been set to 20,000, but on measurement
+the real crash with an 8 MB stack already happened near ~19,500, so the real stack blew before
+the safety net I had built (throwing an exception) could even trigger. `depthLimit` was
+lowered to 3000 (more than 6× headroom against the observed crash point), and it was
+confirmed that everything from 100 characters up to 1,000,000 characters either terminates
+normally without a crash or cleanly throws `RegexRecursionLimitExceeded` (E3-103). Lesson: even
+a number you thought was "conservative enough" cannot be trusted without measuring.
+
+**The range of cases where a reserved word cannot be used as an identifier was wider than
+expected (recorded here when found; fixed later — see item 28).** `set number add to 5` and
+`set returnable func add(...) do:` both produced parse errors — common words used as syntax
+keywords, such as `add`/`count`/`find`/`split`/`replace`/`match`/`in`/`by`/`not`/`global`,
+could not be used as variable or function names at all. It has the same cause as the DLC-name
+problem in `ImportParser` (a strict check of only `TokenType::IDENTIFIER`), but this time it was
+spread across every point that declares a name, such as `DeclarationParser`/`FunctionParser`, so
+the scope was larger. `tests/errors/argument_count_mismatch.cuff` had originally tried to use
+the function name `add`, ran into this problem, and worked around it with `combine`.
 
 ## 17. Regex matching is codepoint-based (not byte-based)
 
@@ -273,11 +294,11 @@ What this changes, concretely:
 
 What deliberately stays ASCII-only, per the spec's explicit wording:
 
-- `[let]` (영문 알파벳 / English alphabet), `[low]`, `[up]`, `[str]` (영문자 + 숫자),
-  `[word]` (영문자 + 숫자 + 언더바 — an _identifier_ class), `[num]`, `[hex]`, and the
+- `[let]` (English alphabet), `[low]`, `[up]`, `[str]` (English letters + digits),
+  `[word]` (English letters + digits + underscore — an _identifier_ class), `[num]`, `[hex]`, and the
   `[int]`/`[float]`/`[email]`/`[phone]`/`[url]` presets. `"안녕" is "[let]+"` is false.
 - `[any]` is the token for "any character in any language" — REGEX.md describes it as
-  "줄바꿈을 제외한 세상의 모든 글자 및 기호".
+  "every letter and symbol in the world except a line feed".
 
 So `[word]` excluding Korean while `[edge]` includes it is not an inconsistency: `[word]` is
 documented as an identifier class, `[edge]` as text segmentation. They serve different jobs.
@@ -514,6 +535,8 @@ function's own body, not the whole call graph: a pure function calling a non-pur
 and the callee's own purity (or lack of it) governs its own body, exactly as `returnable` and
 `async` already worked per-call via the same `FrameGuard`. Removing `pure` is a complete,
 literal escape hatch, by construction — there's no separate override flag to keep in sync.
+_(Update, item 40: the three per-site checks described above were replaced by the single
+failure path `throwUnresolved()`, which raises the same `PureFunctionGlobalAccess` error.)_
 
 **`DLC:network`.** A dependency-free HTTP/1.1 client, `engine/net/HttpClient.h`: POSIX sockets
 on Linux/macOS, Winsock2 on Windows (the one file in the engine with `#ifdef _WIN32` socket
@@ -563,7 +586,7 @@ deliberately deferring, not a tuning pass.
 
 ## 26. Pure-function hardening: call-graph propagation
 
-`pure` originally only checked a function's own body (see 25번). That left a trivial
+`pure` originally only checked a function's own body (see item 25). That left a trivial
 escape hatch: `set pure func f() do: g() end` where `g` touches globals — `f` never
 touches a global *directly*, so the old check passed, but calling `f` still reached a
 global through `g`. `checkPureCallAllowed()` (`Interpreter.h`) now runs at every call
@@ -579,7 +602,7 @@ scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4-029 cas
 
 ## 27. Global-bridge bug: `Environment::resolve()` checked the bridge before the local
 
-`change x to global` (25번, and the earlier feature it hardens) had a real, reproducible
+`change x to global` (item 25, and the earlier feature it hardens) had a real, reproducible
 bug: `resolve()` checked whether a name was in the current function scope's
 `globalDeclared_` list *before* checking for an actual local (`findLocal`) at each level.
 Once a name was bridged, any later *local* redeclaration of the same name in that same
@@ -596,13 +619,17 @@ Regression test: `tests/cases/global_bridge_shadowing.cuff` (loop-variable shado
 the `or_else` declaration-recovery placeholder, which hits the identical bug from a
 different angle).
 
+_(Update, item 40: the "fall back to the true global when no local exists" step described above
+was itself the cause of a second bug — a function could read and write globals without any
+bridge — and was removed. A function now resolves only locals plus the names it bridged.)_
+
 ## 28. Reserved words as identifiers
 
 `add`, `count`, `find`, `split`, `replace`, `match`, `in`, `by`, `not`, and `global`
 could not be used as a variable, function, parameter, or `loop repeat` variable name —
 every name-declaring/-referencing spot checked `TokenType::IDENTIFIER` specifically,
 which a reserved word never is, even though the exact same problem for DLC/module names
-was already fixed by relaxing that check to `isWordLikeToken()` (9번). The fix does the
+was already fixed by relaxing that check to `isWordLikeToken()` (item 9). The fix does the
 same thing everywhere else names are declared: `DeclarationParser` (`set` variable name,
 `change` target), `FunctionParser` (function name, parameter names), `CollectionOpParser`
 (the collection name in `add`/`replace`/`remove`), `LoopParser` (the `repeat` loop
@@ -700,14 +727,14 @@ full trust-boundary discussion. Regression tests: `tests/cases/dlc_filesystem.cu
 Every DLC function name (except the ones noted below) now carries its library as a
 prefix — `sqrt` → `math_sqrt`, `upper` → `str_upper`, `sort` → `list_sort`, `now` →
 `time_now`, `random` → `random_float`, `choice` → `random_choice`, `keys` → `map_keys`,
-`get`/`post` → `network_get`/`network_post`, and so on (see the table in 9번 for the
-complete mapping) — matching the `file_*` shape `DLC:filesystem` (30번) introduced.
+`get`/`post` → `network_get`/`network_post`, and so on (see the table in item 9 for the
+complete mapping) — matching the `file_*` shape `DLC:filesystem` (item 30) introduced.
 Reasoning: before this, a script reading `sort(x)` or `get(url)` had no way to tell which
 `use`d library it came from without cross-referencing every `use` line, and two libraries
 registering the same bare name (all of them share one flat `natives_` map) could silently
 shadow each other with no warning. Three exceptions, deliberately not renamed:
 `length`/`contains`/`index_of`, which are intentionally polymorphic across str/list/map
-(registered identically under all three — see 11번) and would lose that "works on
+(registered identically under all three — see item 11) and would lose that "works on
 anything" property if split into `str_length`/`list_length`/`map_length`; and
 `to_json`/`from_json`/`to_number`/`to_str`/`to_boolean`, whose names already encode
 their domain and direction without a prefix. **This is a breaking rename** — every
@@ -792,7 +819,7 @@ and the `textutil` UTF-8 namespace (used by both `StringDLC.h` and `JsonDLC.h`).
 (`registerBuiltins` — `print`/`input`/`type_of`, no `use` needed) and `registerDLC()`,
 the single dispatcher every `use DLC:name` calls into, which now just `#include`s all
 eleven files. `nativeLength`/`nativeContains`/`nativeIndexOf` (the three polymorphic
-functions shared across str/list/map, see 9번/31번) live in `DLCCommon.h` rather than
+functions shared across str/list/map, see items 9 and 31) live in `DLCCommon.h` rather than
 being duplicated per file, for the same reason they were never split by library to begin
 with. Every new file compiles standalone (checked by hand, one `#include "X.h"` +
 empty `main()` per file) rather than silently depending on include order from whatever
@@ -878,3 +905,87 @@ scanner located comments, the preprocessed output of `main.cpp` was compared bef
 char literal was compared byte-for-byte, and the build plus the full suite pass unchanged.
 `main.cpp`, `wasm/bindings.cpp` and `tests/` were left as they were.
 
+## 40. A function no longer sees globals without a `change x to global` bridge
+
+**The bug.** `Environment::resolve()` walked the scope chain up to the function scope and then,
+when nothing was found, fell back to the real global scope. So a function could *read* any
+global, and — worse — `change g to 99` inside a function silently overwrote the global with no
+`global` declaration at all, which made `change g to global` pointless (SPEC section 10 says
+that is how you reach a global from a function).
+
+**The rule now.** A function scope resolves only its own locals (and the block scopes inside it)
+plus the names it bridged with `change x to global`; everything else is unresolved. This
+applies to reads, to `change`, and to collection statements (`add`/`remove`/`change x[i]`), and
+to constants as much as to variables — there is no read-only exemption for `constant` globals.
+A local declared with `set` still always wins over a bridge of the same name (item 27). Top-level
+code and the block scopes inside it are unaffected, since they live in the global scope itself.
+
+**Errors.** `Interpreter::throwUnresolved()` is the one place that reports an unresolved name.
+If the name exists as a global and the running function has not bridged it, the message says so
+and hints at `change <name> to global`, instead of a bare "undefined variable"
+(`UndefinedVariable`, E4-001, still recoverable with `or_else`). Inside a `pure` function the
+same situation raises `PureFunctionGlobalAccess` (E4-027) exactly as before — a pure function
+cannot bridge, so it can never reach a global — which is why the three
+`look.owner == &globalEnv_` checks from item 25 are gone: they could no longer fire.
+
+**Knock-on changes.** `examples/02_comprehensive_demo.cuff` (and the SPEC code that mirrors it)
+reads the constant `MAX_LEVEL` inside a function, and `examples/lib/greetings.cuff` reads a
+module-level constant, so both now begin with `change <NAME> to global`. Module functions follow
+the same rule as any function (item 8).
+
+**Tests.** `tests/cases/global_bridge_required.cuff` (read/write/collection op blocked without a
+bridge, allowed with one, local shadowing, the global untouched afterwards) and
+`tests/errors/global_read_without_bridge.cuff` / `global_write_without_bridge.cuff` (E4-001).
+
+### Other fixes in the same pass
+
+- **HTTP chunked bodies could exceed the response cap.** The chunk-size check added the declared
+  size to the bytes received so far, so a hostile `ffffffffffffffff` chunk size wrapped around and
+  passed; the client then buffered everything the server sent until the 15 s deadline (measured:
+  642 MiB against an 8 MiB cap). It now compares against the remaining budget, so the response is
+  rejected immediately. (No automated test: it needs a live hostile server.)
+- **`http://[::]/` bypassed the private-address block.** On Linux the IPv6 unspecified address
+  connects to the local host, but `isPrivateOrLoopback()` only blocked `::1`. `::` is now blocked
+  too (`tests/unit/dlc_guards_test.cpp`).
+- **`file_remove` also deleted empty directories** (`std::filesystem::remove` does both). It now
+  removes regular files only, matching `file_exist()` and the SPEC table.
+- **`[int]` could match a bare `+` or `-`.** Its backtracking tried lengths down to 1, which is
+  just the sign, so `"+5" is "[int][one:5]"` was true. It now always keeps at least one digit.
+- Dead code removed: the unused `KeywordClassifier` class (its `keywords_` member was declared but
+  never defined; `KeywordClassifierImpl` is now simply `KeywordClassifier`), an f-string brace
+  counter in `StringScanner` that nothing read, and a stale comment. `cuffsh` gained the
+  `--no-filesystem` flag that `cuffc` already had.
+
+### Performance check
+
+Re-measured against the previous build (`fib(30)`, a 3M-iteration loop, string/list/map work,
+regex in a loop): everything is at parity, and calling a function that bridges a global got about
+35% faster, because a lookup no longer falls through to the global scope. One outlier turned up:
+`remove <key> from <map>` re-hashed every later key after each removal (about 3 ms per removal on
+a 60,000-key map). It now shifts the stored positions by walking the index when many keys move,
+and still re-indexes only the tail when few do, so removing the last key stays O(1) — roughly
+2× faster for removals near the front. It is still O(n) per removal, because a map keeps its keys
+and values in dense, insertion-ordered vectors that a dozen call sites read directly; making
+removal O(1) would mean tombstones and touching all of them (`tests/cases/map_remove_reindex.cuff`
+pins the ordering behavior either way).
+
+### Known sharp edge (documented, not changed)
+
+In a regex pattern, a run of digits right after any atom is a repeat count, including after a
+plain literal character. `"v2"` means `v` twice and `"010-[num]4"` begins with `0` ten times, so
+`"abc123" is "abc123"` is false. `docs/REGEX.md` section 8 now says so and the examples wrap
+literal digits as `[one:010]`. Whether the engine should instead treat digits after a literal as
+literal is a language-design decision that has not been made.
+
+### Verifying with sanitizers
+
+```bash
+SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+g++ -std=c++17 -O1 -g $SAN -o cuffc-asan main.cpp
+ASAN_OPTIONS=detect_leaks=0 CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g $SAN" bash tests/run.sh
+```
+
+With leak detection off the whole suite is clean under ASan + UBSan (no memory errors, no
+undefined behavior). With leak detection on, the only reports are the deliberate reference cycles
+in `tests/cases/value_semantics.cuff` and `tests/unit/limits_test.cpp` (item 11), which is why
+the command above sets `detect_leaks=0`.

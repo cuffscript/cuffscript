@@ -1,25 +1,25 @@
 use DLC:string
 
 set str greeting to "안녕하세요"
-print(f"1번째 글자: {greeting[1]}")
-print(f"2~3번째 글자: {greeting[2~3]}")
-print(f"마지막 글자: {greeting[-1]}")
-print(f"글자 수: {length(greeting)}")
+print(f"1st character: {greeting[1]}")
+print(f"2nd-3rd characters: {greeting[2~3]}")
+print(f"last character: {greeting[-1]}")
+print(f"character count: {length(greeting)}")
 
 set str mixed to "Hi안녕!"
-print(f"섞인 문자열의 3번째 글자: {mixed[3]}")
-print(f"섞인 문자열 글자 수: {length(mixed)}")
+print(f"3rd character of the mixed string: {mixed[3]}")
+print(f"mixed string character count: {length(mixed)}")
 
-note: 정규식도 코드포인트(글자) 단위로 동작합니다
+note: regex also works per code point (character)
 if greeting is "[any]5" do:
-    print("[any]5 가 한글 5글자와 매칭됨")
+    print("[any]5 matched five Hangul characters")
 end
 
-note: 패턴 안에 한글을 직접 써도 됩니다
+note: Hangul can be written directly inside a pattern
 set match m to match "이름: 홍길동" from "이름: <name:[any]+>"
-print(f"이름 캡처: {m['name']}")
+print(f"captured name: {m['name']}")
 
-note: 단, [let]/[str]/[word]는 명세대로 영문 전용입니다
+note: but [let]/[str]/[word] are English-only, per the spec
 if !(greeting is "[let]+") do:
-    print("[let]은 영문 전용이라 한글과 매칭되지 않음 (의도된 동작)")
+    print("[let] is English-only, so it does not match Hangul (intended)")
 end

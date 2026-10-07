@@ -84,7 +84,6 @@ namespace cuff
             return const_cast<Environment *>(this)->findLocal(nameId) != nullptr;
         }
 
-        // Marks the name as a global bridge for this function call.
         void declareGlobal(uint32_t nameId)
         {
             Environment *e = this;
@@ -100,7 +99,8 @@ namespace cuff
             Environment *owner = nullptr;
         };
 
-        // Local bindings win over `change x to global`; otherwise lookup falls back to the true global scope.
+        // Local bindings win over a `change x to global` bridge. A function scope sees nothing outside itself
+        // except the names it has bridged, so an unbridged global is unresolved here.
         Lookup resolve(uint32_t nameId)
         {
             Environment *e = this;
@@ -115,18 +115,11 @@ namespace cuff
                     {
                         if (Value *v = e->global_->findLocal(nameId))
                             return {v, e->global_};
-                        return {nullptr, nullptr};
                     }
-                    break;
+                    return {nullptr, nullptr};
                 }
                 e = e->parent_;
             }
-            if (e != e->global_)
-            {
-                if (Value *v = e->global_->findLocal(nameId))
-                    return {v, e->global_};
-            }
-            return {nullptr, nullptr};
         }
 
         bool isConstantIn(Environment *owner, uint32_t nameId) const

@@ -1,0 +1,23 @@
+note: removing a key must keep every other key's value and the insertion order intact
+note: (small map: most keys move; large map: only the tail moves).
+use DLC:map, DLC:string
+
+set map small to {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
+remove "b" from small
+remove "e" from small
+change small["f"] to 6
+remove "a" from small
+print(small)
+print(f"{small['c']} {small['d']} {small['f']}")
+
+set map big to {}
+loop repeat i to 1 ~ 100 do:
+    change big[f"k{i}"] to i
+end
+remove "k99" from big
+remove "k1" from big
+change big["k99"] to 0
+set list ks to map_keys(big)
+print(f"{length(ks)} {ks[1]} {ks[97]} {ks[98]} {ks[99]}")
+print(f"{big['k2']} {big['k98']} {big['k100']} {big['k99']}")
+print(map_has_key(big, "k1"))

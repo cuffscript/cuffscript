@@ -41,8 +41,6 @@ namespace cuff
             return Token(TokenType::LT, "<", start, s.pendingSpaceBefore);
         }
 
-        // or_else is scanned before identifiers, which would otherwise read it as a plain WORD.
-
         switch (c)
         {
         case '+':

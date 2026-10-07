@@ -70,4 +70,4 @@ namespace cuff
         };
     }
 
-} // namespace cuff
+}

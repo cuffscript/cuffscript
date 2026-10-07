@@ -1,0 +1,49 @@
+note: A function sees only its own locals plus the globals it bridges with `change x to global`.
+
+set number total to 10
+set constant number LIMIT to 3
+set list items to [1, 2]
+
+set func unbridged_read() do:
+    print(total)
+end
+
+set func unbridged_write() do:
+    change total to 99
+end
+
+set func unbridged_add() do:
+    add 3 to items
+end
+
+set func bridged() do:
+    change total to global
+    change LIMIT to global
+    change items to global
+    change total to total + LIMIT
+    add 3 to items
+end
+
+set func local_shadow() do:
+    set number total to 1
+    change total to total + 1
+    print(f"local total = {total}")
+end
+
+unbridged_read() or_else do:
+    print("read blocked")
+end
+unbridged_write() or_else do:
+    print("write blocked")
+end
+unbridged_add() or_else do:
+    print("add blocked")
+end
+print(f"total after blocked calls = {total}")
+
+bridged()
+print(f"total after bridged call = {total}")
+print(f"items after bridged call = {items}")
+
+local_shadow()
+print(f"total after local shadow = {total}")

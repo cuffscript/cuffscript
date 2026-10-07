@@ -5,5 +5,5 @@ msg=DB Connection Lost
 call me at 010-****-**** today
 ["apple", "banana", "cherry"]
 3
-IS는 대소문자를 구분하지 않습니다
-이미지 파일명 패턴 일치
+IS is case-insensitive
+Image filename pattern matched
