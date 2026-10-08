@@ -1,3 +1,56 @@
+## v3.3.0 - 2026-10-08
+
+## Description
+
+- **Functions saw globals without a bridge.** `Environment::resolve()` fell back to the global scope
+  when a name was not found in a function, so a function could read any global, and
+  `change g to 99` silently overwrote one with no `global` declaration. A function now resolves only
+  its own locals plus the names it bridged with `change x to global` (reads, `change`, and
+  `add`/`remove`/`change x[i]`; `constant` globals included). An unbridged global gets a message
+  that says so and hints at `change x to global`; in a `pure` function it is still
+  `PureFunctionGlobalAccess` (E4-027). **Behavior change:** any function that read a global without
+  bridging it now fails with `UndefinedVariable` (E4-001); `examples/02_comprehensive_demo.cuff`
+  and `examples/lib/greetings.cuff` were updated accordingly.
+- **`DLC:network`: chunked responses could exceed the 8 MiB cap.** A hostile chunk size such as
+  `ffffffffffffffff` wrapped around the size check and the client buffered until the 15 s deadline
+  (measured 642 MiB). It is now rejected immediately.
+- **`DLC:network`: `http://[::]/` bypassed the private-address block** (the IPv6 unspecified address
+  reaches the local host on Linux). It is now blocked like `::1`.
+- **`file_remove` deleted empty directories.** It now removes regular files only.
+- **`[int]` matched a bare `+` or `-`**, e.g. `"+5" is "[int][one:5]"` was true.
+
+
+- `remove <key> from <map>` is about 2x faster for keys near the front of a large map (it no longer
+  re-hashes every later key); removing the last key is still O(1).
+- `cuffsh` accepts `--no-filesystem`, as `cuffc` already did.
+- `tests/run.sh` takes `CUFFC` and `UNIT_FLAGS` from the environment (for ASan/UBSan runs) and falls
+  back to `gtimeout`, or no timeout, where `timeout` is missing (stock macOS).
+
+
+- All documentation is in English (`SPEC.md`, `REGEX.md`, `IMPLEMENTATION_NOTES.md`,
+  `EXTENDING.md`, `examples/README.md`), as are the comments and demo output in `examples/` and
+  `tests/`. Hangul that exists as UTF-8 test data was kept.
+- `SPEC.md` section 10 states the new scope rule; section 13 documents `file_remove`'s file-only
+  behavior; the comprehensive example mirrors `examples/02_comprehensive_demo.cuff`.
+- `REGEX.md`: `[nl]` is `\n` or `\r` (a `\r\n` pair is two characters); `find ... g` with no match
+  returns `[]`; syntax errors are raised at parse time; a run of digits after any atom is a repeat
+  count, so `010-[num]4` became `[one:010]-[num]4` in the examples; the `[str!]{8,}` example, which
+  was not valid and never matched, became `[!sp]8~`.
+- `IMPLEMENTATION_NOTES.md`: new item 40; fixed the `Utf8.h` path, the regex recursion limit
+  (3,000, not 20,000), and the "unresolved" reserved-words note (fixed in item 28); item 11 now
+  records that self-referencing lists/maps are never freed. `EXTENDING.md`: `pure` enforcement
+  description updated, and a reference to a nonexistent "Deferred implementations" section removed.
+- `SECURITY.md`, `cli/README.md`, `tests/README.md` updated (including how to run the suite under
+  ASan/UBSan).
+
+
+- New: `global_bridge_required` (case), `global_read_without_bridge` and
+  `global_write_without_bridge` (E4-001), `map_remove_reindex` (case), and
+  `tests/unit/dlc_guards_test.cpp` (address policy incl. `::`, `file_remove`). `regex_test.cpp`
+  covers `[int]`.
+
+---
+
 ## v3.2.0 - 2026-10-05
 
 ## Description
