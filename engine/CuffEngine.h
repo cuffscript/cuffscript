@@ -24,8 +24,13 @@ namespace cuff
         if (source.empty() || loc.offset < 0)
             return "";
         size_t offset = std::min(static_cast<size_t>(loc.offset), source.size());
-        size_t lineStart = (offset == 0) ? 0 : source.rfind('\n', offset - 1);
-        lineStart = (lineStart == std::string::npos) ? 0 : lineStart + 1;
+        size_t lineStart = 0;
+        if (offset > 0)
+        {
+            size_t prevNewline = source.rfind('\n', offset - 1);
+            if (prevNewline != std::string::npos)
+                lineStart = prevNewline + 1;
+        }
         size_t lineEnd = source.find('\n', offset);
         if (lineEnd == std::string::npos)
             lineEnd = source.size();

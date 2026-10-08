@@ -1,5 +1,6 @@
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG -Wl,--stack,8388608
+CXXFLAGS += $(EXTRA_CXXFLAGS)
 LDLIBS = -lws2_32
 LDFLAGS = -s
 
@@ -30,6 +31,7 @@ EMFLAGS = -std=c++17 -O3 -flto -fexceptions --bind -DNDEBUG \
 	-s FORCE_FILESYSTEM=1 \
 	-s EXPORTED_RUNTIME_METHODS="['FS']" \
 	-s NO_EXIT_RUNTIME=1
+EMFLAGS += $(EXTRA_CXXFLAGS)
 
 wasm: $(WASM_ENTRY) $(wildcard engine/**/*.h engine/*.h)
 	if not exist npm\dist mkdir npm\dist

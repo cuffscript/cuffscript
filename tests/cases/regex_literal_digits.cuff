@@ -1,0 +1,13 @@
+note: a digit run is a repeat count only after a token, set or group; after a literal
+note: character or an anchor it is ordinary text.
+set str phone to "010-1234-5678"
+print(phone is "010-[num]4-[num]4")
+print("0000000000-1234-5678" is "010-[num]4-[num]4")
+print("2026-12-25" is "2026-12-25")
+print("v2" is "v2")
+print("vv" is "v2")
+print("2026 report" is "[start]2026[sp]report")
+print("ABABAB" is "(AB)3")
+print("2026" is "[num]4")
+print(find "[one:010]-[num]4" from "call 010-1234 now")
+print(replace "010-[num]4-" in phone to "010-****-")

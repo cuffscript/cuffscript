@@ -8,9 +8,7 @@ be here — if you find a new one, please add it to this document.
 
 ## 1. The `async` / `await` execution model
 
-`SPEC.md` explicitly defers the decision: "the actual execution model and detailed behavior of
-asynchronous functions are defined in a separate implementation specification." This
-repository has no such separate specification, so this engine implements it as follows
+`SPEC.md` (section 6.5) states the model; this item records how the engine implements it and why
 (improved in v0.2.0 — see "change history" below).
 
 - When an `async` function is **called with `await`**, it runs to completion right there,
@@ -33,8 +31,7 @@ repository has no such separate specification, so this engine implements it as f
 - Using `await` on a function that is not `async` raises an `AwaitOnNonAsync` runtime error —
   this way `await` still works as documentation saying "this function is asynchronous".
 - `async` and `returnable` are separate modifiers, so they can be used together
-  (`set async returnable func ...`). It does not appear in the spec examples, but it is a
-  natural combination grammatically, so it was allowed.
+  (`set async returnable func ...`), as `SPEC.md` section 6.4 specifies for all modifiers.
 
 ## 2. What `.` (the period) means in regex
 
@@ -106,8 +103,8 @@ need the same effect, just use `loop while [condition] do: ... end`.
 
 ## 9. The `DLC:*` built-in libraries
 
-The spec shows only a single example, `use DLC:network`, and does not define a concrete list of
-libraries. This engine provides the following.
+`SPEC.md` (sections 9 and 10) names the libraries and what they offer. This table is the complete
+list of functions this engine registers for each.
 
 | Library           | Functions provided                                                                                                                                                                                                                                                           |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -658,7 +655,7 @@ keyword's token type is dispatched on to decide what to parse:
 
 This is necessarily a judgment call about which collisions are safe to resolve
 mechanically, not a complete lifting of every keyword restriction — see the note on
-`SPEC.md` §1 for exactly which words are covered. `not`'s only other grammar role is the
+`SPEC.md` section 1.5 (Names and reserved words) for exactly which words are covered. `not`'s only other grammar role is the
 `is not` comparison (`parseComparison`'s own `p.check(TokenType::NOT)`, unrelated to
 `parsePrimary`), so there's no interaction between using `not` as a variable and using it
 in an `is not` comparison. Regression test: `tests/cases/reserved_words_as_identifiers.cuff`.
@@ -838,7 +835,7 @@ requires every item to repeat the `DLC:` prefix (`use DLC:math, string` is a syn
 bare `string` is indistinguishable from a module name), and gives a specific message for a
 dangling comma and for a forgotten comma (`use DLC:math DLC:string`; without that check the
 second `DLC` would parse as the start of a new statement and fail with a confusing `unexpected
-token ':'`). `SPEC.md` §13 requires module-load commands to be a single line, so a list cannot be
+token ':'`). `SPEC.md` section 9.1 requires a `use` statement to stay on a single line, so a list cannot be
 continued onto the next line — separate `use` lines are the multi-line form.
 Tests: `tests/cases/use_multiple_dlcs.cuff`, `tests/errors/use_multiple_*.cuff`.
 
@@ -910,8 +907,8 @@ char literal was compared byte-for-byte, and the build plus the full suite pass 
 **The bug.** `Environment::resolve()` walked the scope chain up to the function scope and then,
 when nothing was found, fell back to the real global scope. So a function could *read* any
 global, and — worse — `change g to 99` inside a function silently overwrote the global with no
-`global` declaration at all, which made `change g to global` pointless (SPEC section 10 says
-that is how you reach a global from a function).
+`global` declaration at all, which made `change g to global` pointless (`SPEC.md`, section 7 "Scope",
+says that is how you reach a global from a function).
 
 **The rule now.** A function scope resolves only its own locals (and the block scopes inside it)
 plus the names it bridged with `change x to global`; everything else is unresolved. This
@@ -951,6 +948,13 @@ bridge, allowed with one, local shadowing, the global untouched afterwards) and
   removes regular files only, matching `file_exist()` and the SPEC table.
 - **`[int]` could match a bare `+` or `-`.** Its backtracking tried lengths down to 1, which is
   just the sign, so `"+5" is "[int][one:5]"` was true. It now always keeps at least one digit.
+- **An error at the very first character of a file lost the first character of the quoted source
+  line** and put the caret at the end of the line. `buildCaretSnippet()` computed the line start as
+  `0 + 1` when the offset was 0 (`tests/unit/error_snippet_test.cpp`).
+- **An unexpected non-ASCII character was reported as its first byte alone**, which is not valid
+  UTF-8, so a diagnostic about a Hangul identifier came out garbled. The whole character is shown now.
+- `list_join()`'s error told users to call `convert:to_str()`, a form that no longer exists; it says
+  `to_str()`.
 - Dead code removed: the unused `KeywordClassifier` class (its `keywords_` member was declared but
   never defined; `KeywordClassifierImpl` is now simply `KeywordClassifier`), an f-string brace
   counter in `StringScanner` that nothing read, and a stale comment. `cuffsh` gained the
@@ -969,13 +973,19 @@ and values in dense, insertion-ordered vectors that a dozen call sites read dire
 removal O(1) would mean tombstones and touching all of them (`tests/cases/map_remove_reindex.cuff`
 pins the ordering behavior either way).
 
-### Known sharp edge (documented, not changed)
+### Regex: a digit run after a literal is text, not a count
 
-In a regex pattern, a run of digits right after any atom is a repeat count, including after a
-plain literal character. `"v2"` means `v` twice and `"010-[num]4"` begins with `0` ten times, so
-`"abc123" is "abc123"` is false. `docs/REGEX.md` section 8 now says so and the examples wrap
-literal digits as `[one:010]`. Whether the engine should instead treat digits after a literal as
-literal is a language-design decision that has not been made.
+`applyQuantifier()` used to read a run of digits after *any* atom as an exact repeat count, so
+`"v2"` meant `v` twice, `"abc123" is "abc123"` was false, and `"010-[num]4-[num]4"` — the
+phone-number example in `SPEC.md` and `REGEX.md` — began with `0` repeated ten times and could
+never match a real number. A digit run is now a count only after an atom that consumes characters:
+a bracket token or set, `[one:...]`, a group or a named capture. After a plain or escaped literal
+(`RNode::isLiteral`) or a zero-width anchor (`[start]`, `[end]`, `[edge]`) it is ordinary text.
+`+`, `*`, `?` and `~M` still apply after literals, exactly as before. The price is that a literal
+digit straight after a token reads as part of the count, so four digits then a `5` is
+`[num]4[one:5]`. A pattern that relied on a literal followed by a count (`ab2` for `abb`)
+changes meaning; that form was never documented. Tests: `tests/unit/regex_test.cpp` and
+`tests/cases/regex_literal_digits.cuff`.
 
 ### Verifying with sanitizers
 
@@ -989,3 +999,42 @@ With leak detection off the whole suite is clean under ASan + UBSan (no memory e
 undefined behavior). With leak detection on, the only reports are the deliberate reference cycles
 in `tests/cases/value_semantics.cuff` and `tests/unit/limits_test.cpp` (item 11), which is why
 the command above sets `detect_leaks=0`.
+
+## 41. Extension points and portability
+
+**One row per DLC.** `dlcTable()` in `engine/interpreter/NativeFunctions.h` is the only list of
+`use DLC:<name>` libraries. `registerDLC()` walks it, and the "unknown library" hint is built from
+it, so adding a library means writing its header, including it there and adding one row — no
+`if` chain and no second list of names to keep in sync. Host settings that a library reads when it
+loads travel in `DLCOptions` (one member per library that has any).
+
+**How a host flag reaches a library.** `CuffEngine::Options` (the public, flat API that `cuffc`,
+`cuffsh` and the WASM bindings fill in) → `Interpreter::Config` → `DLCOptions`, built in
+`Interpreter::execUse()` → the library's own options struct. The first two stay flat on purpose:
+they are what the CLI and the bindings already set, and nesting them would break those callers.
+A new host-controlled library therefore needs its own options struct, a `DLCOptions` member, a
+`Config` field, one line in `execUse()`, and a `CuffEngine::Options` field with its copy line —
+six small edits in four files, all compiler-checked.
+
+**Leaving out the socket client.** Building with `-DCUFF_DISABLE_NETWORK`
+(`make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK`, or the same variable for `make wasm`) drops
+`engine/net/HttpClient.h` and its platform headers (`getaddrinfo` is no longer imported). `use
+DLC:network` still loads, and `network_get`/`network_post` fail with `DLCFeatureUnavailable`
+(E5-005), the same error as when a host turns the library off at run time. The four
+`tests/errors/network_*.cuff` cases test the client itself, so they are expected to fail in such a
+build; everything else passes. The default builds, WASM included, are unchanged. `DLC:filesystem`
+has no such switch: it needs only `std::filesystem`, which module loading uses anyway.
+
+**UTF-8 paths.** A path that comes from a script (`use ... from <path>`, `<name>.cuff`, and the
+argument of every `file_*` function) is converted with `std::filesystem::u8path()`. Plain
+construction would read the string in the ANSI code page on Windows and garble non-ASCII names,
+Hangul included. Strings the host passes in (`scriptDir`, `rootDir`) are used as given — encoding
+them is the host's job. `u8path` is deprecated from C++20 on, so keep `-std=c++17` (the Makefiles
+do) or replace it with the `char8_t` constructor when the project moves up.
+
+**Considered and left alone**, because each one reaches into every library or every statement
+kind: giving native functions a context parameter so `print`/`input` could use host-supplied
+streams (the WASM host gets them through Emscripten's `print`/`stdin` callbacks instead), generating the token enum, its names and
+the keyword table from one macro list, and a visitor over the AST in place of the per-kind switches
+in the parser, `ASTPrinter` and interpreter. `docs/EXTENDING.md` lists exactly which files each
+kind of addition touches.

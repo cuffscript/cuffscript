@@ -42,6 +42,13 @@ exactly that. `run.sh` also falls back to `gtimeout` (or no timeout) where the `
 command is missing, as on a stock macOS. MinGW has no sanitizers, so this is not available
 through `run.ps1`.
 
+## Testing a reduced build
+
+`make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK` builds the engine without the socket
+client (see `docs/EXTENDING.md`, section 11). Run the suite against it with
+`CUFFC=./cuffc bash tests/run.sh`: everything passes except the four
+`tests/errors/network_*.cuff` cases, which test the client that was left out.
+
 ## Adding a C++ unit test
 
 Drop a `.cpp` file with a `main()` in `tests/unit/`. It's compiled with `-I.` from the repo

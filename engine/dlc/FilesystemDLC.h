@@ -38,7 +38,7 @@ namespace cuff
                                                        const FilesystemDLCOptions &opts, const SourceLocation &loc)
     {
         namespace fs = std::filesystem;
-        fs::path rel(rawPath);
+        fs::path rel = fs::u8path(rawPath);  // plain construction would read it as ANSI on Windows
         if (rel.has_root_name() || rel.has_root_directory())
             throwFilesystemAccessDenied(fn, rawPath, loc);
         fs::path full = opts.root / rel;

@@ -59,33 +59,55 @@ namespace cuff
         registerConvertDLC(reg);
     }
 
-    inline void registerDLC(const std::string &libName, std::unordered_map<std::string, NativeFn> &reg, const SourceLocation &loc,
-                            NetworkDLCOptions networkOpts = NetworkDLCOptions(),
-                            FilesystemDLCOptions filesystemOpts = FilesystemDLCOptions())
+    using NativeTable = std::unordered_map<std::string, NativeFn>;
+
+    // Host settings that individual libraries read when `use DLC:<name>` loads them.
+    struct DLCOptions
     {
-        if (libName == "math")
-            registerMathDLC(reg);
-        else if (libName == "string")
-            registerStringDLC(reg);
-        else if (libName == "time")
-            registerTimeDLC(reg);
-        else if (libName == "random")
-            registerRandomDLC(reg);
-        else if (libName == "list")
-            registerListDLC(reg);
-        else if (libName == "map")
-            registerMapDLC(reg);
-        else if (libName == "convert")
-            registerConvertDLC(reg);
-        else if (libName == "json")
-            registerJsonDLC(reg);
-        else if (libName == "network")
-            registerNetworkDLC(reg, networkOpts);
-        else if (libName == "filesystem")
-            registerFilesystemDLC(reg, filesystemOpts);
-        else
-            throw ModuleError(ErrorCode::UnknownDLC, "unknown DLC library 'DLC:" + libName + "'", loc,
-                               "available libraries: DLC:math, DLC:string, DLC:time, DLC:random, DLC:list, DLC:map, DLC:convert, DLC:json, DLC:network, DLC:filesystem");
+        NetworkDLCOptions network;
+        FilesystemDLCOptions filesystem;
+    };
+
+    struct DLCEntry
+    {
+        const char *name;
+        void (*registerFn)(NativeTable &, const DLCOptions &);
+    };
+
+    // The one list of `use DLC:<name>` libraries: to add one, include its header above and add a row here.
+    // The "unknown library" hint below is built from this table, in this order.
+    inline const std::vector<DLCEntry> &dlcTable()
+    {
+        static const std::vector<DLCEntry> table = {
+            {"math", [](NativeTable &reg, const DLCOptions &) { registerMathDLC(reg); }},
+            {"string", [](NativeTable &reg, const DLCOptions &) { registerStringDLC(reg); }},
+            {"time", [](NativeTable &reg, const DLCOptions &) { registerTimeDLC(reg); }},
+            {"random", [](NativeTable &reg, const DLCOptions &) { registerRandomDLC(reg); }},
+            {"list", [](NativeTable &reg, const DLCOptions &) { registerListDLC(reg); }},
+            {"map", [](NativeTable &reg, const DLCOptions &) { registerMapDLC(reg); }},
+            {"convert", [](NativeTable &reg, const DLCOptions &) { registerConvertDLC(reg); }},
+            {"json", [](NativeTable &reg, const DLCOptions &) { registerJsonDLC(reg); }},
+            {"network", [](NativeTable &reg, const DLCOptions &opts) { registerNetworkDLC(reg, opts.network); }},
+            {"filesystem", [](NativeTable &reg, const DLCOptions &opts) { registerFilesystemDLC(reg, opts.filesystem); }},
+        };
+        return table;
+    }
+
+    inline void registerDLC(const std::string &libName, NativeTable &reg, const SourceLocation &loc,
+                            const DLCOptions &opts = DLCOptions())
+    {
+        std::string available;
+        for (const DLCEntry &entry : dlcTable())
+        {
+            if (libName == entry.name)
+            {
+                entry.registerFn(reg, opts);
+                return;
+            }
+            available += (available.empty() ? "DLC:" : ", DLC:") + std::string(entry.name);
+        }
+        throw ModuleError(ErrorCode::UnknownDLC, "unknown DLC library 'DLC:" + libName + "'", loc,
+                           "available libraries: " + available);
     }
 
 }

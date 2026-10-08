@@ -1,5 +1,7 @@
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG
+# Optional extra flags, e.g. `make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK` (see docs/EXTENDING.md).
+CXXFLAGS += $(EXTRA_CXXFLAGS)
 
 TARGET = cuffc
 SOURCES = main.cpp
@@ -34,6 +36,7 @@ EMFLAGS = -std=c++17 -O3 -flto -fexceptions --bind -DNDEBUG \
 	-s FORCE_FILESYSTEM=1 \
 	-s EXPORTED_RUNTIME_METHODS="['FS']" \
 	-s NO_EXIT_RUNTIME=1
+EMFLAGS += $(EXTRA_CXXFLAGS)
 
 wasm: $(WASM_ENTRY) $(wildcard engine/**/*.h engine/*.h)
 	mkdir -p $(WASM_OUT_DIR)

@@ -64,7 +64,7 @@ namespace cuff
             {
                 if (!items[i].isStr())
                     throw TypeError("list_join() requires every element to be a str (index " + std::to_string(i + 1) +
-                                        " is a " + valueTypeName(items[i].type()) + ") — use convert:to_str() first",
+                                        " is a " + valueTypeName(items[i].type()) + ") — use to_str() first",
                                     loc);
                 total += items[i].asStr().size();
                 ensureStringSize(total, loc);

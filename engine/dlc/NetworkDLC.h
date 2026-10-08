@@ -2,7 +2,11 @@
 
 #include "DLCCommon.h"
 
+// Building with -DCUFF_DISABLE_NETWORK leaves out the socket client (and its platform headers) for targets
+// without sockets; `use DLC:network` still loads, and its functions fail with the same "unavailable" error.
+#ifndef CUFF_DISABLE_NETWORK
 #include "../net/HttpClient.h"
+#endif
 
 namespace cuff
 {
@@ -15,6 +19,7 @@ namespace cuff
         bool allowPrivateTargets = false;
     };
 
+#ifndef CUFF_DISABLE_NETWORK
     inline Value makeHttpResultMap(const net::HttpResponse &resp)
     {
         auto m = std::make_shared<ValueMap>();
@@ -23,6 +28,7 @@ namespace cuff
         m->set("body", Value::makeStr(resp.body));
         return Value::makeMap(std::move(m));
     }
+#endif
 
     [[noreturn]] inline void throwNetworkDisabled(const char *fn, const SourceLocation &loc)
     {
@@ -37,6 +43,18 @@ namespace cuff
                                std::string(fn) + "() failed: " + detail, loc);
     }
 
+#ifdef CUFF_DISABLE_NETWORK
+    inline void registerNetworkDLC(std::unordered_map<std::string, NativeFn> &reg, NetworkDLCOptions)
+    {
+        for (const char *name : {"network_get", "network_post"})
+            reg[name] = [name](std::vector<Value> &, const SourceLocation &loc) -> Value
+            {
+                throw ModuleError(ErrorCode::DLCFeatureUnavailable,
+                                  std::string("DLC:network's ") + name + "() is not available in this build (compiled with CUFF_DISABLE_NETWORK)",
+                                  loc, "rebuild without CUFF_DISABLE_NETWORK to use network access");
+            };
+    }
+#else
     inline void registerNetworkDLC(std::unordered_map<std::string, NativeFn> &reg, NetworkDLCOptions opts)
     {
         reg["network_get"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -69,5 +87,6 @@ namespace cuff
             return makeHttpResultMap(resp);
         };
     }
+#endif
 
 }

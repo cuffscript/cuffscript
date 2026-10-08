@@ -57,6 +57,7 @@ namespace cuff::regex
         bool negated = false;
         bool isAnyCodepoint = false;
         std::string multiByteLiteral;
+        bool isLiteral = false;  // a plain or escaped character: a digit run after it is text, not a repeat count
 
         PresetKind presetKind = PresetKind::Int;
 

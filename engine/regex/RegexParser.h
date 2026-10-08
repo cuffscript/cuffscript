@@ -191,6 +191,7 @@ namespace cuff::regex
             RNodePtr n = makeNode(RNodeKind::CharTest);
             n->charTest = [c](unsigned char x)
             { return x == c; };
+            n->isLiteral = true;
             return n;
         }
 
@@ -198,6 +199,7 @@ namespace cuff::regex
         {
             RNodePtr n = makeNode(RNodeKind::CharTest);
             n->multiByteLiteral = seq;
+            n->isLiteral = true;
             return n;
         }
 
@@ -392,6 +394,16 @@ namespace cuff::regex
             return n;
         }
 
+        // A bare number is a repeat count only after an atom that consumes characters; after a literal or a
+        // zero-width anchor it is ordinary text, so "010-[num]4" and "[start]2026" read as written.
+        static bool takesRepeatCount(const RNodePtr &atom)
+        {
+            if (atom->kind == RNodeKind::WordBoundary || atom->kind == RNodeKind::StartAnchor ||
+                atom->kind == RNodeKind::EndAnchor)
+                return false;
+            return !atom->isLiteral;
+        }
+
         RNodePtr applyQuantifier(RNodePtr atom)
         {
             int minC = 1, maxC = 1;
@@ -437,7 +449,7 @@ namespace cuff::regex
                     }
                     sawQuantifier = true;
                 }
-                else if (isDigitChar(c))
+                else if (isDigitChar(c) && takesRepeatCount(atom))
                 {
                     int n1 = parseNumber();
                     if (!atEnd() && peek() == '~')

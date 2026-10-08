@@ -2,6 +2,7 @@
 
 #include "../common/Token.h"
 #include "../common/CuffError.h"
+#include "../common/Utf8.h"
 #include "ScanState.h"
 #include "CharUtils.h"
 #include <string>
@@ -76,7 +77,11 @@ namespace cuff
         case '=':
             throw SyntaxError("unexpected '=' — CuffScript uses 'to' for assignment, not '='", start);
         default:
-            throw SyntaxError(std::string("Unexpected character '") + static_cast<char>(c) + "'", start);
+        {
+            // Show the whole character: its first byte alone is not valid UTF-8.
+            size_t len = utf8::seqLen(static_cast<unsigned char>(c));
+            throw SyntaxError("Unexpected character '" + s.source.substr(static_cast<size_t>(s.offset), len) + "'", start);
+        }
         }
     }
 

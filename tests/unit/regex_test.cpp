@@ -142,7 +142,7 @@ int main() {
         }
     }
 
-    // log line example from spec section 36
+    // log line example from REGEX.md section 36
     {
         auto p = eng.compile("<date:[num]4-[num]2-[num]2> \\[[one:INFO|WARN|ERROR]\\] <ip:[num]1~3\\.[num]1~3\\.[num]1~3\\.[num]1~3> - <msg:[any]+>", loc);
         MatchOutcome out;
@@ -230,6 +230,28 @@ int main() {
         MatchOutcome out;
         check(!eng.fullMatch(p, "+5", false, loc, out), "[int] cannot give up its digits and match only the sign");
         check(eng.fullMatch(p, "+15", false, loc, out), "[int] followed by a literal still backtracks over digits");
+    }
+    {
+        // A digit run is a repeat count only after a token or group; after a literal or an anchor it is text.
+        auto matches = [&](const char *pattern, const char *text)
+        {
+            auto p = eng.compile(pattern, loc);
+            MatchOutcome out;
+            return eng.fullMatch(p, text, false, loc, out);
+        };
+        check(matches("v2", "v2"), "digits after a literal are literal: v2");
+        check(!matches("v2", "vv"), "digits after a literal are not a repeat count");
+        check(matches("abc123", "abc123"), "a literal with trailing digits matches itself");
+        check(matches("2026-12-25", "2026-12-25"), "a literal date matches itself");
+        check(matches("010-[num]4-[num]4", "010-1234-5678"), "leading literal digits stay literal");
+        check(!matches("010-[num]4-[num]4", "0000000000-1234-5678"), "leading digits are not a count of '0'");
+        check(matches("\\.5", ".5"), "digits after an escaped literal are literal");
+        check(matches("[start]2026[sp][any]+", "2026 report"), "digits after an anchor are literal");
+        check(matches("[num]4", "2026"), "digits after a token still repeat it");
+        check(matches("[num]2~3", "202"), "a range after a token still works");
+        check(matches("(AB)3", "ABABAB"), "digits after a group still repeat it");
+        check(matches("<y:[num]>4", "2026"), "digits after a named group still repeat it");
+        check(matches("[one:ab|cd]2", "abcd"), "digits after [one:...] still repeat it");
     }
     {
         auto p = eng.compile("[float]", loc);

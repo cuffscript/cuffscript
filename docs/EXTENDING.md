@@ -25,8 +25,9 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 - If it must always exist, add it to `registerBuiltins()`.
 - For a brand-new library, create a new file in `engine/dlc/` (include only
   `DLCCommon.h`), write a `registerXxxDLC()` function, `#include` the file from
-  `NativeFunctions.h`, and add it to the branches of `registerDLC()` (make sure the
-  name does not collide with an existing library).
+  `NativeFunctions.h`, and add one row to `dlcTable()` in that file. The "unknown
+  library" hint is generated from the table, so there is no second list of names to
+  update. Make sure the name does not collide with an existing library.
 - Name DLC functions `library_verb` (`math_sqrt`, `str_upper`, `list_sort`,
   `file_read`, ...). The name alone tells you which library a function belongs to,
   and because every library shares a single `natives_` map, it also lowers the risk
@@ -39,9 +40,10 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
   and `DLC:filesystem` share the same sandbox root.
 - A dangerous library that the host must be able to switch off entirely (such as
   network or file system) should get an options struct following the pattern of
-  `NetworkDLCOptions`/`FilesystemDLCOptions`, with the value passed along
-  `CuffEngine::Options` → `Interpreter::Config` → `execUse()` → `registerDLC()`
-  (the CLI flags are in `main.cpp`).
+  `NetworkDLCOptions`/`FilesystemDLCOptions`: add a member for it to `DLCOptions`, and
+  pass the value along `CuffEngine::Options` → `Interpreter::Config` → `DLCOptions`
+  (filled in by `Interpreter::execUse()`) → your library (the CLI flags are in
+  `main.cpp`).
 - `expectArgCount`/`expectArgRange`/`expectNumber`/`expectStr` validate arguments
   and produce consistent `ArgumentError`/`TypeError` messages — reuse them in new
   functions. For integer arguments use `expectWhole` (which also checks the ±2^53
@@ -221,6 +223,32 @@ throws a new error only has to fill in an accurate `SourceLocation` (especially
 computed in code points rather than bytes, so it stays aligned even when Hangul or
 similar text comes earlier on the same line. If you change this behavior,
 `tests/unit/error_snippet_test.cpp` will tell you.
+
+## 11. Portability and build switches
+
+The engine is standard C++17 with no third-party dependencies. The only code that
+touches the platform is isolated: `engine/net/HttpClient.h` (POSIX sockets, or
+WinSock behind `#ifdef _WIN32`) and the terminal code in `cli/` (`Platform.h`,
+`Terminal.h`, `LineEditor.h`). Keep it that way: put anything platform-specific in
+its own header behind a macro and let the rest of the engine see a small interface,
+as `NetworkDLC.h` does with the HTTP client.
+
+- **No sockets.** Build with `-DCUFF_DISABLE_NETWORK` to leave out the HTTP client
+  and its headers (`make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK`, and the same
+  variable works for `make wasm` and `Makefile.win`). `use DLC:network` still loads;
+  its functions fail with `DLCFeatureUnavailable` (E5-005). The four
+  `tests/errors/network_*.cuff` cases exercise the client itself, so they are
+  expected to fail in such a build.
+- **Paths from scripts.** Wherever text written in a script becomes a file system
+  path, use `std::filesystem::u8path()` rather than `std::filesystem::path(str)`,
+  which reads the string in the ANSI code page on Windows and garbles non-ASCII
+  names. Paths the host hands in (`scriptDir`, `rootDir`) are used as given.
+- **Text is UTF-8** everywhere inside the engine. Convert at the edge (a console, a
+  file name from the OS), not in the middle.
+- **Checking a change on other targets.** Run the suite under the sanitizers (see
+  `tests/README.md`), build the `CUFF_DISABLE_NETWORK` variant if you touched
+  `NetworkDLC.h`, and run `tests/run.ps1` on Windows if you touched paths or the
+  CLI.
 
 ## 12. When touching function parameter syntax
 

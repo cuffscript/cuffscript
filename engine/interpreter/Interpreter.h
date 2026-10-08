@@ -1461,14 +1461,13 @@ namespace cuff
         {
             if (use.isDLC)
             {
-                NetworkDLCOptions netOpts;
-                netOpts.enabled = config_.networkEnabled;
-                netOpts.allowPrivateTargets = config_.allowPrivateNetworkTargets;
-                FilesystemDLCOptions fsOpts;
-                fsOpts.enabled = config_.filesystemEnabled;
-                fsOpts.root = moduleRoot_;
+                DLCOptions dlcOpts;
+                dlcOpts.network.enabled = config_.networkEnabled;
+                dlcOpts.network.allowPrivateTargets = config_.allowPrivateNetworkTargets;
+                dlcOpts.filesystem.enabled = config_.filesystemEnabled;
+                dlcOpts.filesystem.root = moduleRoot_;
                 for (const auto &lib : use.dlcs)
-                    registerDLC(lib.name, natives_, lib.loc, netOpts, fsOpts);
+                    registerDLC(lib.name, natives_, lib.loc, dlcOpts);
                 return;
             }
             loadCustomModule(use.name, use.path, use.loc, env);
@@ -1507,13 +1506,13 @@ namespace cuff
             namespace fs = std::filesystem;
             const std::string shown = (relPath.empty() ? std::string() : relPath + "/") + moduleName + ".cuff";
 
-            fs::path rel(relPath);
+            fs::path rel = fs::u8path(relPath);  // plain construction would read it as ANSI on Windows
             if (rel.has_root_name() || rel.has_root_directory())
                 throw ModuleError(ErrorCode::ModuleAccessDenied,
                                   "absolute module paths are not allowed ('use " + moduleName + " from " + relPath + "')", loc,
                                   "use a path relative to the running script, e.g. ./lib");
 
-            fs::path full = fs::path(scriptDir_) / rel / (moduleName + ".cuff");
+            fs::path full = fs::path(scriptDir_) / rel / fs::u8path(moduleName + ".cuff");
             std::error_code ec;
             fs::path canon = fs::weakly_canonical(full, ec);
             if (ec)

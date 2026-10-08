@@ -161,12 +161,15 @@ note: 4 English letters/digits
 "[str]4"
 ```
 
-> **Digits in a pattern are always repeat counts.** A run of digits right after any
-> atom (a token, a group, or even a plain literal character) is read as its repeat
-> count, so `"v2"` means `v` twice, and a pattern that starts with literal digits
-> such as `"010-[num]4"` means `0` repeated 10 times. To match literal digits
-> next to other atoms, wrap them in a one-choice token: `[one:010]-[num]4`,
-> `[one:v2]`.
+> **When a digit run is a count and when it is text.** A run of digits is a repeat
+> count only when it directly follows an atom that consumes characters: a bracket
+> token or set (`[num]4`, `[a-z]3`), a `[one:...]` choice, a `(...)` group or a
+> `<name:...>` capture. After a plain or escaped literal character, or after a
+> zero-width anchor (`[start]`, `[end]`, `[edge]`), digits are ordinary text. So
+> `"v2"` matches the text `v2`, `"010-[num]4-[num]4"` matches `010-1234-5678`, and
+> `"[start]2026"` matches text that begins with `2026`. The one thing this rules
+> out is a literal digit straight after a token, because the digit would be read
+> as part of the count: write `[num]4[one:5]` for four digits followed by a `5`.
 
 ---
 
@@ -500,7 +503,7 @@ natural-language syntax `replace in to`.
 set str raw_log to "Phone: 010-1234-5678 (personal data)"
 
 note: mask the 4 middle digits (****)
-set str masked_log to replace "[one:010]-[num]4-" in raw_log to "010-****-"
+set str masked_log to replace "010-[num]4-" in raw_log to "010-****-"
 
 print(masked_log) note: "Phone: 010-****-5678 (personal data)"
 ```
@@ -675,7 +678,7 @@ set str mobile to "010-7777-8888"
 set str biz_no to "123-45-67890"
 
 note: mobile phone number check
-if mobile is "[one:010]-[num]4-[num]4" do:
+if mobile is "010-[num]4-[num]4" do:
     print("Valid mobile number")
 end
 
@@ -709,7 +712,7 @@ end
 set str doc to "The caller's phone number is 010-1111-2222."
 
 note: find the whole mobile number and replace it with a privacy label in one go
-set str secured_doc to replace "[one:010]-[num]4-[num]4" in doc to "[phone number withheld]"
+set str secured_doc to replace "010-[num]4-[num]4" in doc to "[phone number withheld]"
 
 print(secured_doc) note: "The caller's phone number is [phone number withheld]."
 ```

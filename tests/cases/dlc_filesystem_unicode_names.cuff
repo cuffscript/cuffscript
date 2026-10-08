@@ -1,0 +1,9 @@
+note: file names written in UTF-8 (Hangul here) must reach the file system unchanged on every
+note: platform; the script cleans up after itself, so repeated runs leave nothing behind.
+use DLC:filesystem
+
+print(file_write("임시파일.txt", "hello"))
+print(file_exist("임시파일.txt"))
+print(file_read("임시파일.txt"))
+print(file_remove("임시파일.txt"))
+print(file_exist("임시파일.txt"))

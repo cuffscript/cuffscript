@@ -65,6 +65,18 @@ int main()
     expectSnippet("f-string syntax error line", "print(\"ok\")\nprint(f\"v: {1 +}\")\n",
                   "print(f\"v: {1 +}\")", "      ^");
 
+    // An error on the very first character of the file (offset 0) must show the whole line, not drop
+    // its first character.
+    expectSnippet("error at offset 0", "change nothing to 1\n",
+                  "change nothing to 1", "^");
+
+    // A non-ASCII character where a token must start is reported whole, so the message stays valid UTF-8.
+    {
+        auto r = runSource("set number \xEB\xB3\x80\xEC\x88\x98 to 1\n");
+        check(!r.success && r.error.find("Unexpected character '\xEB\xB3\x80'") != std::string::npos,
+              "unexpected multibyte character is shown whole:\n" + r.error);
+    }
+
     std::cout << pass << " passed, " << fail << " failed\n";
     return fail == 0 ? 0 : 1;
 }
