@@ -5,6 +5,7 @@ cuffsh
 *.o
 *.exe
 .vscode/
+.venv/
 __pycache__/
 testfile.cuff
 
