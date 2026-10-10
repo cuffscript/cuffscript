@@ -247,8 +247,8 @@ as `NetworkDLC.h` does with the HTTP client.
   file name from the OS), not in the middle.
 - **Checking a change on other targets.** Run the suite under the sanitizers (see
   `tests/README.md`), build the `CUFF_DISABLE_NETWORK` variant if you touched
-  `NetworkDLC.h`, and run `tests/run.ps1` on Windows if you touched paths or the
-  CLI.
+  `NetworkDLC.h`. CI also runs `tests/run.ps1` on Windows, so a change to paths or
+  the CLI is checked there.
 
 ## 12. When touching function parameter syntax
 

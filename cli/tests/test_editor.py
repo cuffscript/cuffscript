@@ -132,9 +132,9 @@ s = new(); s.send("\r\r", .3); check("blank Enter just gives a fresh prompt", s.
 
 # 14 errors printed exactly like cuffc
 s = new(); s.send("print(1/0)\r", .4)
-t = s.nonblank(); check("runtime error uses engine format with ERROR: prefix", t[1].startswith("ERROR: [E4006] Runtime Error at line 1"), t)
+t = s.nonblank(); check("runtime error uses engine format with ERROR: prefix", t[1].startswith("ERROR: [E4-006] Runtime Error at line 1"), t)
 s.send("if 1 is 1 do:\r", .4); t = s.nonblank()
-check("incomplete input -> engine's own message, no auto-continue", any(l.startswith("ERROR: [E2001] Syntax Error") and "expected 'end'" in l for l in t), t)
+check("incomplete input -> engine's own message, no auto-continue", any(l.startswith("ERROR: [E2-001] Syntax Error") and "expected 'end'" in l for l in t), t)
 s.send(":exit\r", .3); s.finish(.2)
 
 # 15 Ctrl+C at prompt vs during execution
@@ -148,7 +148,7 @@ check("Ctrl+C during execution exits with 130", s.rc == 130, s.rc); s.finish(.2)
 # 16 engine timeout
 s = new(args=("--no-banner", "--timeout", "300"))
 s.send("set number c to 0" + SHIFT_ENTER.decode() + "loop while true do:" + SHIFT_ENTER.decode() + "change c to c + 1" + SHIFT_ENTER.decode() + "end\r", 1.5)
-t = s.nonblank(); check("timeout stops runaway loop, session survives", any("E6002" in l for l in t) and t[-1] == ">>", t)
+t = s.nonblank(); check("timeout stops runaway loop, session survives", any("E6-002" in l for l in t) and t[-1] == ">>", t)
 s.send('print("alive")\r', .4); check("session usable after timeout", "alive" in s.nonblank(), s.nonblank()); s.send(":exit\r", .3); s.finish(.2)
 
 # 17 terminal is restored when killed while reading

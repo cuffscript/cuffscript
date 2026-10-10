@@ -6,12 +6,26 @@
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 Set-Location (Join-Path $PSScriptRoot '..')
+# Child processes (cuffc, g++) start in the .NET process directory, which Set-Location does not change.
+[System.Environment]::CurrentDirectory = (Get-Location).Path
 
+# CUFFC, CXX and UNIT_FLAGS work as they do in tests/run.sh: another cuffc build, another compiler,
+# other flags for the unit tests.
 $OnWindows = ($env:OS -eq 'Windows_NT')
-$Bin = if ($OnWindows) { '.\cuffc.exe' } else { './cuffc' }
+$Bin = if ($env:CUFFC) { $env:CUFFC } elseif ($OnWindows) { '.\cuffc.exe' } else { './cuffc' }
+if (Test-Path $Bin) { $Bin = (Resolve-Path $Bin).Path }
+$Cxx = if ($env:CXX) { $env:CXX } else { 'g++' }
+$UnitFlags = if ($env:UNIT_FLAGS) { @($env:UNIT_FLAGS -split '\s+' | Where-Object { $_ -ne '' }) } else { @('-O2') }
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $script:Pass = 0
 $script:Fail = 0
+$script:FailedNames = New-Object System.Collections.Generic.List[string]
+
+function Register-Failure {
+    param([string]$Name)
+    $script:Fail++
+    $script:FailedNames.Add($Name)
+}
 
 function ConvertTo-ArgString {
     param([string[]]$Items)
@@ -80,7 +94,7 @@ function Invoke-SuccessCase {
     if ($r.ExitCode -ne 0) {
         Write-Host "FAIL (exit $($r.ExitCode)): $CuffFile"
         Write-Host $r.Output
-        $script:Fail++
+        Register-Failure $CuffFile
         return
     }
     if (Test-Path $expected) {
@@ -91,7 +105,7 @@ function Invoke-SuccessCase {
             Write-Host $want
             Write-Host "--- actual ---"
             Write-Host $r.Output
-            $script:Fail++
+            Register-Failure $CuffFile
             return
         }
     }
@@ -109,7 +123,7 @@ function Invoke-ErrorCase {
     $r = Invoke-Program -FilePath $Bin -Arguments ($extra + @($CuffFile))
     if ($r.ExitCode -eq 0) {
         Write-Host "FAIL (expected nonzero exit): $CuffFile"
-        $script:Fail++
+        Register-Failure $CuffFile
         return
     }
     if (Test-Path $codeFile) {
@@ -117,7 +131,7 @@ function Invoke-ErrorCase {
         if (-not $r.Output.Contains("[$code]")) {
             Write-Host "FAIL (expected $code not found): $CuffFile"
             Write-Host $r.Output
-            $script:Fail++
+            Register-Failure $CuffFile
             return
         }
     }
@@ -135,11 +149,11 @@ $exeSuffix = if ($OnWindows) { '.exe' } else { '' }
 $linkArgs = if ($OnWindows) { @('-Wl,--stack,8388608', '-lws2_32') } else { @() }
 foreach ($src in (Get-ChildItem 'tests/unit/*.cpp' | Sort-Object Name)) {
     $unitBin = Join-Path $tmp ("cuff_unit_" + $src.BaseName + $exeSuffix)
-    $build = Invoke-Program -FilePath 'g++' -TimeoutSeconds 600 -Arguments (@('-std=c++17', '-Wall', '-Wextra', '-O2', '-I.', $src.FullName, '-o', $unitBin) + $linkArgs)
+    $build = Invoke-Program -FilePath $Cxx -TimeoutSeconds 600 -Arguments (@('-std=c++17', '-Wall', '-Wextra') + $UnitFlags + @('-I.', $src.FullName, '-o', $unitBin) + $linkArgs)
     if ($build.ExitCode -ne 0) {
         Write-Host "FAIL (build): $($src.Name)"
         Write-Host $build.Output
-        $script:Fail++
+        Register-Failure $src.Name
         continue
     }
     $run = Invoke-Program -FilePath $unitBin -TimeoutSeconds 120
@@ -151,7 +165,7 @@ foreach ($src in (Get-ChildItem 'tests/unit/*.cpp' | Sort-Object Name)) {
     else {
         Write-Host "FAIL: $($src.Name)"
         Write-Host $run.Output
-        $script:Fail++
+        Register-Failure $src.Name
     }
 }
 
@@ -169,4 +183,8 @@ foreach ($f in (Get-ChildItem 'examples/error_cases/*.cuff' | Sort-Object Name))
 
 Write-Host ''
 Write-Host "$($script:Pass) passed, $($script:Fail) failed"
+if ($script:FailedNames.Count -gt 0) {
+    Write-Host 'Failed:'
+    foreach ($name in $script:FailedNames) { Write-Host "  $name" }
+}
 if ($script:Fail -eq 0) { exit 0 } else { exit 1 }

@@ -103,7 +103,7 @@ The engine can't be asked to stop a computation once it has started. So:
   no safe way to stop just the computation.
 
 `--timeout` (default 15000 ms) keeps that rare: a runaway loop usually hits the
-engine's own limit (`E6002`) and fails just that entry, session intact. Note
+engine's own limit (`E6-002`) and fails just that entry, session intact. Note
 the engine checks the clock only every ~1000 loop iterations/calls, and time
 spent waiting inside `input()` counts — for programs that wait on the keyboard
 for a long time, use `--timeout 0` (the engine's own "unlimited" default).
@@ -117,6 +117,10 @@ terminal closed).
 cd cli/tests && pip install pyte wcwidth     # a terminal emulator, to check what is really on screen
 ./run_tests.sh [path/to/cuffsh] [--fuzz N]
 ```
+
+The suites drive a Unix pty (`pty`, `termios`), so on Windows run them inside WSL, with the
+repository on the Linux file system or with `*.sh` checked out as LF (`.gitattributes` does
+that). Each failing check is printed by name before the summary line.
 
 Runs ~90 checks on a real pty — wrapping, wide characters, cursor editing, a
 randomized comparison of the screen against an independent layout model,

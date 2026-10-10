@@ -16,7 +16,7 @@ COOKED = termios.ICANON | termios.ECHO | termios.ISIG
 s = new(kitty=False)
 s.send("a" + "\r", .3)   # Shift+Enter on a plain terminal is just CR
 check("no-kitty terminal: probe answered DA1 only -> protocol never enabled", b"\x1b[>1u" not in s.raw, s.raw[:80])
-check("no-kitty terminal: Shift+Enter (plain CR) behaves like Enter", s.nonblank()[:2] == [">> a", "ERROR: [E4001] Runtime Error at line 1, column 1: undefined variable 'a'"] or "undefined variable" in " ".join(s.nonblank()), s.nonblank())
+check("no-kitty terminal: Shift+Enter (plain CR) behaves like Enter", s.nonblank()[:2] == [">> a", "ERROR: [E4-001] Runtime Error at line 1, column 1: undefined variable 'a'"] or "undefined variable" in " ".join(s.nonblank()), s.nonblank())
 s.send(b"\x1b\rx", .2); s.send("y", .2)
 check("no-kitty terminal: Alt+Enter still gives a newline", ".. xy" in s.nonblank(), s.nonblank())
 s.finish(.2)
@@ -65,7 +65,7 @@ s.send("print(2)\r", .4); check("shell fully usable after input()", "2" in s.non
 r = subprocess.run([BIN], input=b'set number x to 4\nprint(x * 2)\nprint("\xed\x95\x9c")\n', capture_output=True)
 check("piped stdin: whole input runs as one script, no prompts/banner", r.stdout == "8\n한\n".encode() and r.returncode == 0, (r.stdout, r.stderr))
 r = subprocess.run([BIN], input=b'print(1/0)\n', capture_output=True)
-check("piped stdin: errors printed like cuffc ('ERROR: ...')", r.stderr.startswith(b"ERROR: [E4006]"), r.stderr)
+check("piped stdin: errors printed like cuffc ('ERROR: ...')", r.stderr.startswith(b"ERROR: [E4-006]"), r.stderr)
 cuffc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "cuffc")
 if os.path.exists(cuffc):
     rc = subprocess.run([cuffc], input=b'print(1/0)\n', capture_output=True)

@@ -15,7 +15,9 @@ powershell -File tests\run.ps1
 `run.ps1` mirrors `run.sh` (same section headers, same pass/fail summary line, same exit
 code convention) and works on Windows PowerShell 5.1 as well as PowerShell 7+ on any OS.
 It decodes output as UTF-8, normalizes line endings, closes stdin for each test, and links
-the unit tests with `-lws2_32` and an 8 MiB stack on Windows, as `Makefile.win` does.
+the unit tests with `-lws2_32` and an 8 MiB stack on Windows, as `Makefile.win` does. It can be
+started from any directory, takes `CUFFC`, `CXX` and `UNIT_FLAGS` from the environment as
+`run.sh` does, and lists the failed tests again at the end of its output.
 
 Runs, in order: `tests/unit/` (standalone C++ unit tests, compiled and run directly —
 the regex engine's own test suite, which can exercise it without going through the whole

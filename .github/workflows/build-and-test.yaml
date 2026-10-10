@@ -36,3 +36,37 @@ jobs:
                 name: Run test suite
                 shell: bash
                 run: bash tests/run.sh
+
+    build-and-test-windows:
+        runs-on: windows-latest
+
+        steps:
+            -
+                name: Checkout code
+                uses: actions/checkout@v4
+            -
+                name: Install MinGW-w64
+                id: msys2
+                uses: msys2/setup-msys2@v2
+                with:
+                    msystem: MINGW64
+                    update: false
+                    install: >-
+                        mingw-w64-x86_64-gcc
+                        mingw-w64-x86_64-make
+            -
+                name: Put the MinGW tools on PATH
+                shell: pwsh
+                run: Add-Content -Path $env:GITHUB_PATH -Value "${{ steps.msys2.outputs.msys2-location }}\mingw64\bin"
+            -
+                name: Build
+                shell: pwsh
+                run: mingw32-make -f Makefile.win
+            -
+                name: Run test suite
+                shell: pwsh
+                run: ./tests/run.ps1
+            -
+                name: Build the interactive shell
+                shell: cmd
+                run: cli\build.bat
