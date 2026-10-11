@@ -1,3 +1,21 @@
+## v3.3.1 - 2026-10-11
+
+## Description
+
+- **Fixed: errors at the start of a file could omit the first character of the source line.** Source-line extraction now handles an error at offset 0 correctly. Unexpected non-ASCII characters are also reported as complete UTF-8 characters instead of a single invalid byte, keeping the error message valid UTF-8.
+
+- **Fixed: Unicode paths on Windows.** Filesystem DLC paths and imported module paths are now constructed from UTF-8, so non-ASCII names such as Korean filenames reach the filesystem unchanged. Added a filesystem test using a Unicode filename.
+
+- **Fixed: digits after regex literals were parsed as repeat counts.** A run of digits after a literal character or a zero-width anchor is now treated as literal text; digits following a consuming token, set or group still specify repetition. Added regression coverage for dates, version strings, anchors and phone-number patterns.
+
+- **Network-free builds.** Defining `CUFF_DISABLE_NETWORK` omits the socket client and its platform headers. `DLC:network` remains loadable in that build, but `network_get()` and `network_post()` report that the feature is unavailable. `Makefile` and `Makefile.win` accept `EXTRA_CXXFLAGS` for this and other optional build flags.
+
+- **DLC registration is now table-driven.** Library names, registration functions and the unknown-library hint come from one shared table, while network and filesystem host settings are grouped in `DLCOptions`. The `list_join()` type-error hint was also corrected to refer to `to_str()` directly.
+
+- **Windows builds and tests now run in CI.** The workflow builds the engine with MinGW, runs `tests/run.ps1`, and builds the interactive shell. The PowerShell test runner now supports `CUFFC`, `CXX` and `UNIT_FLAGS`, works when launched outside the repository directory, and reports failed test names; the Unix CLI test runner also prints failing checks instead of only suite summaries.
+
+---
+
 ## v3.3.0 - 2026-10-08
 
 ## Description
