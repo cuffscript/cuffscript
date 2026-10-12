@@ -175,8 +175,13 @@ int main()
         auto widened = CuffEngine::execute("use outside from ../shared\nset number y to eight()\n", dir, wide);
         check(widened.success, "rootDir widens the sandbox: " + widened.error.substr(0, 120));
 
-        auto abs = CuffEngine::execute("use outside from " + (base / "shared").string() + "\n", dir);
-        check(!abs.success && abs.error.find("[E5-006]") != std::string::npos, "absolute module path is rejected");
+        // Spelled as a plain root-relative path: on Windows (base / "shared").string() is "C:\...", which is not
+        // valid CuffScript source and would stop in the lexer (E2-001) before the sandbox rule is reached. The rule
+        // runs before the file system is touched, so the directory does not have to exist.
+        auto abs = CuffEngine::execute("use outside from /cuff_limits_test/shared\n", dir);
+        check(!abs.success && abs.error.find("[E5-006]") != std::string::npos &&
+                  abs.error.find("absolute module paths are not allowed") != std::string::npos,
+              "absolute module path is rejected: " + abs.error.substr(0, 120));
 
         fs::remove_all(base);
     }
