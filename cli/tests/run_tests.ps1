@@ -383,10 +383,10 @@ if ($runNative) {
 
     # ---- errors are the engine's own, printed the way cuffc prints them
     $r = Invoke-Proc $Cuffsh @() (Bytes "print(1 / 0)`n")
-    Check 'runtime error: "ERROR: [E4006] ..." on stderr, stdout empty' (($r.Err -cmatch '^ERROR: \[E4006\] Runtime Error at line 1') -and ($r.Out -ceq '')) ($r.Err)
+    Check 'runtime error: "ERROR: [E4-006] ..." on stderr, stdout empty' (($r.Err -cmatch '^ERROR: \[E4-006\] Runtime Error at line 1') -and ($r.Out -ceq '')) ($r.Err)
 
     $r = Invoke-Proc $Cuffsh @() (Bytes "if 1 is 1 do:`n")
-    Check 'incomplete block: engine syntax error ("expected end"), no guessing' (($r.Err -cmatch '^ERROR: \[E2001\] Syntax Error') -and ($r.Err -cmatch "expected 'end'")) $r.Err
+    Check 'incomplete block: engine syntax error ("expected end"), no guessing' (($r.Err -cmatch '^ERROR: \[E2-001\] Syntax Error') -and ($r.Err -cmatch "expected 'end'")) $r.Err
 
     if ($Cuffc) {
         foreach ($bad in @("print(1 / 0)`n", "if 1 is 1 do:`n", "print(undefined_name)`n", "set number x to `"a`" + 1`n")) {
@@ -452,17 +452,17 @@ if ($runNative) {
     $t0 = Get-Date
     $r = Invoke-Proc -Exe $Cuffsh -ArgList @('--timeout', '400') -InputBytes (Bytes $loop) -TimeoutMs 20000
     $el = ((Get-Date) - $t0).TotalSeconds
-    Check '--timeout stops a runaway loop (engine error E6002) in time' (($r.Err -cmatch '\[E6002\]') -and (-not $r.TimedOut) -and ($el -lt 15)) ("took " + [math]::Round($el, 1) + "s; " + $r.Err)
+    Check '--timeout stops a runaway loop (engine error E6-002) in time' (($r.Err -cmatch '\[E6-002\]') -and (-not $r.TimedOut) -and ($el -lt 15)) ("took " + [math]::Round($el, 1) + "s; " + $r.Err)
 
     $steps = "set number c to 0`nloop repeat i to 1 ~ 1000 do:`n    change c to c + 1`nend`nprint(c)`n"
     $r = Invoke-Proc $Cuffsh @('--max-steps', '50') (Bytes $steps)
-    Check '--max-steps stops a loop (engine error E6001)' ($r.Err -cmatch '\[E6001\]') $r.Err
+    Check '--max-steps stops a loop (engine error E6-001)' ($r.Err -cmatch '\[E6-001\]') $r.Err
     $r = Invoke-Proc $Cuffsh @('--max-steps', '100000') (Bytes $steps)
     Check '--max-steps with a generous limit lets the same loop finish' (($r.Out -ceq "1000`n") -and ($r.Err -ceq '')) ($r.Out + '|' + $r.Err)
 
     $deep = "set returnable func f(n) do:`n    return f(n + 1)`nend`nprint(f(0))`n"
     $r = Invoke-Proc -Exe $Cuffsh -ArgList @('--timeout', '0') -InputBytes (Bytes $deep) -TimeoutMs 60000
-    Check 'runaway recursion ends with the engine''s stack error, not a crash' (($r.Err -cmatch '\[E4017\]') -and (-not $r.TimedOut) -and ($r.ExitCode -eq 0)) ("exit " + $r.ExitCode + "; " + $r.Err)
+    Check 'runaway recursion ends with the engine''s stack error, not a crash' (($r.Err -cmatch '\[E4-017\]') -and (-not $r.TimedOut) -and ($r.ExitCode -eq 0)) ("exit " + $r.ExitCode + "; " + $r.Err)
 
     # ---- the same scripts give the same output under cuffc and cuffsh
     if ($SkipDifferential) {
