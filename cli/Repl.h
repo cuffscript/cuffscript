@@ -167,7 +167,7 @@ namespace cuff::cli
             }
             catch (const cuff::CuffError &e)
             {
-                printEngineError(e.what());
+                printEngineError(renderRuntimeError(e, source));
             }
             catch (const std::bad_alloc &)
             {
@@ -191,6 +191,31 @@ namespace cuff::cli
             // this Program would leave that table dangling the next time such
             // a function is called from a later entry.
             sessionPrograms_.push_back(std::move(parsed.ast));
+        }
+
+        // what() has no source line; CuffEngine::execute() adds it with renderErrorWithSnippet(), and so do
+        // we -- but only when the error's location really is in `source`. A function defined by an earlier
+        // entry (or :load) can fail while a later entry runs, and its offset refers to that older text, so
+        // drawing the line here would put the caret under unrelated code.
+        static std::string renderRuntimeError(const cuff::CuffError &e, const std::string &source)
+        {
+            const size_t off = e.location.offset < 0 ? source.size() + 1 : static_cast<size_t>(e.location.offset);
+            if (off <= source.size())
+            {
+                int line = 1;
+                size_t lineStart = 0;
+                for (size_t i = 0; i < off; ++i)
+                {
+                    if (source[i] == '\n')
+                    {
+                        ++line;
+                        lineStart = i + 1;
+                    }
+                }
+                if (line == e.location.line && static_cast<int>(off - lineStart) + 1 == e.location.column)
+                    return cuff::renderErrorWithSnippet(e, source);
+            }
+            return e.what();
         }
 
         // Matches cuffc's own error output ("ERROR: " + engine message). Only
