@@ -70,6 +70,9 @@ cuffc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "cu
 if os.path.exists(cuffc):
     rc = subprocess.run([cuffc], input=b'print(1/0)\n', capture_output=True)
     check("piped error text identical to cuffc's own output", rc.stderr == r.stderr, (rc.stderr, r.stderr))
+ae = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "tests", "errors", "async_error_stops_queue.cuff")
+r = subprocess.run([BIN, ae], input=b'print("next entry")\n', capture_output=True)
+check("an async job's error drops the jobs still queued; the next entry runs normally", b"C ran" not in r.stdout and r.stdout.endswith(b"next entry\n"), r.stdout)
 r = subprocess.run([BIN, "--bogus"], capture_output=True); check("unknown option rejected", r.returncode == 2 and b"unknown option" in r.stderr)
 r = subprocess.run([BIN, "--timeout"], capture_output=True); check("--timeout without a value: one clear message", r.returncode == 2 and r.stderr.count(b"\n") == 1, r.stderr)
 r = subprocess.run([BIN, "--timeout", "abc"], capture_output=True); check("--timeout abc rejected", r.returncode == 2)
