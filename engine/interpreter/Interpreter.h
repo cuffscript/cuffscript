@@ -72,7 +72,17 @@ namespace cuff
             timed_ = config_.timeoutMs != 0;
             if (timed_)
                 deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.timeoutMs);
-            execProgram(program, globalEnv_);
+            try
+            {
+                execProgram(program, globalEnv_);
+            }
+            catch (...)
+            {
+                // An error ends the run: queued async jobs that have not started must not run later. A
+                // one-shot interpreter is simply discarded, but cuffsh keeps one alive across entries.
+                taskQueue_.clear();
+                throw;
+            }
         }
 
     private:
