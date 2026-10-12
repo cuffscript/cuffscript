@@ -6,9 +6,15 @@ name: REPL Build and Test
             - main
         paths:
             - "cli/**"
+            - "engine/**"
+            - "main.cpp"
+            - ".github/workflows/repl-test.yaml"
     pull_request:
         paths:
             - "cli/**"
+            - "engine/**"
+            - "main.cpp"
+            - ".github/workflows/repl-test.yaml"
 
 permissions:
     contents: read
@@ -24,6 +30,12 @@ jobs:
         steps:
             -   name: Checkout code
                 uses: actions/checkout@v4
+
+            # cli/tests compares cuffsh's output with ../cuffc and silently skips the
+            # check when cuffc has not been built.
+            -   name: Build cuffc
+                shell: bash
+                run: make
 
             -   name: Build and Test REPL
                 working-directory: cli
