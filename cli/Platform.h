@@ -257,13 +257,6 @@ namespace cuff::cli::platform
         return true;
     }
 
-    inline void stripBom(std::string &s)
-    {
-        if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF && static_cast<unsigned char>(s[1]) == 0xBB &&
-            static_cast<unsigned char>(s[2]) == 0xBF)
-            s.erase(0, 3);
-    }
-
     // The engine turns its narrow path strings back into paths with the
     // platform's native narrow encoding, so hand it exactly that.
     inline std::string enginePath(const std::string &utf8)

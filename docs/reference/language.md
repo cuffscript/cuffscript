@@ -5,12 +5,15 @@ program may contain, what each construct means, and what a script can rely on wh
 
 **Related documents**
 
-- [`REGEX.md`](REGEX.md) — the pattern language used by `is`/`IS`, `match`, `find`, `replace`,
+- [Pattern syntax](patterns.md): the pattern language used by `is`/`IS`, `match`, `find`, `replace`,
   `split` and `count`.
-- [`IMPLEMENTATION_NOTES.md`](IMPLEMENTATION_NOTES.md) — how this engine behaves where the language
-  leaves room, why, and how that changed over time.
-- [`SECURITY.md`](SECURITY.md) — what a host that runs untrusted scripts must configure.
-- [`EXTENDING.md`](EXTENDING.md) — how to add features to the engine.
+- [Libraries](dlc/README.md), [built-in functions](builtins.md), [error catalogue](errors.md),
+  [limits](limits.md) and [the command line](cuffc.md): the parts of the language's surface that are
+  generated from, or checked against, the engine itself.
+- [Design notes](../internals/design-notes.md): how this engine behaves where the language leaves room,
+  why, and how that changed over time.
+- [Security policy](../../SECURITY.md): what a host that runs untrusted scripts must configure.
+- [Extending the engine](../contributing/extending.md): how to add features.
 
 **Conventions**
 
@@ -18,7 +21,7 @@ program may contain, what each construct means, and what a script can rely on wh
 - Code blocks tagged `cuff` show complete statements. Where a block uses a variable it does not
   define, assume an earlier line defined it; `...` stands for code that is not shown.
 - *Error* means the program stops with a diagnostic whose code has the form `E<category>-<nnn>`
-  (see [section 8](#8-errors-and-or_else) and [Appendix B](#appendix-b-error-catalogue)), unless
+  (see [section 8](#8-errors-and-or_else) and the [error catalogue](errors.md)), unless
   `or_else` recovers from it.
 - Within this document, `or_else`, `change ... to global` and similar constructs are cited by name;
   other documents cite sections of this one by title, so renumbering never breaks them.
@@ -29,7 +32,7 @@ program may contain, what each construct means, and what a script can rely on wh
 
 ### 1.1 Source text
 
-A program is UTF-8 text. Lines end with LF or CRLF. A program may be at most 16 MiB (`E2-009`).
+A program is UTF-8 text. Lines end with LF or CRLF. A program has a size limit (see [limits](limits.md)). A UTF-8 byte order mark at the start is ignored.
 Strings and comments may contain any Unicode text; everything else is ASCII.
 
 ### 1.2 Lines, blocks and indentation
@@ -125,7 +128,7 @@ other reserved word is always reserved.
 | `boolean` | `true` or `false` | `false` |
 | `list` | An ordered sequence of values | it has no elements |
 | `map` | String keys to values, in insertion order | it has no keys |
-| `match` | The result of a successful pattern match (see `REGEX.md`) | — (a failed match gives `empty`, not a `match` value) |
+| `match` | The result of a successful pattern match (see `patterns.md`) | — (a failed match gives `empty`, not a `match` value) |
 | `empty` | No value | always |
 
 **Truthiness.** `if`, `else if`, `loop while` and `!` accept a value of any type and treat it as
@@ -136,7 +139,7 @@ other reserved word is always reserved.
 a function, shares the same underlying value, so a change made through either name is seen through
 both. Numbers, strings, booleans and `empty` behave as values. A list or map that contains itself is
 legal; printing and comparing it terminates. (The engine never frees such a value; see
-`IMPLEMENTATION_NOTES.md`, item 11.)
+`design-notes.md`, item 11.)
 
 **Equality (`is`).** Values of different types are never equal. Numbers compare by value and strings
 by content. Lists and maps compare structurally: the same length or keys, with equal elements. Two
@@ -246,7 +249,7 @@ same test made **case-insensitive for English letters**.
 
 **Special case — a string literal on the right.** When the right-hand operand is a string
 *literal*, the test is not equality but a **full-match pattern test**: `a` must be a string
-(`E4-005` otherwise) and the literal is read as a pattern (`REGEX.md`). For a literal without pattern
+(`E4-005` otherwise) and the literal is read as a pattern (`patterns.md`). For a literal without pattern
 syntax the two readings agree. When the right-hand operand is anything else — a variable, a call, a
 number, `empty` — `is` is plain equality, and a pattern held in a variable is *not* interpreted.
 
@@ -258,7 +261,7 @@ if age is not 18 do: ... end                  note: equality; 18 is not a string
 ```
 
 A syntax error in a literal pattern is reported before the program runs; the escape rules for
-patterns that contain `\` are in `REGEX.md`.
+patterns that contain `\` are in `patterns.md`.
 
 ### 4.5 Negation: `!`
 
@@ -295,7 +298,7 @@ set number n to count "apple" in document i
 ```
 
 `match`, `find`, `replace`, `split` and `count` are specified, with their flags (`i`, `g`, `m`), their
-results and their failure values, in `REGEX.md`. In short: a failed `match` or single `find` yields
+results and their failure values, in `patterns.md`. In short: a failed `match` or single `find` yields
 `empty`; `find ... g` yields a list (empty when nothing matched); `count` yields `0`.
 
 ### 4.8 f-strings
@@ -396,7 +399,7 @@ set number total to add_numbers(2, 3)
 - A function that has the same name as a built-in function replaces it for the whole program.
 - Functions are not values. They cannot be stored in a variable, passed, returned or compared, and
   there are no closures.
-- A call may nest at most 1000 levels deep, which makes unbounded recursion an error (`E4-017`).
+- Calls may nest only so deep (see [limits](limits.md)), which makes unbounded recursion an error (`E4-017`).
 
 ### 6.2 Parameters and their types
 
@@ -434,8 +437,8 @@ CuffScript's `async` is cooperative and single-threaded; nothing runs in paralle
 - An error raised by a queued call stops the program, and the calls queued after it do not run. Such
   an error is not caught by an `or_else` written on the line that queued the call, because that line
   finished long before.
-- `await` on a function that is not `async` is an error (`E4-019`). The queue holds at most 1,000,000
-  calls (`E4-026`).
+- `await` on a function that is not `async` is an error (`E4-019`). The queue has a size limit
+  (see [limits](limits.md); `E4-026`).
 
 ### 6.6 Pure functions
 
@@ -542,8 +545,8 @@ program that ends with an error exits with a non-zero status.
 
 In practice, malformed source found while tokenizing *or* parsing — a stray character, a space before
 a colon, an unterminated string, a missing `end`, bad indentation — is reported as `E2-001 Syntax
-Error`, and the message says what is wrong. [Appendix B](#appendix-b-error-catalogue) lists every
-code that the engine raises, and those it defines but does not currently raise.
+Error`, and the message says what is wrong. The [error catalogue](errors.md) lists every
+code, and marks those the engine defines but does not currently raise.
 
 ### 8.2 Recovering with `or_else`
 
@@ -614,7 +617,7 @@ loads the file `./maps/core_engine/stage_data.cuff`.
   ones, do nothing.
 - Its functions become available to the whole program. Its top-level variables are copied into the
   scope that wrote `use`, after the module has run (section 7.2).
-- Modules may load modules, to a depth of 64 (`E5-007`).
+- Modules may load modules; the nesting is limited (see [limits](limits.md); `E5-007`).
 
 ---
 
@@ -652,61 +655,14 @@ These three work on strings, lists and maps alike and become available once any 
 
 ### 10.4 Library reference
 
-The number in parentheses is how many arguments the function takes. Names follow `library_verb`.
+Each library has its own page in the [library reference](dlc/README.md), and
+[all functions](functions.md) are indexed in one place. Names follow `library_verb`. The libraries are
+`math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network` and `filesystem`.
 
-| Library | Functions |
-| :--- | :--- |
-| `DLC:math` | `math_sqrt(1)`, `math_abs(1)`, `math_pow(2)`, `math_round(1–2)` (to a number of decimal places; halves round away from zero), `math_floor(1)`, `math_ceil(1)`, `math_trunc(1)` (toward zero), `math_sign(1)` (−1, 0 or 1), `math_min` / `math_max` (one or more numbers, or one list of numbers), `math_clamp(3)` (value, low, high), `math_mod(2)` (the result takes the sign of the divisor), `math_log(1–2)` (natural, or to a given base), `math_log2(1)`, `math_log10(1)`, `math_exp(1)`, `math_sin`, `math_cos`, `math_tan`, `math_asin`, `math_acos`, `math_atan` (1 each, radians), `math_atan2(2)`, `math_pi(0)`, `math_e(0)` |
-| `DLC:string` | `str_upper(1)`, `str_lower(1)`, `str_trim(1)`, `str_trim_start(1)`, `str_trim_end(1)` (space, tab, CR, LF), `str_starts_with(2)`, `str_ends_with(2)`, `str_repeat(2)`, `str_pad_left(2–3)`, `str_pad_right(2–3)` (to a width, with an optional pad string), `str_char_code(1)` (code point of the first character), `str_from_char_code(1)`, plus `length`, `contains`, `index_of` |
-| `DLC:time` | `time_now(0)` and its alias `time_timestamp(0)`: seconds since the Unix epoch, with a fractional part |
-| `DLC:random` | `random_float(0)` (from 0 up to, not including, 1), `random_int(2)` (both ends included), `random_seed(1)`, `random_choice(1)`, `random_shuffle(1)` (a new list) |
-| `DLC:list` | `list_sort(1)` (all numbers or all strings, ascending), `list_reverse(1)`, `list_join(2)` (a list of strings and a separator), `list_unique(1)` (keeps first occurrences), `list_sum(1)`, `list_average(1)`, `list_flatten(1)` (one level), `list_range(2–3)` (start, end included, optional step; may count down), plus `length`, `contains`, `index_of` |
-| `DLC:map` | `map_keys(1)`, `map_values(1)`, `map_has_key(2)`, `map_entries(1)` (a list of `[key, value]` pairs), `map_merge(2)` (a new map; the second map wins), plus `length`, `contains` |
-| `DLC:convert` | `to_number`, `to_str`, `to_boolean` (always available, section 10.2) |
-| `DLC:json` | See below. |
-| `DLC:network` | See below. |
-| `DLC:filesystem` | See below. |
-
-### 10.5 `DLC:json`
-
-- `to_json(value)` returns compact JSON; `to_json(value, indent)` returns it pretty-printed with that
-  indent width. `empty` becomes `null`.
-- `from_json(text)` parses JSON into numbers, strings, booleans, lists, maps and `empty` (for `null`).
-  Malformed text is an error (`E4-025`). Nesting deeper than 200 levels is rejected.
-
-### 10.6 `DLC:network`
-
-A small client for plain HTTP (not HTTPS) requests.
-
-- `network_get(url)` and `network_post(url, body[, content_type])` return a map
-  `{"status": number, "ok": boolean, "body": str}`, where `ok` is true for statuses 200–299.
-- `url` must start with `http://`. An `https://` address is refused with a clear error, because the
-  client does not implement TLS.
-- Connection failures, timeouts and blocked addresses are errors (`E4-028`) that `or_else` can catch.
-- By default the client cannot reach loopback, private or link-local addresses (protection against
-  server-side request forgery). A host can switch the library off or allow private addresses; see
-  `SECURITY.md` for the options and their risks.
-
-### 10.7 `DLC:filesystem`
-
-Reads and writes files inside the folder of the running script, or inside the host's configured root.
-
-| Function | Result |
-| :--- | :--- |
-| `file_exist(path)` | Whether the regular file exists. |
-| `file_size(path)` | Its size in bytes, or `empty` on failure. |
-| `file_read(path)` | Its text, or `empty` on failure. |
-| `file_readlines(path)` | Its lines as a list, or `empty` on failure. |
-| `file_write(path, text)` | Overwrites the file, or creates it. Gives `true` on success. |
-| `file_add(path, text)` | Appends text, creating the file if needed. Gives `true` on success. |
-| `file_remove(path)` | Deletes a regular file and gives whether it succeeded. A directory, even an empty one, is never removed; the result is `false`. |
-
-- Paths are relative to that folder. A path that leaves it (an absolute path, `../`) is refused with
-  `FilesystemAccessDenied` (`E5-008`). It is the same boundary that `use ... from` uses.
-- Ordinary failures such as a missing file or no permission are **not** errors; the function gives
-  `empty` or `false` as the table says. Use `file_exist` first when the difference matters.
-- Names may be written in any language; they are read as UTF-8 on every platform.
-- A host can switch the library off; see `SECURITY.md`.
+Two things hold for every library function: a library that a host has switched off (`DLC:network`,
+`DLC:filesystem`) is refused with `E5-005`, and nothing a library does can leave the sandbox described in
+[section 9.2](#92-your-own-modules-use--from-). `DLC:network` and `DLC:filesystem` act on the outside world and are
+described together with their risks in [the security policy](../../SECURITY.md).
 
 ---
 
@@ -714,40 +670,15 @@ Reads and writes files inside the folder of the running script, or inside the ho
 
 ### 11.1 Command line
 
-```text
-cuffc [options] [script.cuff]        run a script (standard input when no file is given)
-```
-
-| Option | Effect |
-| :--- | :--- |
-| `--ast` | Print the tokens and syntax tree instead of running. |
-| `--root <dir>` | Let `use ... from` load modules anywhere under `<dir>` (default: the script's folder). |
-| `--max-steps <n>` | Stop after `n` loop iterations and function calls in total (`E6-001`). |
-| `--timeout <ms>` | Stop after `ms` milliseconds (`E6-002`). |
-| `--no-network` | Disable `DLC:network`. |
-| `--allow-private-network` | Let `DLC:network` reach loopback, private and link-local addresses. |
-| `--no-filesystem` | Disable `DLC:filesystem`. |
-
-`cuffsh` is the interactive shell and takes the same engine options. A program that embeds the engine
-sets the same choices through `CuffEngine::Options`.
+`cuffc` runs a script and `cuffsh` is the interactive shell; both take the same engine options. A program
+that embeds the engine sets the same choices through `CuffEngine::Options`. See [`cuffc`](cuffc.md) and
+[`cuffsh`](cuffsh.md) for every option.
 
 ### 11.2 Limits
 
-These are the engine's defaults. Exceeding one is an error, as the table says.
-
-| What | Limit | On excess |
-| :--- | :--- | :--- |
-| Source size | 16 MiB | `E2-009` |
-| Nesting of blocks and expressions | 512 levels | `E2-008` |
-| Call depth | 1000 | `E4-017` |
-| String size | 128 MiB | `E4-026` |
-| Elements in a list or map | 32 Mi | `E4-026` |
-| Queued `async` calls | 1,000,000 | `E4-026` |
-| Module nesting | 64 | `E5-007` |
-| JSON nesting | 200 | `E4-025` |
-| HTTP response | 8 MiB, 5 redirects, 5 s to connect, 15 s in total | `E4-028` |
-| Pattern | 64 KiB, 64 levels of nesting, counts up to 100,000, and a step, time and recursion budget per match | `E3-xxx` |
-| `--max-steps`, `--timeout` | off unless set | `E6-001`, `E6-002` |
+The engine bounds nesting, recursion, sizes and the work a pattern may do, and reports exceeding a
+bound as an ordinary error. The values, and the error each one raises, are in [limits](limits.md); the
+execution budgets `--max-steps` and `--timeout` are off unless set (`E6-001`, `E6-002`).
 
 ---
 
@@ -831,71 +762,4 @@ end
 
 ## Appendix B: Error catalogue
 
-| Code | Meaning | Caught by `or_else` |
-| :--- | :--- | :---: |
-| **E1** | **Tokenization** | |
-| `E1-003` | Invalid number literal | no |
-| **E2** | **Syntax** | |
-| `E2-001` | Unexpected token | no |
-| `E2-008` | Nesting too deep | no |
-| `E2-009` | Source too large | no |
-| **E3** | **Pattern** | |
-| `E3-001` | Regex unclosed group | no |
-| `E3-002` | Regex unclosed bracket | no |
-| `E3-003` | Regex invalid colon spacing | no |
-| `E3-004` | Regex invalid quantifier range | no |
-| `E3-005` | Regex stacked quantifier | no |
-| `E3-006` | Regex empty token | no |
-| `E3-007` | Regex unknown token | no |
-| `E3-008` | Regex invalid escape | no |
-| `E3-009` | Regex dangling quantifier | no |
-| `E3-010` | Regex unexpected character | no |
-| `E3-011` | Regex pattern too complex | no |
-| `E3-101` | Regex step limit exceeded | yes |
-| `E3-102` | Regex timeout | yes |
-| `E3-103` | Regex recursion limit exceeded | yes |
-| **E4** | **Runtime** | |
-| `E4-001` | Undefined variable | yes |
-| `E4-002` | Undefined function | yes |
-| `E4-003` | Constant reassignment | yes |
-| `E4-004` | Invalid constant name | yes |
-| `E4-005` | Type mismatch | yes |
-| `E4-006` | Division by zero | yes |
-| `E4-007` | Zero index access | yes |
-| `E4-008` | Index out of range | yes |
-| `E4-009` | Key not found | yes |
-| `E4-010` | Argument count mismatch | yes |
-| `E4-015` | Element not found | yes |
-| `E4-016` | Unsupported operation | yes |
-| `E4-017` | Stack overflow | yes |
-| `E4-018` | Nested function not supported | yes |
-| `E4-019` | Await on non async | yes |
-| `E4-020` | Declaration type mismatch | yes |
-| `E4-021` | Invalid global declaration | yes |
-| `E4-022` | Return outside function | yes |
-| `E4-023` | Stop outside loop | yes |
-| `E4-024` | Fractional index | yes |
-| `E4-025` | Invalid argument value | yes |
-| `E4-026` | Size limit exceeded | yes |
-| `E4-027` | Pure function global access | yes |
-| `E4-028` | Network request failed | yes |
-| `E4-029` | Pure function impure call | yes |
-| `E4-030` | Parameter type mismatch | yes |
-| **E5** | **Modules and libraries** | |
-| `E5-001` | Module not found | yes |
-| `E5-002` | Module parse failed | yes |
-| `E5-004` | Unknown DLC | yes |
-| `E5-005` | DLC feature unavailable | yes |
-| `E5-006` | Module access denied | yes |
-| `E5-007` | Module limit exceeded | yes |
-| `E5-008` | Filesystem access denied | yes |
-| **E6** | **Resource limits** | |
-| `E6-001` | Execution step limit | no |
-| `E6-002` | Execution timeout | no |
-| `E6-003` | Out of memory | no |
-| **E9** | **Internal** | |
-| `E9-001` | Internal error | no |
-
-All syntax problems found while tokenizing or parsing are reported as `E2-001`; the other `E1` and
-`E2` numbers, and a few `E4` and `E5` ones, are defined but not currently raised. They are reserved,
-and a script should not depend on seeing them: `E1-001`, `E1-002`, `E1-004`, `E1-005`, `E1-006`, `E1-007`, `E2-002`, `E2-003`, `E2-004`, `E2-005`, `E2-006`, `E2-007`, `E4-011`, `E4-012`, `E4-013`, `E4-014`, `E5-003`.
+Every error code, what it means and whether `or_else` can catch it is in the [error catalogue](errors.md).

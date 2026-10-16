@@ -105,7 +105,7 @@ brackets are provided.
 > the table above and `[str]`/`[word]` below are **English-only**, exactly as
 > defined, so `"안녕" is "[let]+"` is false — use `[any]` to accept every character,
 > Hangul included. For the exact boundaries see item 17 in
-> `docs/IMPLEMENTATION_NOTES.md`.
+> `docs/internals/design-notes.md`.
 
 ---
 
@@ -406,7 +406,7 @@ end
 
 > `.` is an ordinary literal character in CuffScript patterns (it does **not** mean
 > "any character"; that is `[any]`), so `\.` is accepted but not required. See item 2
-> in `docs/IMPLEMENTATION_NOTES.md`.
+> in `docs/internals/design-notes.md`.
 
 ---
 

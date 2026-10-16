@@ -1,6 +1,6 @@
-# Implementation Notes
+# Design notes
 
-`docs/SPEC.md` and `docs/REGEX.md` define most of the language's syntax and meaning, but
+`docs/reference/language.md` and `docs/reference/patterns.md` define most of the language's syntax and meaning, but
 some points are deliberately (or accidentally) left unspecified. This document records how
 the actual interpreter (`engine/interpreter/`) implements those points, and why it was
 decided that way. Anything where the spec and the real behavior might read differently should
@@ -8,7 +8,7 @@ be here — if you find a new one, please add it to this document.
 
 ## 1. The `async` / `await` execution model
 
-`SPEC.md` (section 6.5) states the model; this item records how the engine implements it and why
+`language.md` (section 6.5) states the model; this item records how the engine implements it and why
 (improved in v0.2.0 — see "change history" below).
 
 - When an `async` function is **called with `await`**, it runs to completion right there,
@@ -31,11 +31,11 @@ be here — if you find a new one, please add it to this document.
 - Using `await` on a function that is not `async` raises an `AwaitOnNonAsync` runtime error —
   this way `await` still works as documentation saying "this function is asynchronous".
 - `async` and `returnable` are separate modifiers, so they can be used together
-  (`set async returnable func ...`), as `SPEC.md` section 6.4 specifies for all modifiers.
+  (`set async returnable func ...`), as `language.md` section 6.4 specifies for all modifiers.
 
 ## 2. What `.` (the period) means in regex
 
-The escapable-symbol list in `docs/REGEX.md` includes `.`, which can make it read as if `.`
+The escapable-symbol list in `docs/reference/patterns.md` includes `.`, which can make it read as if `.`
 had a special meaning ("any one character", as in other regex languages). But CuffScript
 already provides an explicit `[any]` token for that role, and "eliminating the complicated
 special symbols entirely" is the language's core design philosophy. Therefore:
@@ -50,7 +50,7 @@ special symbols entirely" is the language's core design philosophy. Therefore:
 An f-string is wrapped in outer double quotes (`"`). If you need a string literal inside a
 `{...}` expression (for example to access a key of a map/match result), you **must use single
 quotes (`'...'`).** If you use double quotes inside, the tokenizer takes the f-string to end at
-that point. This is why the `f"Year: {res['year']}"` example in `docs/REGEX.md` section 23
+that point. This is why the `f"Year: {res['year']}"` example in `docs/reference/patterns.md` section 23
 deliberately uses single quotes — this engine actually enforces that convention.
 
 `{{` and `}}` print as a literal `{` and `}` respectively.
@@ -103,7 +103,7 @@ need the same effect, just use `loop while [condition] do: ... end`.
 
 ## 9. The `DLC:*` built-in libraries
 
-`SPEC.md` (sections 9 and 10) names the libraries and what they offer. This table is the complete
+`language.md` (sections 9 and 10) names the libraries and what they offer. This table is the complete
 list of functions this engine registers for each.
 
 | Library           | Functions provided                                                                                                                                                                                                                                                           |
@@ -144,7 +144,7 @@ item 28 covers as a whole.
 
 ## 10. Safety nets for regex matching
 
-The "maximum match step count (Step Limit) and time limit (Timeout)" that `docs/REGEX.md`
+The "maximum match step count (Step Limit) and time limit (Timeout)" that `docs/reference/patterns.md`
 requires are implemented directly (`engine/regex/RegexMatcher.h`): the defaults are 200,000
 steps, 500 ms, and a recursion depth of 3,000. If any of the three is exceeded, matching
 stops and a recoverable `RegexRuntimeError` is thrown (the script does not hang, and can
@@ -286,7 +286,7 @@ What this changes, concretely:
   alternatives must also _end_ on one — otherwise a match could span a partial character
   and `substr()` would produce mojibake.
 - `[edge]` treats any non-ASCII codepoint as a word character, so `[edge]안녕[edge]` works.
-  This follows the spec's own definition (REGEX.md section 17: the boundary between a word
+  This follows the spec's own definition (patterns.md section 17: the boundary between a word
   and whitespace/punctuation/string-start/end).
 
 What deliberately stays ASCII-only, per the spec's explicit wording:
@@ -294,7 +294,7 @@ What deliberately stays ASCII-only, per the spec's explicit wording:
 - `[let]` (English alphabet), `[low]`, `[up]`, `[str]` (English letters + digits),
   `[word]` (English letters + digits + underscore — an _identifier_ class), `[num]`, `[hex]`, and the
   `[int]`/`[float]`/`[email]`/`[phone]`/`[url]` presets. `"안녕" is "[let]+"` is false.
-- `[any]` is the token for "any character in any language" — REGEX.md describes it as
+- `[any]` is the token for "any character in any language" — patterns.md describes it as
   "every letter and symbol in the world except a line feed".
 
 So `[word]` excluding Korean while `[edge]` includes it is not an inconsistency: `[word]` is
@@ -400,48 +400,50 @@ call-heavy code.
 
 ## 22. Recursion safety and resource limits
 
-Every native-stack recursion in the engine is now bounded, so no script can crash the
+Every native-stack recursion in the engine is bounded, so no script can crash the
 process; hostile or accidental input ends in an ordinary error code instead. All numeric
-limits live in one file, `engine/common/Limits.h`.
+limits live in one file, `engine/common/Limits.h`, and the values are on the generated page
+[limits](../reference/limits.md); this item records the design, not the numbers.
 
 **Parser.** `ParseDepthScope` (in `ParserCore.h`) counts native recursion across all parsers,
 including the nested parser used for f-string expressions, and fails with `E2-008` beyond
-256 levels of nested parentheses, lists, maps, unary chains or blocks. Chains that the parser
+the nesting limit (parentheses, lists, maps, unary chains or blocks). Chains that the parser
 builds iteratively (`1+1+1+...`, `a[1][1]...`) are bounded by `Expr::height`, computed when
-each node is constructed (`E2-008` beyond 10,000). Source larger than 16 MiB is rejected
-(`E2-009`).
+each node is constructed (`E2-008` beyond the expression limit). Source larger than the size
+limit is rejected (`E2-009`).
 
 **Evaluator.** A depth counter alone cannot bound stack use: a function body with many
 nested blocks uses far more stack per call than a flat one. So `evalExpr` and `execStatement`
 compare the real stack pointer with a budget derived from the actual stack size (on Linux,
 `pthread_getattr_np`; elsewhere a fixed default, `Interpreter::Config::stackBudgetBytes` to
-override). Exceeding it raises the catchable `E4-017`, the same code as the call-depth limit
-(1,000 calls, unchanged). Regex matching checks a hard floor below that budget, so it fails
-with `E3-103` rather than overflowing when the interpreter is already deep.
+override). Exceeding it raises the catchable `E4-017`, the same code as the call-depth limit.
+Regex matching checks a hard floor below that budget, so it fails with `E3-103` rather than
+overflowing when the interpreter is already deep. Items 43 and the [resource
+limits](resource-limits.md) page describe what changed later: long chains are evaluated and
+freed iteratively, and a configured budget is clamped to the stack that exists.
 
 **Values.** Nested lists/maps are destroyed iteratively (`dismantleValues`), and `is` compares
 iteratively, so depth never matters; circular structures of the same shape compare equal.
-Printing marks cycles (`[...]`, `{...}`) and stops at depth 1,000. `to_json`/`from_json` stop at
-depth 200.
+Printing marks cycles (`[...]`, `{...}`) and stops at a nesting depth. `to_json`/`from_json`
+stop at their own, lower depth.
 
-**Sizes.** Strings are capped at 128 MiB and lists/maps at 32M items (`E4-026`), enforced where
-they can grow: `+`, f-strings, `join`, `repeat_str`, padding, `range`, `flatten`, `merge`,
-regex `replace`/`find`/`split` results and the async task queue. Running out of memory anyway
-is reported as `E6-003` instead of terminating the process.
+**Sizes.** Strings and lists/maps are capped (`E4-026`), enforced where they can grow: `+`,
+f-strings, `join`, `repeat_str`, padding, `range`, `flatten`, `merge`, regex
+`replace`/`find`/`split` results and the async task queue. Running out of memory anyway is
+reported as `E6-003` instead of terminating the process.
 
 **Execution budget (opt-in).** `--max-steps N` and `--timeout MS` (or `CuffEngine::Options`)
 bound loop iterations plus function calls, and wall-clock time. Both are off by default. They
 raise `E6-001`/`E6-002`, which live in the 6000 range and are deliberately **not** catchable by
 `or_else`, so a script cannot swallow its own kill switch.
 
-**Regex.** Group nesting is capped at 64 and quantifier counts at 100,000; a pattern over
-64 KiB is rejected. Each find/replace/split/count also has an overall time allowance
-(5 s plus 2 s per MiB of input) on top of the existing per-attempt limits, and the compile
-cache is bounded (512 entries).
+**Regex.** Group nesting, quantifier counts and pattern size are capped. Each
+find/replace/split/count also has an overall time allowance (5 s plus 2 s per MiB of input) on
+top of the existing per-attempt limits, and the compile cache is bounded.
 
 Tuning: the numbers were chosen so that ordinary programs never notice them (10M-element
-lists, 1,500-term expressions, 2M regex matches and 990-deep recursion with rich bodies all
-still work). Raise them in `Limits.h` if a workload needs more.
+lists, 2M regex matches and deep recursion with rich bodies all still work). Raise them in
+`Limits.h` if a workload needs more, and run `python3 tools/docs.py generate`.
 
 ## 23. Module sandbox
 
@@ -655,7 +657,7 @@ keyword's token type is dispatched on to decide what to parse:
 
 This is necessarily a judgment call about which collisions are safe to resolve
 mechanically, not a complete lifting of every keyword restriction — see the note on
-`SPEC.md` section 1.5 (Names and reserved words) for exactly which words are covered. `not`'s only other grammar role is the
+`language.md` section 1.5 (Names and reserved words) for exactly which words are covered. `not`'s only other grammar role is the
 `is not` comparison (`parseComparison`'s own `p.check(TokenType::NOT)`, unrelated to
 `parsePrimary`), so there's no interaction between using `not` as a variable and using it
 in an `is not` comparison. Regression test: `tests/cases/reserved_words_as_identifiers.cuff`.
@@ -677,11 +679,11 @@ when a `CuffError` is caught: `buildCaretSnippet()` finds the line via `loc.offs
 byte offset already kept in sync with the tokenizer's `line`/`column`, see
 `ScanState.h`), and `renderErrorWithSnippet()` reconstructs the full message from the
 error's own public fields with the snippet spliced in between message and hint, rather
-than parsing `what()`'s already-flattened string. The caret's horizontal offset is
-counted in **codepoints**, not bytes — `column`/`offset` are byte-based (one UTF-8
-continuation byte = one column), so a Korean/emoji/etc. string literal earlier on the
-same line would otherwise push the caret roughly 3x too far right; the byte-prefix up to
-the error's offset is measured with `utf8::length()` instead. Regression test:
+than parsing `what()`'s already-flattened string. The caret's horizontal offset was
+counted in **codepoints**, not bytes, because `column` was then byte-based (one UTF-8
+continuation byte = one column) and a Korean/emoji/etc. string literal earlier on the
+same line would otherwise push the caret roughly 3x too far right. (Superseded in v3.4.0:
+`column` now counts characters and the caret is placed by display width; see item 42.) Regression test:
 `tests/unit/error_snippet_test.cpp` (ASCII, UTF-8-alignment, and a runtime-error case).
 
 An error inside an f-string's `{...}` used to report line 1 of the *fragment* (the
@@ -835,7 +837,7 @@ requires every item to repeat the `DLC:` prefix (`use DLC:math, string` is a syn
 bare `string` is indistinguishable from a module name), and gives a specific message for a
 dangling comma and for a forgotten comma (`use DLC:math DLC:string`; without that check the
 second `DLC` would parse as the start of a new statement and fail with a confusing `unexpected
-token ':'`). `SPEC.md` section 9.1 requires a `use` statement to stay on a single line, so a list cannot be
+token ':'`). `language.md` section 9.1 requires a `use` statement to stay on a single line, so a list cannot be
 continued onto the next line — separate `use` lines are the multi-line form.
 Tests: `tests/cases/use_multiple_dlcs.cuff`, `tests/errors/use_multiple_*.cuff`.
 
@@ -896,7 +898,7 @@ stack, `SIGPIPE` handling, `pthread_get_stackaddr_np`), stack-safety limits, the
 non-obvious checks (zero-width regex guard, codepoint-boundary matching, ASCII-only case
 folding, "a local binding always wins over a `global` bridge"), and the public option fields in
 `CuffEngine::Options`. Longer explanations that used to live in comments are in this file and in
-`SPEC.md`. The cleanup was mechanical and checked mechanically: a string/char-literal-aware
+`language.md`. The cleanup was mechanical and checked mechanically: a string/char-literal-aware
 scanner located comments, the preprocessed output of `main.cpp` was compared before and after
 (identical once whitespace is ignored, so only comments and blank lines changed), every string and
 char literal was compared byte-for-byte, and the build plus the full suite pass unchanged.
@@ -907,7 +909,7 @@ char literal was compared byte-for-byte, and the build plus the full suite pass 
 **The bug.** `Environment::resolve()` walked the scope chain up to the function scope and then,
 when nothing was found, fell back to the real global scope. So a function could *read* any
 global, and — worse — `change g to 99` inside a function silently overwrote the global with no
-`global` declaration at all, which made `change g to global` pointless (`SPEC.md`, section 7 "Scope",
+`global` declaration at all, which made `change g to global` pointless (`language.md`, section 7 "Scope",
 says that is how you reach a global from a function).
 
 **The rule now.** A function scope resolves only its own locals (and the block scopes inside it)
@@ -977,7 +979,7 @@ pins the ordering behavior either way).
 
 `applyQuantifier()` used to read a run of digits after *any* atom as an exact repeat count, so
 `"v2"` meant `v` twice, `"abc123" is "abc123"` was false, and `"010-[num]4-[num]4"` — the
-phone-number example in `SPEC.md` and `REGEX.md` — began with `0` repeated ten times and could
+phone-number example in `language.md` and `patterns.md` — began with `0` repeated ten times and could
 never match a real number. A digit run is now a count only after an atom that consumes characters:
 a bracket token or set, `[one:...]`, a group or a named capture. After a plain or escaped literal
 (`RNode::isLiteral`) or a zero-width anchor (`[start]`, `[end]`, `[edge]`) it is ordinary text.
@@ -1036,5 +1038,68 @@ do) or replace it with the `char8_t` constructor when the project moves up.
 kind: giving native functions a context parameter so `print`/`input` could use host-supplied
 streams (the WASM host gets them through Emscripten's `print`/`stdin` callbacks instead), generating the token enum, its names and
 the keyword table from one macro list, and a visitor over the AST in place of the per-kind switches
-in the parser, `ASTPrinter` and interpreter. `docs/EXTENDING.md` lists exactly which files each
+in the parser, `ASTPrinter` and interpreter. `docs/contributing/extending.md` lists exactly which files each
 kind of addition touches.
+
+## 42. v3.4.0: error locations, source attribution and the front ends
+
+Five defects shared one cause, that an error's location is only meaningful together with the
+text it points into and a rule for where it sits.
+
+- **A statement that stopped early was reported on the line after it.** `NEWLINE` was
+  located at the start of the next statement. It is now located at the end of the statement
+  it finishes (`Tokenizer::tokenize`, `endOfStatement`), and the closing `DEDENT`/`EOF`
+  tokens sit at the end of the last statement instead of on an empty line past it. A missing
+  `end` says where the block opened (`ParserCore::consumeEnd`).
+- **An error in an imported file was drawn from the importing file.** `SourceRef`
+  (`common/SourceText.h`) names the text a location points into. The parser stamps every
+  function with it; an error that leaves a function body or a module's top-level code is
+  given it (`CuffError::attachSource`); `Session::run` gives the entry's own to the rest.
+  The same mechanism fixes a function from an earlier shell entry failing during a later
+  one, and gives `E5-002` the module's own position and line (`CuffError::related`).
+- **`column` counted bytes.** It now counts characters, so the headline agrees with the
+  caret on any line. `offset` stays a byte offset. A unit test checks that line, column and
+  offset agree for every error over a corpus and its mutations.
+- **The caret ignored tabs and wide characters.** `buildCaretSnippet` copies tabs into the
+  padding and uses display widths; the width tables moved from `cli/Width.h` to
+  `engine/common/Width.h`.
+- **A UTF-8 byte order mark was rejected** by `cuffc` (the shell stripped it itself). The
+  tokenizer now skips it, and the shell's own `stripBom` is gone.
+
+Also found on the way: text left over inside an f-string's braces (`{n 2}`) was silently
+ignored, and is now `E2-001`; `cuffc` accepted unknown options as file names; a file was read
+in text mode on Windows, which translates line endings and stops at a Ctrl+Z byte.
+
+**The shell follows the engine.** `cuffsh` used to parse, run and format errors itself,
+duplicating `CuffEngine`, so every change to the report had to be made twice (the caret, in
+fact, was added to one and not the other). The pipeline is now `parseProgram()`, a `Session`
+runs pieces of source and returns finished reports, `CuffEngine::Options` is the interpreter's
+own `Config`, and the engine's command-line flags are parsed in one place
+(`EngineOptionsCli.h`). `CuffEngine::execute` no longer returns the syntax tree it ran; nothing
+used it. `docs/internals/architecture.md` describes the result.
+
+## 43. v3.4.0: limits that contradicted each other
+
+Measuring the limits against each other, three promises turned out not to hold:
+
+- **The expression limit was larger than the evaluator could honour.** The parser accepted
+  chains up to the limit, but evaluating one by recursion used about 800 bytes of stack per
+  term, so a chain just under the limit failed with `E4-017`, and which length failed depended
+  on the platform's stack. Chains of binary operators, indexing and slicing are now evaluated
+  iteratively above a small height (`Interpreter::evalSpine`), so the limit no longer depends
+  on the stack. Raising or lowering a number would have left the problem in place.
+- **A deep tree could crash a small thread when it was merely freed.** The default destructor
+  recursed once per node; a chain at the limit overflowed a 256 KiB stack after parsing
+  succeeded. `Expr::~Expr` now takes a tall tree apart iteratively.
+- **A configured stack budget was trusted.** `Config::stackBudgetBytes` larger than the thread's
+  real stack turned runaway recursion into a segmentation fault. `Interpreter::planStack`
+  now clamps any budget to what exists.
+
+Related: `NameInterner` was an unsynchronised process-wide table, so the documented "one Session per
+thread" was a data race (ThreadSanitizer reproduces it); it is now locked. `Interpreter::run` now
+empties the `async` queue when an error leaves it, which a one-shot `cuffc` never noticed but a shell
+(or any host that keeps a `Session`) did: calls queued after the failing one ran at the next entry.
+
+The relationships that matter are now `static_assert`s at the end of `Limits.h`, the limits page is
+generated from the comments above each constant, and `tests/unit/limits_test.cpp` covers long chains
+under a tiny budget, the stack plan, and a real small thread.

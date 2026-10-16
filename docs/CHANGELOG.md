@@ -1,3 +1,37 @@
+## v3.4.0 - 2026-10-14
+
+## Description
+
+- **Fixed: an incomplete statement was reported on the line after it.** A statement that stopped early (`set number x to` followed by another line) pointed the caret at the next statement, and a block with no `end` pointed at an empty line past the end of the file. Errors now sit on the statement's own line, at the point where it ends, and a missing `end` says where the block was opened.
+
+- **Fixed: errors from imported files were drawn from the wrong file.** An error inside a module's function or top-level code used the module's line and column but showed the importing file's line, and an error in a function declared by an earlier `cuffsh` entry showed the current entry. An error now carries the text it points into, so the report shows the right line and names the file (`Runtime Error in './lib/ratio.cuff' at line 3`). A module that fails to parse (`E5-002`) shows the `use` statement and then the module's own line and column.
+
+- **Behavior change: columns count characters, and the caret follows display width.** `column` used to count bytes, so a Korean string earlier on a line made the headline disagree with the caret. It now counts characters. The caret copies tabs and gives wide characters two columns, so it lines up in a terminal. Offsets are still bytes.
+
+- **Fixed: a UTF-8 byte order mark at the start of a file was rejected by `cuffc`.** The engine now ignores it, as the shell already did.
+
+- **Behavior change: text left over inside an f-string's braces is an error.** `f"{n 2}"` used to evaluate `n` and silently ignore `2`; it is now `E2-001`, and errors in an f-string expression name the expression.
+
+- **Fixed: a program the parser accepts could still fail, or crash a small thread.** A chain of operators, indexes or slices just under the expression limit failed with `E4-017` because evaluating it used stack in proportion to its length. Such chains are now evaluated iteratively, and a long expression tree is freed iteratively too (it overflowed a 256 KiB stack when it was merely destroyed). A stack budget configured larger than the thread's real stack used to turn runaway recursion into a crash; it is now reduced to the stack that exists. The relationships between limits are checked at compile time (`static_assert`s in `Limits.h`) and covered by new tests.
+
+- **Fixed: one `Session` per thread was a data race.** The table of identifier names shared by all threads was unsynchronised; it is now locked. A thread-safety test runs under ThreadSanitizer in the documented setup.
+
+- **Fixed: calls queued by `async` survived an error.** When a queued call failed, the calls still waiting ran at the next `cuffsh` entry. The queue is now emptied when an error ends a run.
+
+- **Behavior change: `cuffc` rejects unknown options and more than one script.** An unrecognised option used to be taken as the script's file name. `--help` now writes to standard output, and a file is read as bytes on every platform (a text-mode read on Windows changed line endings and stopped at a Ctrl+Z byte).
+
+- **The shell follows the engine.** `cuffsh` no longer parses, runs or formats errors itself: it hands each entry to `cuff::Session` and prints the finished report, so its output is the same as `cuffc`'s by construction. `CuffEngine::Options` is now the interpreter's own configuration, and both programs read the engine's command-line flags through one function (`EngineOptionsCli.h`). **API change:** `CuffEngine::execute` no longer returns the syntax tree it ran.
+
+- **Clearer syntax messages.** Messages say `end of line` and `end of file` instead of a quoted `'\n'` or `''`.
+
+- **Faster reading of large programs.** The token list is reserved up front (about 9% faster tokenizing of a 3 MB program), and `cuffc` hands its source to the engine instead of copying it.
+
+- **Documentation is organised and checked.** `docs/` is now `guide/`, `reference/`, `internals/` and `contributing/`, with a page for every library, `cuffc`, `cuffsh`, the built-in functions, the error catalogue, the limits and the architecture. Limits, error codes, the function index and the command-line help are generated from the code (`python3 tools/docs.py generate`), and `python3 tools/docs.py check` verifies links, library coverage, the version and that every runnable example prints what the page says. `SPEC.md`, `REGEX.md`, `IMPLEMENTATION_NOTES.md` and `EXTENDING.md` moved to `docs/reference/language.md`, `docs/reference/patterns.md`, `docs/internals/design-notes.md` and `docs/contributing/extending.md`.
+
+- **Tests and workflows.** New unit tests for error locations, limits, and threads. `cli/tests/requirements.txt` lists the shell tests' Python packages. The shell workflow sets up a pinned Python instead of `--break-system-packages`, builds `cuffc` so the `cuffsh`-versus-`cuffc` comparison actually runs, prints tool versions, and also runs when the engine changes. `run_tests.ps1` expected the old four-digit error codes and its `-TimeScale` option never reached the tests; both work now. Unit tests link with `-pthread`.
+
+---
+
 ## v3.3.1 - 2026-10-11
 
 ## Description

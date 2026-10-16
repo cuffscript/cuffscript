@@ -2,6 +2,10 @@ import os, pty, select, time, signal, struct, fcntl, termios
 import pyte
 import re, wcwidth
 
+# Every wait in the suites goes through Session.pump(), so this one factor slows them all down for a slow or
+# heavily loaded machine: CUFFSH_TEST_SCALE=3 waits three times as long for the shell to answer.
+TIME_SCALE = float(os.environ.get("CUFFSH_TEST_SCALE", "1"))
+
 class WideAwareScreen(pyte.Screen):
     """pyte writes a double-width glyph into the last column instead of wrapping it
     to the next row the way xterm, VTE, Terminal.app and Windows Terminal do."""
@@ -47,7 +51,7 @@ class Session:
         self.rc = None
 
     def pump(self, seconds=0.25):
-        end = time.time() + seconds
+        end = time.time() + seconds * TIME_SCALE
         while True:
             left = end - time.time()
             if left <= 0: break

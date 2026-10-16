@@ -446,7 +446,7 @@ namespace cuff
         default:
             if (isBareIdentifierKeyword(tok.type))
                 goto bareIdentifier;
-            throw SyntaxError("unexpected token '" + tok.value + "' in expression", tok.location);
+            throw SyntaxError("unexpected " + describeToken(tok) + " in expression", tok.location);
         }
 
     bareIdentifier:
@@ -466,11 +466,16 @@ namespace cuff
             std::vector<Token> innerTokens = lexer.lex();
 
             ParserCore innerParser(std::move(innerTokens));
-            return ExpressionParser::parse(innerParser);
+            std::unique_ptr<Expr> expr = ExpressionParser::parse(innerParser);
+            innerParser.skipNewlinesOnly();
+            if (!innerParser.atEnd())
+                throw SyntaxError("unexpected " + describeToken(innerParser.current()) + " after the expression",
+                                  fallbackLoc);
+            return expr;
         }
         catch (const CuffError &e)
         {
-            throw CuffError(e.code, e.message, fallbackLoc, e.hint);
+            throw CuffError(e.code, "in f-string expression '{" + exprSource + "}': " + e.message, fallbackLoc, e.hint);
         }
     }
 

@@ -14,12 +14,15 @@ namespace cuff
     class Parser
     {
     public:
-        explicit Parser(std::vector<Token> tokens) : core_(std::move(tokens)) {}
+        // `source` is the text the tokens were scanned from; it lets an error found later, while a function runs,
+        // be drawn against the right text (see SourceText.h).
+        explicit Parser(std::vector<Token> tokens, SourceRef source = nullptr) : core_(std::move(tokens), std::move(source)) {}
 
         std::unique_ptr<Program> parse()
         {
             ParseStackFloorScope stackGuard;
             auto program = std::make_unique<Program>();
+            program->source = core_.source;
 
             while (!core_.atEnd())
             {

@@ -41,9 +41,14 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 - A dangerous library that the host must be able to switch off entirely (such as
   network or file system) should get an options struct following the pattern of
   `NetworkDLCOptions`/`FilesystemDLCOptions`: add a member for it to `DLCOptions`, and
-  pass the value along `CuffEngine::Options` → `Interpreter::Config` → `DLCOptions`
-  (filled in by `Interpreter::execUse()`) → your library (the CLI flags are in
-  `main.cpp`).
+  pass the value along `Interpreter::Config` (the type `CuffEngine::Options` and
+  `Session` use as well) → `DLCOptions` (filled in by `Interpreter::execUse()`) → your
+  library. The command-line flag is added once, in `engine/EngineOptionsCli.h`
+  (`parseEngineOption` and `engineOptionsHelp`); `cuffc` and `cuffsh` both read their
+  engine flags through it, so neither needs to change.
+- Every function you add must be mentioned on its library's page under
+  `docs/reference/dlc/`: `python3 tools/docs.py check` fails otherwise, and the function
+  index is generated.
 - `expectArgCount`/`expectArgRange`/`expectNumber`/`expectStr` validate arguments
   and produce consistent `ArgumentError`/`TypeError` messages — reuse them in new
   functions. For integer arguments use `expectWhole` (which also checks the ±2^53
@@ -98,6 +103,10 @@ classes are complete types.
 4. Whether an error is `recoverable` is decided automatically by the code's numeric
    band (`errorCodeRecoverable()`) — 3100 to 5999 can be caught by `or_else`, the
    rest cannot.
+5. Write a one-line description after the enumerator (`Name = 4031, // What this means.`).
+   The [error catalogue](../reference/errors.md) is generated from it: run
+   `python3 tools/docs.py generate`. A code that nothing raises is listed as reserved
+   automatically.
 
 ## 5. Adding a "freezable" state to a value type (e.g. `isConstant` on `constant list`)
 
@@ -177,11 +186,13 @@ make clean && make        # -Wall -Wextra -Werror, so a warning is a failure
 ./cuffc --ast your_test.cuff   # inspect the parse result (AST) by eye
 ./cuffc your_test.cuff         # check the actual run result
 bash tests/run.sh              # the full regression suite (did existing features break?)
+python3 tools/docs.py check    # are the docs still true? (see "Documentation" below)
 ```
 
 For a new feature, add one test alongside it to `tests/cases/` (success cases) or
-`tests/errors/` (error cases) — see `tests/README.md`. When you refactor later, that
-test is your safety net as is.
+`tests/errors/` (error cases) — see [Testing](testing.md). When you refactor later, that
+test is your safety net as is. A feature that changes what a user can see also changes a
+page under `docs/`; [Documentation](documentation.md) says which, and what is generated.
 
 ## 9. Allowing reserved words in name positions (parser)
 
@@ -214,15 +225,22 @@ grammar:
 
 ## 10. Source line and caret (`^`) in error messages
 
-`CuffError` does not know the source text — `what()` renders only the message and
-the hint. The source line and `^` in the final message the user sees are attached
-by `renderErrorWithSnippet()` at the point where `CuffEngine::execute()`/`run()`
-catches the `CuffError` (where the original source is still in scope). Code that
-throws a new error only has to fill in an accurate `SourceLocation` (especially
-`offset`, a byte offset), and the caret is automatic — its horizontal position is
-computed in code points rather than bytes, so it stays aligned even when Hangul or
-similar text comes earlier on the same line. If you change this behavior,
-`tests/unit/error_snippet_test.cpp` will tell you.
+`CuffError::what()` renders only the message and the hint. The report a user sees,
+with the source line and the `^`, is built by `renderErrorWithSnippet()`
+(`engine/common/ErrorFormat.h`), which `Session::run()` and `CuffEngine::execute()` call
+for you, so a front end never builds one. Code that throws a new error only has to fill
+in an accurate `SourceLocation`: take it from the token that starts the construct. The
+caret is automatic and is placed by display width, so it stays aligned across tabs and
+Hangul.
+
+Which text a location points into is carried by the error (`CuffError::source`); the
+parser stamps every function it declares, so an error inside a module or inside a
+function from an earlier shell entry is drawn from the right file. If you add something
+that runs code from another source (a new kind of import, say), run its body inside the
+same `attachSource` guard `execFunctionBody` uses. [Source locations and error
+reports](../internals/source-locations.md) explains all of it. If you change this
+behaviour, `tests/unit/error_snippet_test.cpp` will tell you, including a check that
+the reported line and column always agree with the offset.
 
 ## 11. Portability and build switches
 
@@ -272,5 +290,5 @@ of the SPEC rule "a module-load command is one line".
 Comments in `engine/` record only "what the code alone cannot tell you", in a line
 or two — lifetime/ordering invariants, platform quirks, stack-safety limits, and the
 reason for a non-obvious check. Let names and code say "what it does", and put long
-explanations in this document or in `IMPLEMENTATION_NOTES.md` (see section 39).
+explanations in this document or in `design-notes.md` (see section 39).
 When you change a feature, fix the document entry that explains it as well.

@@ -146,7 +146,8 @@ if (-not (Test-Path $Bin)) {
 Write-Host '== tests/unit (C++ unit tests) =='
 $tmp = [System.IO.Path]::GetTempPath()
 $exeSuffix = if ($OnWindows) { '.exe' } else { '' }
-$linkArgs = if ($OnWindows) { @('-Wl,--stack,8388608', '-lws2_32') } else { @() }
+$linkArgs = @('-pthread')
+if ($OnWindows) { $linkArgs += @('-Wl,--stack,8388608', '-lws2_32') }
 foreach ($src in (Get-ChildItem 'tests/unit/*.cpp' | Sort-Object Name)) {
     $unitBin = Join-Path $tmp ("cuff_unit_" + $src.BaseName + $exeSuffix)
     $build = Invoke-Program -FilePath $Cxx -TimeoutSeconds 600 -Arguments (@('-std=c++17', '-Wall', '-Wextra') + $UnitFlags + @('-I.', $src.FullName, '-o', $unitBin) + $linkArgs)

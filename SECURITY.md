@@ -42,7 +42,11 @@ and, as of this release, `DLC:filesystem` (see below) — share that same sandbo
 else performs file access. Two things are deliberately left
 to the embedder: an execution budget (`--max-steps`, `--timeout`, or `CuffEngine::Options`) is
 off by default, and process-level memory and CPU limits should still be applied when hosting
-untrusted code. Details and numbers are in `docs/IMPLEMENTATION_NOTES.md`, sections 22-23.
+untrusted code. The numbers are on the [limits page](docs/reference/limits.md), and the design is
+described in [Resource limits](docs/internals/resource-limits.md) and in `docs/internals/design-notes.md`,
+sections 22-23. The engine does not count total memory, and the table of identifier names is shared by the
+whole process and grows by every distinct name it ever sees, so a long-lived host that runs many unrelated
+untrusted programs should account for both with limits of its own.
 
 ## DLC:network
 

@@ -63,7 +63,7 @@ namespace cuff
                 }
             }
 
-            p.consume(TokenType::END, "expected 'end' to close if statement");
+            p.consumeEnd("expected 'end' to close if statement", loc);
             p.match(TokenType::DEDENT);
 
             return std::make_unique<Stmt>(StmtKind::IfStmt, std::move(ifStmt));

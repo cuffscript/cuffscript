@@ -1,11 +1,12 @@
 // cuffsh — interactive shell for CuffScript, built directly on the same
 // engine main.cpp/cuffc uses for one-shot script execution. Nothing here
 // re-implements language semantics: parsing/execution always go through
-// cuff::CuffEngine / cuff::Interpreter (see engine/CuffEngine.h). This file is
+// cuff::Session (see engine/Session.h). This file is
 // the front end: prompt/keys live in LineEditor.h, terminal setup in
 // Terminal.h, platform differences in Platform.h, the session in Repl.h.
 
 #include "../engine/CuffEngine.h"
+#include "../engine/EngineOptionsCli.h"
 #include "Platform.h"
 #include "Repl.h"
 #include "Terminal.h"
@@ -39,36 +40,15 @@ namespace
                   << "Usage: " << prog << " [options] [file.cuff]\n"
                   << "  file.cuff              run this script in the session before the prompt\n"
                   << "                         appears\n"
-                  << "  --root <dir>           allow 'use ... from' to load modules anywhere\n"
-                  << "                         under <dir> (default: current directory)\n"
-                  << "  --max-steps <n>        stop each entry after <n> loop iterations +\n"
-                  << "                         function calls (0 = unlimited)\n"
-                  << "  --timeout <ms>         stop each entry after <ms> milliseconds\n"
-                  << "                         (default " << kDefaultTimeoutMs << "; 0 = unlimited). The engine cannot cancel a\n"
-                  << "                         running entry, so this is the main safety net for a\n"
-                  << "                         runaway loop; with 0, Ctrl+C during execution closes\n"
-                  << "                         the whole shell instead (see :help)\n"
-                  << "  --no-network           disable 'use DLC:network' entirely\n"
-                  << "  --allow-private-network\n"
-                  << "                         let DLC:network reach loopback/private addresses\n"
-                  << "  --no-filesystem        disable 'use DLC:filesystem' entirely\n"
+                  << cuff::engineOptionsHelp()
                   << "  --no-color             disable colored output\n"
                   << "  --no-banner            skip the startup banner\n"
                   << "  -h, --help             show this help and exit\n"
-                  << "  --version              show version information and exit\n";
-    }
-
-    bool parseCount(const std::string &text, uint64_t &out)
-    {
-        if (text.empty() || text[0] < '0' || text[0] > '9')
-            return false;
-        char *end = nullptr;
-        errno = 0;
-        const unsigned long long v = std::strtoull(text.c_str(), &end, 10);
-        if (errno != 0 || *end != '\0')
-            return false;
-        out = v;
-        return true;
+                  << "  --version              show version information and exit\n\n"
+                  << "Defaults: modules may be loaded from the current directory, and each entry stops\n"
+                  << "after " << kDefaultTimeoutMs << " ms. The engine cannot cancel a running entry, so --timeout is the\n"
+                  << "main safety net for a runaway loop; with --timeout 0, Ctrl+C during execution\n"
+                  << "closes the whole shell instead (see :help).\n";
     }
 
 } // namespace
@@ -85,18 +65,6 @@ int main(int argc, char **argv)
     {
         const std::string &arg = args[i];
 
-        // Options that take a value: consume it, or complain once.
-        auto takeValue = [&](std::string &value) -> bool
-        {
-            if (i + 1 >= args.size())
-            {
-                std::cerr << "Error: " << arg << " requires a value\n";
-                return false;
-            }
-            value = args[++i];
-            return true;
-        };
-
         if (arg == "-h" || arg == "--help")
         {
             printUsage(prog);
@@ -110,47 +78,26 @@ int main(int argc, char **argv)
         if (arg == "--no-color")
         {
             options.useColor = false;
+            continue;
         }
-        else if (arg == "--no-banner")
+        if (arg == "--no-banner")
         {
             options.showBanner = false;
+            continue;
         }
-        else if (arg == "--no-network")
+
+        // The flags that configure the engine are shared with cuffc (engine/EngineOptionsCli.h).
+        std::string optionError;
+        const cuff::OptionStatus status = cuff::parseEngineOption(args, i, options.engineConfig, optionError);
+        if (status == cuff::OptionStatus::Invalid)
         {
-            options.engineConfig.networkEnabled = false;
+            std::cerr << "Error: " << optionError << "\n";
+            return 2;
         }
-        else if (arg == "--allow-private-network")
-        {
-            options.engineConfig.allowPrivateNetworkTargets = true;
-        }
-        else if (arg == "--no-filesystem")
-        {
-            options.engineConfig.filesystemEnabled = false;
-        }
-        else if (arg == "--root")
-        {
-            std::string v;
-            if (!takeValue(v))
-                return 2;
-            options.engineConfig.rootDir = cuff::cli::platform::enginePath(v);
-        }
-        else if (arg == "--max-steps" || arg == "--timeout")
-        {
-            std::string v;
-            if (!takeValue(v))
-                return 2;
-            uint64_t n = 0;
-            if (!parseCount(v, n))
-            {
-                std::cerr << "Error: " << arg << " expects a non-negative integer\n";
-                return 2;
-            }
-            if (arg == "--max-steps")
-                options.engineConfig.maxSteps = n;
-            else
-                options.engineConfig.timeoutMs = static_cast<uint32_t>(std::min<uint64_t>(n, UINT32_MAX));
-        }
-        else if (arg.size() > 1 && arg[0] == '-')
+        if (status == cuff::OptionStatus::Consumed)
+            continue;
+
+        if (arg.size() > 1 && arg[0] == '-')
         {
             std::cerr << "Error: unknown option '" << arg << "' (see --help)\n";
             return 2;
@@ -165,6 +112,10 @@ int main(int argc, char **argv)
             options.startupFile = arg;
         }
     }
+
+    // The shared parser stores --root as typed; the engine wants the platform's own path encoding.
+    if (!options.engineConfig.rootDir.empty())
+        options.engineConfig.rootDir = cuff::cli::platform::enginePath(options.engineConfig.rootDir);
 
     if (cuff::cli::platform::isMsysPty(0))
     {

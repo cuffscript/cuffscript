@@ -1,134 +1,55 @@
 #pragma once
 
+#include "ParseProgram.h"
+#include "Session.h"
 #include "common/CuffError.h"
-#include "common/Token.h"
-#include "tokenizer/Tokenizer.h"
-#include "lexer/Lexer.h"
-#include "parser/Parser.h"
-#include "parser/ASTNodes.h"
-#include "debug/ASTPrinter.h"
-#include "interpreter/Interpreter.h"
+#include "common/ErrorFormat.h"
 #include "common/Limits.h"
+#include "common/Token.h"
+#include "debug/ASTPrinter.h"
+#include "parser/ASTNodes.h"
 #include <cstdint>
-#include <new>
+#include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
-#include <iostream>
 
 namespace cuff
 {
 
-    inline std::string buildCaretSnippet(const std::string &source, const SourceLocation &loc)
-    {
-        if (source.empty() || loc.offset < 0)
-            return "";
-        size_t offset = std::min(static_cast<size_t>(loc.offset), source.size());
-        size_t lineStart = 0;
-        if (offset > 0)
-        {
-            size_t prevNewline = source.rfind('\n', offset - 1);
-            if (prevNewline != std::string::npos)
-                lineStart = prevNewline + 1;
-        }
-        size_t lineEnd = source.find('\n', offset);
-        if (lineEnd == std::string::npos)
-            lineEnd = source.size();
-        if (lineStart > lineEnd)
-            return "";
-        std::string lineText = source.substr(lineStart, lineEnd - lineStart);
-        if (!lineText.empty() && lineText.back() == '\r')
-            lineText.pop_back();
-        size_t prefixBytes = std::min(offset - lineStart, lineText.size());
-        size_t caretCol = utf8::length(lineText.substr(0, prefixBytes));
-        return "    " + lineText + "\n    " + std::string(caretCol, ' ') + "^";
-    }
-
-    inline std::string renderErrorWithSnippet(const CuffError &e, const std::string &source)
-    {
-        std::string out = "[" + errorCodeTag(e.code) + "] " + e.category +
-                           " at " + e.location.toString() + ": " + e.message;
-        std::string snippet = buildCaretSnippet(source, e.location);
-        if (!snippet.empty())
-            out += "\n" + snippet;
-        if (!e.hint.empty())
-            out += "\n    hint: " + e.hint;
-        return out;
-    }
-
+    // The embedding API: run a whole program in one call. For a program that arrives in pieces (a shell), keep
+    // a Session instead; this class is a thin convenience over the same machinery.
     class CuffEngine
     {
     public:
         struct Result
         {
             bool success = false;
-            std::string error;
+            std::string error; // the full report (see common/ErrorFormat.h), empty on success
             std::vector<Token> rawTokens;
             std::vector<Token> lexedTokens;
-            std::unique_ptr<Program> ast;
+            std::unique_ptr<Program> ast; // set by run() only
         };
 
-        struct Options
-        {
-            std::string rootDir;  // modules must stay inside this directory (default: the script's directory)
-            uint64_t maxSteps = 0;  // loop iterations + user-function calls; 0 = unlimited
-            uint32_t timeoutMs = 0;  // wall-clock budget; 0 = unlimited
-            size_t stackBudgetBytes = 0;  // native stack the evaluator may use; 0 = derive from the real stack size
-            bool networkEnabled = true;  // 'use DLC:network' works at all; false suits multi-tenant/untrusted hosting
-            bool allowPrivateNetworkTargets = false;  // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
-            bool filesystemEnabled = true;  // 'use DLC:filesystem' works at all; false suits multi-tenant/untrusted hosting
-        };
+        // The settings of a run: root directory for modules, step and time budgets, stack budget, and which
+        // DLCs may touch the network or file system. See Interpreter::Config for each field.
+        using Options = EngineOptions;
 
-        // `keepTokens` keeps the raw/lexed token streams in the result (only --ast needs them); otherwise they are
-        // moved.
+        // Parses without running. `keepTokens` keeps the raw/lexed token streams in the result (only --ast needs
+        // them); otherwise they are discarded.
         static Result run(const std::string &source, bool keepTokens = true)
         {
             Result result;
-
+            const SourceRef text = makeSourceRef(source);
             try
             {
-                if (source.size() > limits::kMaxSourceBytes)
-                {
-                    throw SyntaxError(ErrorCode::SourceTooLarge,
-                                      "source is larger than the " + std::to_string(limits::kMaxSourceBytes / 1024) + " KiB limit",
-                                      SourceLocation());
-                }
-
-                Tokenizer tokenizer(source);
-                std::vector<Token> raw = tokenizer.tokenize();
-
-                std::vector<Token> lexed;
-                if (keepTokens)
-                {
-                    result.rawTokens = raw;
-                    Lexer lexer(std::move(raw));
-                    lexed = lexer.lex();
-                    result.lexedTokens = lexed;
-                }
-                else
-                {
-                    Lexer lexer(std::move(raw));
-                    lexed = lexer.lex();
-                }
-
-                Parser parser(std::move(lexed));
-                result.ast = parser.parse();
-
+                result.ast = keepTokens ? parseProgram(text, &result.rawTokens, &result.lexedTokens) : parseProgram(text);
                 result.success = true;
             }
-            catch (const CuffError &e)
+            catch (...)
             {
-                result.error = renderErrorWithSnippet(e, source);
+                result.error = renderCurrentException(text);
             }
-            catch (const std::bad_alloc &)
-            {
-                result.error = outOfMemoryMessage();
-            }
-            catch (const std::exception &e)
-            {
-                result.error = std::string("Internal error: ") + e.what();
-            }
-
             return result;
         }
 
@@ -137,44 +58,30 @@ namespace cuff
             return execute(source, scriptDir, Options());
         }
 
+        // Parses and runs `source`. `scriptDir` is the directory `use ... from` resolves against.
         static Result execute(const std::string &source, const std::string &scriptDir, const Options &options)
         {
-            Result result = run(source, false);
-            if (!result.success)
-                return result;
+            Session session(options);
+            return toResult(session.run(source, scriptDir));
+        }
 
-            try
-            {
-                Interpreter::Config config;
-                config.rootDir = options.rootDir;
-                config.maxSteps = options.maxSteps;
-                config.timeoutMs = options.timeoutMs;
-                config.stackBudgetBytes = options.stackBudgetBytes;
-                config.networkEnabled = options.networkEnabled;
-                config.allowPrivateNetworkTargets = options.allowPrivateNetworkTargets;
-                config.filesystemEnabled = options.filesystemEnabled;
-                Interpreter interp(std::move(config));
-                interp.run(*result.ast, scriptDir);
-            }
-            catch (const CuffError &e)
-            {
-                result.success = false;
-                result.error = renderErrorWithSnippet(e, source);
-            }
-            catch (const std::bad_alloc &)
-            {
-                result.success = false;
-                result.error = outOfMemoryMessage();
-            }
-            catch (const std::exception &e)
-            {
-                result.success = false;
-                result.error = std::string("Internal error: ") + e.what();
-            }
+        // The same, taking the program text instead of copying it.
+        static Result execute(std::string &&source, const std::string &scriptDir, const Options &options)
+        {
+            Session session(options);
+            return toResult(session.run(std::move(source), scriptDir));
+        }
 
+    private:
+        static Result toResult(Session::Outcome &&outcome)
+        {
+            Result result;
+            result.success = outcome.success;
+            result.error = std::move(outcome.error);
             return result;
         }
 
+    public:
         static void debugDump(const Result &result)
         {
             if (!result.success)
@@ -196,14 +103,6 @@ namespace cuff
             }
             std::cout << "\n===== PARSE SUCCESS =====\n";
         }
-
-    private:
-        static std::string outOfMemoryMessage()
-        {
-            return "[" + errorCodeTag(ErrorCode::OutOfMemory) + "] " + errorCategoryName(ErrorCode::OutOfMemory) +
-                   ": the program ran out of memory";
-        }
     };
 
 }
-

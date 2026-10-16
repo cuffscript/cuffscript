@@ -169,7 +169,7 @@ namespace cuff::net
             if (out.scheme != "http")
             {
                 err = out.scheme == "https"
-                          ? "https:// is not supported (this client is plain HTTP only — see docs/SPEC.md)"
+                          ? "https:// is not supported (this client is plain HTTP only — see docs/reference/language.md)"
                           : "unsupported URL scheme '" + out.scheme + "' (only http:// is supported)";
                 return false;
             }

@@ -5,6 +5,7 @@
 #include "../common/Attributes.h"
 #include "../common/CuffError.h"
 #include "../common/Limits.h"
+#include "../common/SourceText.h"
 #include "ASTNodes.h"
 #include <algorithm>
 #include <cctype>
@@ -27,6 +28,23 @@ namespace cuff
             if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
                 return false;
         return true;
+    }
+
+    // How a token reads in an error message: "end of line" rather than a raw '\n'.
+    inline std::string describeToken(const Token &t)
+    {
+        switch (t.type)
+        {
+        case TokenType::NEWLINE:
+            return "end of line";
+        case TokenType::EOF_TOKEN:
+            return "end of file";
+        case TokenType::INDENT:
+        case TokenType::DEDENT:
+            return "a change of indentation";
+        default:
+            return "'" + t.value + "'";
+        }
     }
 
     // Lowest stack address the parser's recursion may reach; 0 = no floor.
@@ -90,8 +108,9 @@ namespace cuff
     public:
         std::vector<Token> tokens;
         size_t pos = 0;
+        SourceRef source; // the text the tokens came from; stamped onto every function declared (see SourceText.h)
 
-        explicit ParserCore(std::vector<Token> t) : tokens(std::move(t)) {}
+        explicit ParserCore(std::vector<Token> t, SourceRef src = nullptr) : tokens(std::move(t)), source(std::move(src)) {}
 
         const Token &current() const { return tokens[pos]; }
 
@@ -134,7 +153,20 @@ namespace cuff
         {
             if (!check(t))
             {
-                throw SyntaxError(errMsg + " (got '" + current().value + "')", current().location);
+                throw SyntaxError(errMsg + " (got " + describeToken(current()) + ")", current().location);
+            }
+            return advance();
+        }
+
+        // The closing 'end' of a block. When it is missing, say where the block was opened: the mistake is
+        // rarely where the text runs out.
+        Token consumeEnd(const std::string &errMsg, const SourceLocation &openedAt)
+        {
+            if (!check(TokenType::END))
+            {
+                throw SyntaxError(ErrorCode::UnexpectedToken, errMsg + " (got " + describeToken(current()) + ")",
+                                  current().location,
+                                  "the block opened at " + openedAt.toString() + " has no matching 'end'");
             }
             return advance();
         }

@@ -19,27 +19,33 @@ jobs:
                 with:
                     ref: main
                     fetch-depth: 0
+            # Values from the release event reach the script as environment variables, never spliced into the script
+            # text: a tag name may contain characters the shell would act on.
             -
                 name: Prepare branch
                 shell: bash
+                env:
+                    RELEASE_TAG: ${{ github.event.release.tag_name }}
                 run: |
                     git pull --rebase origin main
-                    BRANCH="chore/update-changelog-${{ github.event.release.tag_name }}"
+                    BRANCH="chore/update-changelog-$RELEASE_TAG"
                     git checkout -B "$BRANCH"
             -
                 name: Update changelog
                 shell: bash
                 env:
                     RELEASE_BODY: ${{ github.event.release.body }}
+                    RELEASE_TAG: ${{ github.event.release.tag_name }}
+                    RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
                 run: |
                     mkdir -p docs
 
                     touch docs/CHANGELOG.md
 
-                    RELEASE_DATE=$(date -d "${{ github.event.release.published_at }}" +"%Y-%m-%d")
+                    RELEASE_DATE=$(date -d "$RELEASE_PUBLISHED_AT" +"%Y-%m-%d")
 
                     {
-                        echo "## ${{ github.event.release.tag_name }} - ${RELEASE_DATE}"
+                        echo "## ${RELEASE_TAG} - ${RELEASE_DATE}"
                         echo ""
                         printf '%s\n' "$RELEASE_BODY"
 

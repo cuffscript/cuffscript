@@ -8,12 +8,14 @@ name: REPL Build and Test
             - "cli/**"
             - "engine/**"
             - "main.cpp"
+            - "Makefile"
             - ".github/workflows/repl-test.yaml"
     pull_request:
         paths:
             - "cli/**"
             - "engine/**"
             - "main.cpp"
+            - "Makefile"
             - ".github/workflows/repl-test.yaml"
 
 permissions:
@@ -22,27 +24,53 @@ permissions:
 jobs:
     repl-test:
         runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
                 os: [ubuntu-latest, macos-latest]
 
+        env:
+            # Stretches every wait in the terminal tests; hosted runners are slower than a developer machine.
+            CUFFSH_TEST_SCALE: "2"
+
         steps:
             -   name: Checkout code
                 uses: actions/checkout@v4
 
-            # cli/tests compares cuffsh's output with ../cuffc and silently skips the
-            # check when cuffc has not been built.
+            # A Python that is not the operating system's own, so pip can install into it directly.
+            -   name: Set up Python
+                uses: actions/setup-python@v5
+                with:
+                    python-version: "3.12"
+                    cache: pip
+                    cache-dependency-path: cli/tests/requirements.txt
+
+            -   name: Install test dependencies
+                run: python -m pip install -r cli/tests/requirements.txt
+
+            # When a run fails, the first thing to know is what it ran on.
+            -   name: Show tool versions
+                shell: bash
+                run: |
+                    python --version
+                    python -m pip list 2>/dev/null | grep -i -E '^(pyte|wcwidth) '
+                    g++ --version | head -n 1
+                    make --version | head -n 1
+
+            # cli/tests compares cuffsh's output with ../cuffc and skips that check when cuffc has not been built.
             -   name: Build cuffc
                 shell: bash
                 run: make
 
-            -   name: Build and Test REPL
-                working-directory: cli
+            -   name: Build cuffsh
                 shell: bash
+                working-directory: cli
                 run: |
-                    python3 -m pip install --quiet --break-system-packages pyte wcwidth
-
                     chmod +x build.sh tests/run_tests.sh
                     ./build.sh
-                    ./tests/run_tests.sh
+
+            -   name: Test cuffsh
+                shell: bash
+                working-directory: cli
+                run: PYTHON=python ./tests/run_tests.sh

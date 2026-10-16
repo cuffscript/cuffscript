@@ -1,6 +1,6 @@
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -Werror -O3 -flto -DNDEBUG
-# Optional extra flags, e.g. `make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK` (see docs/EXTENDING.md).
+# Optional extra flags, e.g. `make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK` (see docs/contributing/extending.md).
 CXXFLAGS += $(EXTRA_CXXFLAGS)
 
 TARGET = cuffc

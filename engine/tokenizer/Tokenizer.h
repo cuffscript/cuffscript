@@ -9,6 +9,7 @@
 #include "NumberScanner.h"
 #include "IdentifierScanner.h"
 #include "OperatorScanner.h"
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <stack>
@@ -37,11 +38,20 @@ namespace cuff
         std::vector<Token> tokenize()
         {
             std::vector<Token> tokens;
+            // Dense code comes to about one token per four bytes. Growing the vector one doubling at a time moves
+            // every token several times over (a token owns a string), which was the largest single cost of
+            // reading a big program. Capped, so a large source does not reserve memory for tokens it may not have.
+            tokens.reserve(std::min<size_t>(state_.source.size() / 4 + 16, kReserveTokensMax));
             std::stack<int> indentStack;
             indentStack.push(0);
 
             bool atLineStart = true;
             bool pendingNewline = false;
+            // Where the statement being finished ended. NEWLINE and the closing DEDENT/EOF tokens sit here, not
+            // at the start of whatever follows (blank lines, comments, the next statement): an error such as
+            // "expected an expression" belongs on the line that is incomplete, and an unclosed block belongs
+            // at the end of the code, not on an empty line past it.
+            SourceLocation endOfStatement;
 
             while (!state_.atEnd())
             {
@@ -73,7 +83,7 @@ namespace cuff
 
                     if (pendingNewline)
                     {
-                        tokens.emplace_back(TokenType::NEWLINE, "\\n", state_.here(), false);
+                        tokens.emplace_back(TokenType::NEWLINE, "\\n", endOfStatement, false);
                         pendingNewline = false;
                     }
 
@@ -109,6 +119,7 @@ namespace cuff
 
                 if (isNewline(c))
                 {
+                    endOfStatement = state_.here();
                     state_.advance();
                     atLineStart = true;
                     pendingNewline = true;
@@ -153,23 +164,29 @@ namespace cuff
                 state_.pendingSpaceBefore = false;
             }
 
+            // The end of the program: the end of the last statement if it was followed by a newline, else the
+            // end of the text itself.
+            const SourceLocation eof = pendingNewline ? endOfStatement : state_.here();
+
             if (pendingNewline || (!tokens.empty() && !tokens.back().is(TokenType::NEWLINE)))
             {
-                tokens.emplace_back(TokenType::NEWLINE, "\\n", state_.here(), false);
+                tokens.emplace_back(TokenType::NEWLINE, "\\n", eof, false);
             }
 
             while (indentStack.top() > 0)
             {
                 indentStack.pop();
-                tokens.emplace_back(TokenType::DEDENT, "", state_.here(), false, 0);
+                tokens.emplace_back(TokenType::DEDENT, "", eof, false, 0);
             }
 
-            tokens.emplace_back(TokenType::EOF_TOKEN, "", state_.here(), false);
+            tokens.emplace_back(TokenType::EOF_TOKEN, "", eof, false);
 
             return tokens;
         }
 
     private:
+        static constexpr size_t kReserveTokensMax = size_t(1) << 20;
+
         ScanState state_;
 
         bool isCommentAhead() const

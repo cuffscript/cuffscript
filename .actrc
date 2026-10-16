@@ -1,4 +1,8 @@
+# act cannot run macOS on Windows; map its jobs to Linux as a best-effort approximation.
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
 -P macos-latest=catthehacker/ubuntu:act-latest
+--container-architecture linux/amd64
+--concurrent-jobs 1
+
+# Run Windows jobs on the local Windows host.
 -P windows-latest=-self-hosted
-# run: act push

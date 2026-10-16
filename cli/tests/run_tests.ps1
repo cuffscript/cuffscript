@@ -14,7 +14,7 @@
                typing, wrapping, Korean text, cursor keys, Shift+Enter, paste, history,
                Ctrl+C, input(), entries taller than the window ... plus a fuzzer.
                Needs Python 3.8+ and, on Windows (10 version 1809 or newer, for ConPTY):
-                   python -m pip install pywinpty pyte wcwidth
+                   python -m pip install -r cli\tests\requirements.txt
                (-InstallDeps does this for you). Without Python the native checks still run.
 
   Works on Windows PowerShell 5.1 and PowerShell 7. The file is plain ASCII on purpose: 5.1
@@ -320,11 +320,10 @@ function Run-Interactive([string[]]$Which) {
         return
     }
     if (-not (Test-PythonDeps $py)) {
-        $pkgs = @('pyte', 'wcwidth')
-        if ($isWin) { $pkgs = @('pywinpty', 'pyte', 'wcwidth') }
-        $pipArgs = @('-m', 'pip', 'install', '--user') + $pkgs
+        $reqFile = Join-Path $PSScriptRoot 'requirements.txt'
+        $pipArgs = @('-m', 'pip', 'install', '--user', '-r', $reqFile)
         if ($InstallDeps) {
-            Write-Host ('Installing Python packages: ' + ($pkgs -join ' ')) -ForegroundColor Cyan
+            Write-Host ('Installing Python packages from ' + $reqFile) -ForegroundColor Cyan
             $r = Invoke-Native $py.File ($py.Pre + $pipArgs)
             if ($r.Text) { Write-Host $r.Text }
         }

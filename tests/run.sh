@@ -105,7 +105,7 @@ check_bin
 echo "== tests/unit (C++ unit tests) =="
 for src in tests/unit/*.cpp; do
     bin="/tmp/cuff_unit_$(basename "${src%.cpp}")"
-    if ! g++ -std=c++17 -Wall -Wextra $UNIT_FLAGS -I. "$src" -o "$bin" 2>/tmp/cuff_unit_build.log; then
+    if ! g++ -std=c++17 -Wall -Wextra -pthread $UNIT_FLAGS -I. "$src" -o "$bin" 2>/tmp/cuff_unit_build.log; then
         echo "FAIL (build): $src"
         cat /tmp/cuff_unit_build.log
         FAIL=$((FAIL + 1))

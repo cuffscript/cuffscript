@@ -66,7 +66,7 @@ namespace cuff
                                   p.current().location);
             }
 
-            p.consume(TokenType::END, "expected 'end' to close loop");
+            p.consumeEnd("expected 'end' to close loop", loc);
             p.match(TokenType::DEDENT);
 
             return std::make_unique<Stmt>(StmtKind::LoopStmt, std::move(loop));

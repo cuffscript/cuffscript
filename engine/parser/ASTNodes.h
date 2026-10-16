@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../common/SourceText.h"
 #include "../common/SourceLocation.h"
 #include "../common/NameInterner.h"
 #include "../common/TokenTypes.h"
@@ -319,7 +320,118 @@ namespace cuff
         Expr(Expr &&) = default;
         Expr &operator=(Expr &&) = default;
 
+        // A long chain such as 1 + 1 + 1 + ... is a tree as tall as the chain, and the default destructor would
+        // recurse once per node, so a program the parser accepts could overflow a small stack just by being
+        // freed. A tall tree is taken apart iteratively instead: each node's children are moved onto a work list
+        // and released one at a time, so no node is destroyed while it still has children of its own. (Below
+        // kShallowHeight the ordinary recursive destruction is bounded and cheaper.)
+        ~Expr()
+        {
+            if (height <= kShallowHeight)
+                return;
+            std::vector<std::unique_ptr<Expr>> pending;
+            std::visit(ChildTaker{pending}, data);
+            while (!pending.empty())
+            {
+                std::unique_ptr<Expr> node = std::move(pending.back());
+                pending.pop_back();
+                if (node->height > kShallowHeight)
+                {
+                    std::visit(ChildTaker{pending}, node->data);
+                    node->height = 1;
+                }
+            }
+        }
+
     private:
+        static constexpr uint32_t kShallowHeight = 64;
+
+        // Moves every child expression of a node into `out`, leaving the node childless. Mirrors ChildHeight:
+        // a node type that is added to the variant needs a line in both.
+        struct ChildTaker
+        {
+            std::vector<std::unique_ptr<Expr>> &out;
+
+            void take(std::unique_ptr<Expr> &e)
+            {
+                if (e)
+                    out.push_back(std::move(e));
+            }
+            void takeAll(std::vector<std::unique_ptr<Expr>> &v)
+            {
+                for (auto &e : v)
+                    take(e);
+            }
+
+            template <typename T>
+            void operator()(T &) {}
+
+            void operator()(ListLiteral &n) { takeAll(n.elements); }
+            void operator()(MapLiteral &n)
+            {
+                for (auto &p : n.pairs)
+                {
+                    take(p.key);
+                    take(p.value);
+                }
+            }
+            void operator()(FStringExpr &n)
+            {
+                for (auto &s : n.segments)
+                    take(s.expr);
+            }
+            void operator()(BinaryOp &n)
+            {
+                take(n.left);
+                take(n.right);
+            }
+            void operator()(UnaryOp &n) { take(n.operand); }
+            void operator()(IndexAccess &n)
+            {
+                take(n.target);
+                take(n.index);
+            }
+            void operator()(SliceAccess &n)
+            {
+                take(n.target);
+                take(n.start);
+                take(n.end);
+            }
+            void operator()(FunctionCall &n) { takeAll(n.args); }
+            void operator()(AwaitExpr &n)
+            {
+                if (n.call)
+                    takeAll(n.call->args);
+            }
+            void operator()(RegexMatchExpr &n) { take(n.target); }
+            void operator()(MatchFromExpr &n)
+            {
+                take(n.target);
+                take(n.pattern.dynamicExpr);
+            }
+            void operator()(FindExpr &n)
+            {
+                take(n.target);
+                take(n.pattern.dynamicExpr);
+            }
+            void operator()(PatternReplaceExpr &n)
+            {
+                take(n.target);
+                take(n.replacement);
+                take(n.pattern.dynamicExpr);
+            }
+            void operator()(SplitExpr &n)
+            {
+                take(n.target);
+                take(n.pattern.dynamicExpr);
+            }
+            void operator()(CountExpr &n)
+            {
+                take(n.target);
+                take(n.pattern.dynamicExpr);
+            }
+        };
+
         struct ChildHeight
         {
             static uint32_t h(const std::unique_ptr<Expr> &e) { return e ? e->height : 0; }
@@ -456,6 +568,7 @@ namespace cuff
         bool hasTypedParams = false;
         std::vector<std::unique_ptr<Stmt>> body;
         SourceLocation loc;
+        SourceRef source; // the text `loc` and everything in `body` point into
     };
 
     struct IfStmt
@@ -608,6 +721,7 @@ namespace cuff
     struct Program
     {
         std::vector<std::unique_ptr<Stmt>> statements;
+        SourceRef source;
     };
 
 }

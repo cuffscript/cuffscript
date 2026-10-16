@@ -8,12 +8,12 @@
 #include "Signals.h"
 #include "NativeFunctions.h"
 #include "../common/CuffError.h"
+#include "../common/ErrorFormat.h"
+#include "../common/SourceText.h"
 #include "../common/SourceLocation.h"
 #include "../common/PathSandbox.h"
 #include "../parser/ASTNodes.h"
-#include "../parser/Parser.h"
-#include "../tokenizer/Tokenizer.h"
-#include "../lexer/Lexer.h"
+#include "../ParseProgram.h"
 #include "../regex/RegexEngine.h"
 
 #include <memory>
@@ -51,23 +51,47 @@ namespace cuff
         Interpreter() { registerBuiltins(natives_); }
         explicit Interpreter(Config config) : config_(std::move(config)) { registerBuiltins(natives_); }
 
+        // How much native stack the evaluator may use. `soft` is where evalExpr/execStatement give up with the
+        // catchable E4-017; `hard` is the floor below which even leaf work such as regex matching refuses to
+        // start, so something deep inside a program that is already near `soft` still fails with an error
+        // rather than overflowing.
+        struct StackPlan
+        {
+            size_t soft;
+            size_t hard;
+        };
+
+        // `configured` is Config::stackBudgetBytes (0 = derive it); `available` is the stack the thread really
+        // has below the caller (0 = unknown). A configured budget is honoured only as far as the thread can
+        // back it: asking for more than exists must not turn a runaway recursion into a crash.
+        static StackPlan planStack(size_t configured, size_t available)
+        {
+            constexpr size_t kMargin = 256 * 1024;
+            constexpr size_t kLeafReserve = 768 * 1024;
+            constexpr size_t kHardExtra = 3 * 1024 * 1024;
+
+            StackPlan plan;
+            plan.soft = std::min(configured ? configured : limits::kDefaultStackBudget, limits::kMaxStackBudget);
+            plan.hard = plan.soft + kHardExtra;
+            if (available)
+            {
+                const size_t usable = available > kMargin ? available - kMargin : available / 2;
+                if (!configured || plan.hard > usable)
+                    plan.hard = usable;
+                plan.soft = std::min(configured ? plan.soft : limits::kMaxStackBudget,
+                                     plan.hard - std::min(kLeafReserve, plan.hard / 3));
+            }
+            return plan;
+        }
+
         void run(const Program &program, const std::string &scriptDir)
         {
             scriptDir_ = scriptDir.empty() ? std::string(".") : scriptDir;
             initModuleRoot();
             const uintptr_t sp = stackPointer();
-            size_t softBudget = config_.stackBudgetBytes ? config_.stackBudgetBytes : limits::kDefaultStackBudget;
-            size_t hardBudget = softBudget + 3 * 1024 * 1024;
-            if (size_t avail = availableStackBytes(); avail && !config_.stackBudgetBytes)
-            {
-                constexpr size_t kMargin = 256 * 1024;
-                constexpr size_t kLeafReserve = 768 * 1024;
-                hardBudget = avail > kMargin ? avail - kMargin : avail / 2;
-                softBudget = hardBudget - std::min(kLeafReserve, hardBudget / 3);
-                softBudget = std::min(softBudget, limits::kMaxStackBudget);
-            }
-            stackLimit_ = sp > softBudget ? sp - softBudget : 0;
-            StackFloorScope floorScope(sp > hardBudget ? sp - hardBudget : 0);
+            const StackPlan plan = planStack(config_.stackBudgetBytes, availableStackBytes());
+            stackLimit_ = sp > plan.soft ? sp - plan.soft : 0;
+            StackFloorScope floorScope(sp > plan.hard ? sp - plan.hard : 0);
             stepsLeft_ = config_.maxSteps ? config_.maxSteps : UINT64_MAX;
             timed_ = config_.timeoutMs != 0;
             if (timed_)
@@ -936,12 +960,18 @@ namespace cuff
             case ExprKind::FString:
                 return evalFString((*std::get_if<FStringExpr>(&expr.data)), env);
             case ExprKind::BinaryOp:
+                if (expr.height > kSpineHeight)
+                    return evalSpine(expr, env);
                 return evalBinaryOp((*std::get_if<BinaryOp>(&expr.data)), env);
             case ExprKind::UnaryOp:
                 return evalUnaryOp((*std::get_if<UnaryOp>(&expr.data)), env);
             case ExprKind::IndexAccess:
+                if (expr.height > kSpineHeight)
+                    return evalSpine(expr, env);
                 return evalIndexAccess((*std::get_if<IndexAccess>(&expr.data)), env);
             case ExprKind::SliceAccess:
+                if (expr.height > kSpineHeight)
+                    return evalSpine(expr, env);
                 return evalSliceAccess((*std::get_if<SliceAccess>(&expr.data)), env);
             case ExprKind::FunctionCall:
                 return evalCall((*std::get_if<FunctionCall>(&expr.data)), env);
@@ -1030,11 +1060,87 @@ namespace cuff
             return Value::makeNumber(-operand.asNumber());
         }
 
+        // Chains of binary operators, indexing and slicing (a + b + c + ..., x[1][2][3]...) lean to the left:
+        // each node's first operand is the next node of the chain. Recursing down such a chain would use stack
+        // in proportion to its length, so a long one the parser accepts could still fail to run. Above this
+        // height the chain is walked iteratively instead (see evalSpine); below it the recursive form is
+        // cheaper, since it needs no list of nodes.
+        static constexpr uint32_t kSpineHeight = 48;
+
+        static const Expr *spineOperand(const Expr &e)
+        {
+            switch (e.kind)
+            {
+            case ExprKind::BinaryOp:
+                return std::get_if<BinaryOp>(&e.data)->left.get();
+            case ExprKind::IndexAccess:
+                return std::get_if<IndexAccess>(&e.data)->target.get();
+            case ExprKind::SliceAccess:
+                return std::get_if<SliceAccess>(&e.data)->target.get();
+            default:
+                return nullptr;
+            }
+        }
+
+        // Evaluates the chain from its innermost operand outwards. Operands are evaluated in the same
+        // left-to-right order as the recursive form, so results, errors and their locations are identical.
+        CUFF_NOINLINE Value evalSpine(const Expr &top, Environment &env)
+        {
+            std::vector<const Expr *> chain;
+            const Expr *node = &top;
+            for (;;)
+            {
+                chain.push_back(node);
+                const Expr *next = spineOperand(*node);
+                if (!next || spineOperand(*next) == nullptr)
+                {
+                    // `next` is the chain's first operand (or `node` has none); either way the walk ends here.
+                    break;
+                }
+                node = next;
+            }
+            Value acc = evalExpr(*spineOperand(*chain.back()), env);
+            for (size_t k = chain.size(); k-- > 0;)
+            {
+                const Expr &e = *chain[k];
+                switch (e.kind)
+                {
+                case ExprKind::BinaryOp:
+                {
+                    const BinaryOp &b = *std::get_if<BinaryOp>(&e.data);
+                    Value r = evalExpr(*b.right, env);
+                    acc = applyBinaryOp(b, acc, r);
+                    break;
+                }
+                case ExprKind::IndexAccess:
+                {
+                    const IndexAccess &idx = *std::get_if<IndexAccess>(&e.data);
+                    Value i = evalExpr(*idx.index, env);
+                    acc = indexInto(acc, i, idx.loc);
+                    break;
+                }
+                default:
+                {
+                    const SliceAccess &sl = *std::get_if<SliceAccess>(&e.data);
+                    Value s = evalExpr(*sl.start, env);
+                    Value en = evalExpr(*sl.end, env);
+                    acc = sliceInto(acc, s, en, sl.loc);
+                    break;
+                }
+                }
+            }
+            return acc;
+        }
+
         Value evalBinaryOp(const BinaryOp &b, Environment &env)
         {
             Value l = evalExpr(*b.left, env);
             Value r = evalExpr(*b.right, env);
+            return applyBinaryOp(b, l, r);
+        }
 
+        Value applyBinaryOp(const BinaryOp &b, const Value &l, const Value &r)
+        {
             if (l.isNumber() && r.isNumber())
             {
                 const double x = l.asNumber(), y = r.asNumber();
@@ -1337,6 +1443,21 @@ namespace cuff
             throwUndefinedFunction(call.functionName, loc);
         }
 
+        // Runs a function's body. An error that leaves it is stamped with the text the function was written
+        // in, so it is drawn against that text even when the caller is in another file or an earlier entry.
+        CUFF_ALWAYS_INLINE ExecOutcome execFunctionBody(const FunctionDecl &decl, Environment &funcEnv)
+        {
+            try
+            {
+                return execBlock(decl.body, funcEnv);
+            }
+            catch (CuffError &e)
+            {
+                e.attachSource(decl.source);
+                throw;
+            }
+        }
+
         Value callUserFunction(const FunctionDecl &decl, std::vector<Value> &args, const SourceLocation &loc)
         {
             if (args.size() != decl.params.size())
@@ -1358,7 +1479,7 @@ namespace cuff
             for (size_t i = 0; i < decl.paramIds.size(); ++i)
                 funcEnv.declare(decl.paramIds[i], std::move(args[i]), false);
 
-            ExecOutcome outcome = execBlock(decl.body, funcEnv);
+            ExecOutcome outcome = execFunctionBody(decl, funcEnv);
             if (outcome.result == ExecResult::Return)
                 return std::move(outcome.returnValue);
             if (outcome.result == ExecResult::Stop)
@@ -1511,6 +1632,19 @@ namespace cuff
             ~ImportDepthGuard() { --depth; }
         };
 
+        // Shifts every line of `text` right by four columns (the first line is placed by the caller).
+        static std::string indentLines(const std::string &text)
+        {
+            std::string out;
+            for (char c : text)
+            {
+                out += c;
+                if (c == '\n')
+                    out += "    ";
+            }
+            return out;
+        }
+
         void loadCustomModule(const std::string &moduleName, const std::string &relPath, const SourceLocation &loc, Environment &env)
         {
             namespace fs = std::filesystem;
@@ -1551,15 +1685,16 @@ namespace cuff
             const auto size = fs::file_size(canon, ec);
             if (ec || size > limits::kMaxSourceBytes)
                 throw ModuleError(ErrorCode::ModuleLimitExceeded,
-                                  "module '" + shown + "' is larger than the " + std::to_string(limits::kMaxSourceBytes / 1024) + " KiB source limit", loc);
+                                  "module '" + shown + "' is larger than the source limit of " + limits::formatBytes(limits::kMaxSourceBytes), loc);
 
             std::ifstream file(canon, std::ios::binary);
             if (!file)
                 throw ModuleError(ErrorCode::ModuleNotFound,
                                   "could not read module file '" + shown + "' for 'use " + moduleName + " from " + relPath + "'", loc);
-            std::string source(static_cast<size_t>(size), '\0');
-            file.read(source.data(), static_cast<std::streamsize>(size));
-            source.resize(static_cast<size_t>(file.gcount()));
+            std::string text(static_cast<size_t>(size), '\0');
+            file.read(text.data(), static_cast<std::streamsize>(size));
+            text.resize(static_cast<size_t>(file.gcount()));
+            const SourceRef source = makeSourceRef(std::move(text), shown);
 
             importedPaths_.insert(key);
             ImportMark mark{importedPaths_, key};
@@ -1567,17 +1702,17 @@ namespace cuff
             std::unique_ptr<Program> modProgram;
             try
             {
-                Tokenizer tokenizer(source);
-                auto rawTokens = tokenizer.tokenize();
-                Lexer lexer(std::move(rawTokens));
-                auto tokens = lexer.lex();
-                Parser parser(std::move(tokens));
-                modProgram = parser.parse();
+                modProgram = parseProgram(source);
             }
             catch (const CuffError &e)
             {
-                throw ModuleError(ErrorCode::ModuleParseFailed,
-                                  "failed to parse module '" + shown + "': " + e.message, loc);
+                // Reported at the `use` statement, with the module's own line shown beneath it.
+                ModuleError err(ErrorCode::ModuleParseFailed, "failed to parse module '" + shown + "': " + e.message, loc);
+                err.related = "    in '" + shown + "' [" + errorCodeTag(e.code) + "] at " + e.location.toString() + ":";
+                const std::string snippet = buildCaretSnippet(source->text, e.location);
+                if (!snippet.empty())
+                    err.related += "\n    " + indentLines(snippet);
+                throw err;
             }
 
             // The module's AST must outlive its functions, which stay registered even if the module body fails.
@@ -1588,7 +1723,15 @@ namespace cuff
             // Only the module's top level runs here; its functions later run against globalEnv_, so they reach
             // these names through `change x to global` after the copy below.
             Environment moduleEnv;
-            execProgram(program, moduleEnv);
+            try
+            {
+                execProgram(program, moduleEnv);
+            }
+            catch (CuffError &e)
+            {
+                e.attachSource(program.source);
+                throw;
+            }
             for (const auto &kv : moduleEnv.localVars())
                 env.declare(kv.first, kv.second, moduleEnv.isConstantHere(kv.first));
             mark.committed = true;

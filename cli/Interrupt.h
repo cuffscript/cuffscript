@@ -5,7 +5,7 @@
 namespace cuff::cli
 {
 
-    // Set for the duration of interp_->run() (see Repl.h's RunningGuard) so
+    // Set for the duration of Session::run() (see Repl.h's RunningGuard) so
     // the Ctrl+C handler in Terminal.h knows whether a computation is
     // actually in progress. Idle Ctrl+C is handled directly inside
     // LineEditor's own raw-mode key reading (it sees the raw 0x03 byte /

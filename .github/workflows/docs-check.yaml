@@ -1,0 +1,38 @@
+name: Documentation Check
+
+"on":
+    push:
+        branches:
+            - main
+    pull_request: null
+
+permissions:
+    contents: read
+
+jobs:
+    docs-check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        steps:
+            -   name: Checkout code
+                uses: actions/checkout@v4
+
+            -   name: Set up Python
+                uses: actions/setup-python@v5
+                with:
+                    python-version: "3.12"
+
+            # The examples in the docs are run, and the command-line help is embedded, so both programs are needed.
+            -   name: Build cuffc and cuffsh
+                shell: bash
+                run: |
+                    make
+                    chmod +x cli/build.sh
+                    ./cli/build.sh
+
+            # Fails if a generated page is stale, a link or anchor is broken, a library function is undocumented,
+            # a limit's value is written outside docs/reference/limits.md, the versions disagree, or an example's
+            # output differs from what the page shows. To fix it locally: python3 tools/docs.py generate
+            -   name: Check the documentation
+                run: python3 tools/docs.py check --require-binaries

@@ -1,18 +1,12 @@
 #pragma once
 
-// This REPL only ever calls into the engine through the same public surface
-// main.cpp/cuffc uses (cuff::CuffEngine::run for parsing, cuff::Interpreter's
-// ordinary constructor + run() for execution). Nothing under engine/ is
-// modified: one long-lived Interpreter is simply kept alive and reused across
-// entries instead of being constructed fresh per run, which the class already
-// supports (globalEnv_/userById_ are ordinary members that run() does not
-// reset).
-//
-// What is typed is parsed and run exactly once. Errors are printed exactly the
-// way the engine's own front end (cuffc) prints them — "ERROR: " followed by
-// the engine's message — rather than anything this shell invents.
+// The shell is a front end over cuff::Session (engine/Session.h): every entry is handed to one long-lived
+// Session, which parses it, runs it against the same interpreter as the entries before it, and returns any
+// failure already rendered in the engine's own report format. Nothing in this file parses code, runs it or
+// builds an error message, so when the engine changes (a new error format, a new option, a new limit) the
+// shell follows without being touched. The same Session is what `cuffc` runs a script through.
 
-#include "../engine/CuffEngine.h"
+#include "../engine/Session.h"
 #include "../engine/common/Limits.h"
 #include "Banner.h"
 #include "LineEditor.h"
@@ -47,16 +41,15 @@ namespace cuff::cli
     public:
         struct Options
         {
-            cuff::Interpreter::Config engineConfig;
+            cuff::EngineOptions engineConfig;
             bool showBanner = true;
             bool useColor = true;
             std::string startupFile; // run before the prompt appears (empty = none)
         };
 
         Repl(Terminal &term, Options opts)
-            : term_(term), opts_(std::move(opts))
+            : term_(term), opts_(std::move(opts)), session_(opts_.engineConfig)
         {
-            interp_ = std::make_unique<cuff::Interpreter>(opts_.engineConfig);
             if (!opts_.useColor)
                 term_.disableColor();
         }
@@ -73,10 +66,9 @@ namespace cuff::cli
             }
             if (source.size() > cuff::limits::kMaxSourceBytes)
             {
-                printShellError("File is too large (limit " + std::to_string(cuff::limits::kMaxSourceBytes / 1024) + " KiB)");
+                printShellError("File is too large (limit " + cuff::limits::formatBytes(cuff::limits::kMaxSourceBytes) + ")");
                 return;
             }
-            platform::stripBom(source);
             executeSource(source, platform::parentDirectory(pathUtf8));
         }
 
@@ -124,8 +116,7 @@ namespace cuff::cli
     private:
         Terminal &term_;
         Options opts_;
-        std::unique_ptr<cuff::Interpreter> interp_;
-        std::vector<std::unique_ptr<cuff::Program>> sessionPrograms_;
+        cuff::Session session_;
         std::string scriptDir_ = ".";
 
         // stdin isn't a terminal (piped or redirected): there is no prompt and
@@ -141,10 +132,9 @@ namespace cuff::cli
             }
             if (source.size() > cuff::limits::kMaxSourceBytes)
             {
-                printShellError("Input is too large (limit " + std::to_string(cuff::limits::kMaxSourceBytes / 1024) + " KiB)");
+                printShellError("Input is too large (limit " + cuff::limits::formatBytes(cuff::limits::kMaxSourceBytes) + ")");
                 return;
             }
-            platform::stripBom(source);
             executeSource(source, scriptDir_);
         }
 
@@ -152,70 +142,13 @@ namespace cuff::cli
 
         void executeSource(const std::string &source, const std::string &dir)
         {
-            cuff::CuffEngine::Result parsed = cuff::CuffEngine::run(source, false);
-            if (!parsed.success)
-            {
-                printEngineError(parsed.error);
-                return;
-            }
-
-            cuff::Program *program = parsed.ast.get();
-            try
+            cuff::Session::Outcome outcome;
             {
                 RunningGuard running;
-                interp_->run(*program, dir);
+                outcome = session_.run(source, dir);
             }
-            catch (const cuff::CuffError &e)
-            {
-                printEngineError(renderRuntimeError(e, source));
-            }
-            catch (const std::bad_alloc &)
-            {
-                // Same text CuffEngine::execute() produces for this case.
-                printEngineError("[" + cuff::errorCodeTag(cuff::ErrorCode::OutOfMemory) + "] " +
-                                 cuff::errorCategoryName(cuff::ErrorCode::OutOfMemory) + ": the program ran out of memory");
-            }
-            catch (const std::exception &e)
-            {
-                printEngineError(std::string("Internal error: ") + e.what());
-            }
-            catch (...)
-            {
-                printEngineError("Internal error: unknown exception");
-            }
-
-            // Keep the AST alive for the rest of the session: any function
-            // declaration inside it is now referenced by raw pointer from the
-            // interpreter's function table, at any nesting depth the engine
-            // allows (including inside top-level if/loop bodies), so freeing
-            // this Program would leave that table dangling the next time such
-            // a function is called from a later entry.
-            sessionPrograms_.push_back(std::move(parsed.ast));
-        }
-
-        // what() has no source line; CuffEngine::execute() adds it with renderErrorWithSnippet(), and so do
-        // we -- but only when the error's location really is in `source`. A function defined by an earlier
-        // entry (or :load) can fail while a later entry runs, and its offset refers to that older text, so
-        // drawing the line here would put the caret under unrelated code.
-        static std::string renderRuntimeError(const cuff::CuffError &e, const std::string &source)
-        {
-            const size_t off = e.location.offset < 0 ? source.size() + 1 : static_cast<size_t>(e.location.offset);
-            if (off <= source.size())
-            {
-                int line = 1;
-                size_t lineStart = 0;
-                for (size_t i = 0; i < off; ++i)
-                {
-                    if (source[i] == '\n')
-                    {
-                        ++line;
-                        lineStart = i + 1;
-                    }
-                }
-                if (line == e.location.line && static_cast<int>(off - lineStart) + 1 == e.location.column)
-                    return cuff::renderErrorWithSnippet(e, source);
-            }
-            return e.what();
+            if (!outcome.success)
+                printEngineError(outcome.error);
         }
 
         // Matches cuffc's own error output ("ERROR: " + engine message). Only
@@ -278,8 +211,7 @@ namespace cuff::cli
 
             if (cmd == ":reset")
             {
-                interp_ = std::make_unique<cuff::Interpreter>(opts_.engineConfig);
-                sessionPrograms_.clear();
+                session_.reset();
                 std::cout << "Session reset.\n";
                 return true;
             }

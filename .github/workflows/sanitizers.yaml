@@ -1,0 +1,53 @@
+name: Sanitizers
+
+"on":
+    push:
+        branches:
+            - main
+        paths:
+            - "engine/**"
+            - "tests/**"
+            - "examples/**"
+            - "main.cpp"
+            - "Makefile"
+            - ".github/workflows/sanitizers.yaml"
+    pull_request:
+        paths:
+            - "engine/**"
+            - "tests/**"
+            - "examples/**"
+            - "main.cpp"
+            - "Makefile"
+            - ".github/workflows/sanitizers.yaml"
+
+permissions:
+    contents: read
+
+jobs:
+    address-and-undefined:
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+
+        env:
+            SAN: -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
+
+        steps:
+            -   name: Checkout code
+                uses: actions/checkout@v4
+
+            -   name: Build cuffc with AddressSanitizer and UndefinedBehaviorSanitizer
+                shell: bash
+                run: g++ -std=c++17 -O1 -g $SAN -o cuffc-san main.cpp
+
+            # Leak detection is off on purpose: a list or map that contains itself is reference counted and is never
+            # freed (docs/internals/design-notes.md), and some tests build exactly that. Everything else, including the
+            # unit tests, runs under the sanitizers.
+            -   name: Run the test suite
+                shell: bash
+                env:
+                    ASAN_OPTIONS: detect_leaks=0
+                    UBSAN_OPTIONS: print_stacktrace=1
+                    CUFFC: ./cuffc-san
+                run: |
+                    export UNIT_FLAGS="-O1 -g $SAN"
+                    bash tests/run.sh

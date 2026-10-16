@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <string>
 #include "SourceLocation.h"
+#include "SourceText.h"
 #include "ErrorCodes.h"
 
 namespace cuff
@@ -14,9 +15,12 @@ namespace cuff
 // message, optional hint, and recoverability flag.
 //
 // what() includes the error code, category, location, message,
-// and optional hint, but not the original source line.
-// CuffEngine::execute()/run() can use renderErrorWithSnippet()
-// to include the source line and caret while the source is available.
+// and optional hint, but not the original source line. Use
+// renderErrorWithSnippet() (common/ErrorFormat.h) for the full report:
+// it draws the source line and caret from the text the location points into.
+//
+// `source` names that text when it is not the program being run (see SourceText.h);
+// `related` is an optional extra block shown under the snippet.
 
     class CuffError : public std::runtime_error
     {
@@ -27,6 +31,15 @@ namespace cuff
         std::string message;
         std::string hint;
         bool recoverable;
+        SourceRef source;
+        std::string related;
+
+        // Records which text `location` points into, unless something closer to the error already did.
+        void attachSource(const SourceRef &s)
+        {
+            if (!source)
+                source = s;
+        }
 
         CuffError(ErrorCode c, const std::string &msg, const SourceLocation &loc,
                   const std::string &hintText = "")

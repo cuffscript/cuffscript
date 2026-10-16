@@ -228,7 +228,7 @@ namespace cuff
                 fallbackBody.push_back(std::move(stmt));
         }
 
-        p.consume(TokenType::END, "expected 'end' to close or_else block");
+        p.consumeEnd("expected 'end' to close or_else block", loc);
         p.match(TokenType::DEDENT);
 
         OrElseStmt orElse;

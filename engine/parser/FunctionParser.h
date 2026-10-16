@@ -123,7 +123,7 @@ namespace cuff
 
             auto body = parseBlockBody(p);
 
-            p.consume(TokenType::END, "expected 'end' to close function");
+            p.consumeEnd("expected 'end' to close function", loc);
             p.match(TokenType::DEDENT);
 
             FunctionDecl decl;
@@ -139,6 +139,7 @@ namespace cuff
                 decl.paramIds.push_back(internName(pn));
             decl.body = std::move(body);
             decl.loc = loc;
+            decl.source = p.source;
 
             return std::make_unique<Stmt>(StmtKind::FunctionDecl, std::move(decl));
         }

@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/License-Apache%202.0-red?style=flat" alt="Apache 2.0 license" />
 </p>
 
-CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository includes its language engine, command-line runner, built-in libraries, and runnable examples.
+CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository includes its language engine, a script runner (`cuffc`), an interactive shell (`cuffsh`), built-in libraries, and runnable examples.
 
 The engine can be used through the command-line interpreter or embedded in a C++ application.
 
@@ -39,7 +39,7 @@ On Windows with MinGW:
 mingw32-make -f Makefile.win
 ```
 
-The executable is `cuffc` on Linux/macOS and `cuffc.exe` on Windows.
+The executable is `cuffc` on Linux/macOS and `cuffc.exe` on Windows. The interactive shell is built separately with `./cli/build.sh` (`cli\build.bat` on Windows).
 
 ### Run a Script
 
@@ -78,12 +78,19 @@ print(greet(name))
 
 ## Documentation
 
-- [Language specification](docs/SPEC.md)
-- [Pattern syntax](docs/REGEX.md)
-- [Security policy](SECURITY.md)
-- [Runnable examples](examples/README.md)
-- [Contributing](CONTRIBUTING.md)
-- [WebAssembly package](npm/README.md)
+Everything is under [`docs/`](docs/README.md), organised by what you are trying to do:
+
+| If you want to... | Read |
+| :--- | :--- |
+| Build it and run your first script | [Getting started](docs/guide/getting-started.md) |
+| Learn the language | [A tour of the language](docs/guide/language-tour.md) |
+| Look something up | [Language reference](docs/reference/language.md), [libraries](docs/reference/dlc/README.md), [patterns](docs/reference/patterns.md), [errors](docs/reference/errors.md), [limits](docs/reference/limits.md) |
+| Use the shell or the runner | [`cuffsh`](docs/reference/cuffsh.md), [`cuffc`](docs/reference/cuffc.md) |
+| Embed the engine in a C++ program | [Embedding the engine](docs/guide/embedding.md), [security policy](SECURITY.md) |
+| Understand how it works | [Architecture](docs/internals/architecture.md) |
+| Contribute | [Contributing](CONTRIBUTING.md) |
+
+Runnable programs are in [`examples/`](examples/README.md), and the WebAssembly package is described in [`npm/README.md`](npm/README.md).
 
 ## Tests
 
@@ -92,7 +99,7 @@ make
 bash tests/run.sh
 ```
 
-On Windows, use `mingw32-make -f Makefile.win` followed by `powershell -File tests\run.ps1`.
+On Windows, use `mingw32-make -f Makefile.win` followed by `powershell -File tests\run.ps1`. The shell, the documentation and the sanitizer builds have their own checks; see [Testing](docs/contributing/testing.md).
 
 ## License
 

@@ -1,0 +1,12 @@
+# Python packages the cuffsh tests need. Install with:
+#     python3 -m pip install -r cli/tests/requirements.txt
+#
+# pyte is a terminal emulator: the tests feed cuffsh's output into it and check what a user would see on screen.
+# wcwidth tells it how wide each character is (Hangul and other wide characters take two columns).
+#
+# Ranges, not exact pins: the tests only use long-stable parts of both APIs. If a new major release breaks them,
+# the workflow's "show versions" step prints what was installed, and the bound below is the thing to raise.
+pyte>=0.8.2,<0.9
+wcwidth>=0.2.13,<1
+# The Windows tests drive cuffsh through a ConPTY (a pseudo-terminal); pywinpty provides it.
+pywinpty>=2.0; sys_platform == "win32"

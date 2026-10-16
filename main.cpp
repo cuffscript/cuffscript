@@ -1,27 +1,28 @@
 #include "engine/CuffEngine.h"
+#include "engine/EngineOptionsCli.h"
 #include <algorithm>
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <filesystem>
 #include <cstdlib>
-#include <cerrno>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 namespace
 {
-    void printUsage(const char *prog)
+    void printUsage(std::ostream &out, const char *prog)
     {
-        std::cerr << "Usage: " << prog << " [options] [script.cuff]\n"
-                  << "  (no file)          read the script from stdin\n"
-                  << "  --ast              print tokens + AST instead of running the script\n"
-                  << "  --root <dir>       allow 'use ... from' to load modules anywhere under <dir>\n"
-                  << "                     (default: the script's own directory)\n"
-                  << "  --max-steps <n>    stop after <n> loop iterations + function calls\n"
-                  << "  --timeout <ms>     stop after <ms> milliseconds of run time\n"
-                  << "  --no-network       disable 'use DLC:network' entirely\n"
-                  << "  --allow-private-network\n"
-                  << "                     let DLC:network reach loopback/private/link-local addresses\n"
-                  << "  --no-filesystem    disable 'use DLC:filesystem' entirely\n";
+        out << "Usage: " << prog << " [options] [script.cuff]\n"
+            << "  (no file, or -)        read the script from stdin\n"
+            << "  --ast                  print tokens + AST instead of running the script\n"
+            << "  -h, --help             show this help and exit\n"
+            << cuff::engineOptionsHelp()
+            << "By default modules may be loaded from the script's own directory only.\n";
     }
 
     // Reads at most limit+1 bytes so an oversized input is detected (and
@@ -38,19 +39,6 @@ namespace
         }
         return data;
     }
-
-    bool parseCount(const char *text, uint64_t &out)
-    {
-        if (!text || !*text)
-            return false;
-        char *end = nullptr;
-        errno = 0;
-        unsigned long long v = std::strtoull(text, &end, 10);
-        if (errno != 0 || *end != '\0' || text[0] == '-')
-            return false;
-        out = v;
-        return true;
-    }
 }
 
 int main(int argc, char *argv[])
@@ -58,68 +46,55 @@ int main(int argc, char *argv[])
     std::ios::sync_with_stdio(false);
 
     bool debugMode = false;
+    bool onlyPaths = false; // after "--" every argument is a file name, even one that starts with '-'
     std::string path;
+    bool havePath = false;
     cuff::CuffEngine::Options options;
 
-    for (int i = 1; i < argc; ++i)
+    const std::vector<std::string> args(argv + 1, argv + argc);
+    for (size_t i = 0; i < args.size(); ++i)
     {
-        std::string arg = argv[i];
-        auto needValue = [&](const char *flag) -> const char *
-        {
-            if (i + 1 >= argc)
-            {
-                std::cerr << "Error: " << flag << " requires a value\n";
-                return nullptr;
-            }
-            return argv[++i];
-        };
+        const std::string &arg = args[i];
 
-        if (arg == "--ast" || arg == "--tokens" || arg == "--debug")
+        if (!onlyPaths && arg.size() > 1 && arg[0] == '-')
         {
-            debugMode = true;
-        }
-        else if (arg == "-h" || arg == "--help")
-        {
-            printUsage(argv[0]);
-            return 0;
-        }
-        else if (arg == "--root")
-        {
-            const char *v = needValue("--root");
-            if (!v)
-                return 2;
-            options.rootDir = v;
-        }
-        else if (arg == "--no-network")
-        {
-            options.networkEnabled = false;
-        }
-        else if (arg == "--allow-private-network")
-        {
-            options.allowPrivateNetworkTargets = true;
-        }
-        else if (arg == "--no-filesystem")
-        {
-            options.filesystemEnabled = false;
-        }
-        else if (arg == "--max-steps" || arg == "--timeout")
-        {
-            const char *v = needValue(arg.c_str());
-            uint64_t n = 0;
-            if (!v || !parseCount(v, n))
+            if (arg == "--")
             {
-                std::cerr << "Error: " << arg << " expects a non-negative integer\n";
+                onlyPaths = true;
+                continue;
+            }
+            if (arg == "--ast" || arg == "--tokens" || arg == "--debug")
+            {
+                debugMode = true;
+                continue;
+            }
+            if (arg == "-h" || arg == "--help")
+            {
+                printUsage(std::cout, argv[0]);
+                return 0;
+            }
+            std::string error;
+            switch (cuff::parseEngineOption(args, i, options, error))
+            {
+            case cuff::OptionStatus::Consumed:
+                continue;
+            case cuff::OptionStatus::Invalid:
+                std::cerr << "Error: " << error << "\n";
+                return 2;
+            case cuff::OptionStatus::NotEngineOption:
+                std::cerr << "Error: unknown option '" << arg << "' (see --help)\n";
                 return 2;
             }
-            if (arg == "--max-steps")
-                options.maxSteps = n;
-            else
-                options.timeoutMs = static_cast<uint32_t>(std::min<uint64_t>(n, UINT32_MAX));
         }
-        else
+
+        if (havePath)
         {
-            path = arg;
+            std::cerr << "Error: only one script file may be given\n";
+            return 2;
         }
+        havePath = true;
+        if (arg != "-")
+            path = arg;
     }
 
     std::string source;
@@ -127,7 +102,9 @@ int main(int argc, char *argv[])
 
     if (!path.empty())
     {
-        std::ifstream file(path);
+        // Binary: the engine understands CRLF itself, and a text-mode read on Windows would also stop at a
+        // stray Ctrl+Z byte.
+        std::ifstream file(path, std::ios::binary);
         if (!file)
         {
             std::cerr << "Error: Cannot open file '" << path << "'\n";
@@ -140,6 +117,9 @@ int main(int argc, char *argv[])
     }
     else
     {
+#ifdef _WIN32
+        _setmode(_fileno(stdin), _O_BINARY);
+#endif
         source = readLimited(std::cin);
     }
 
@@ -150,7 +130,7 @@ int main(int argc, char *argv[])
         return result.success ? 0 : 1;
     }
 
-    cuff::CuffEngine::Result result = cuff::CuffEngine::execute(source, scriptDir, options);
+    cuff::CuffEngine::Result result = cuff::CuffEngine::execute(std::move(source), scriptDir, options);
     if (!result.success)
     {
         std::cerr << "ERROR: " << result.error << "\n";

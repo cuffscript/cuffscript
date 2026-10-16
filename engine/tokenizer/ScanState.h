@@ -17,7 +17,13 @@ namespace cuff
         bool pendingSpaceBefore;
 
         explicit ScanState(const std::string &src)
-            : source(src), offset(0), line(1), column(1), pendingSpaceBefore(false) {}
+            : source(src), offset(0), line(1), column(1), pendingSpaceBefore(false)
+        {
+            // A UTF-8 byte order mark (Windows editors add one) is not part of the program.
+            if (src.size() >= 3 && static_cast<unsigned char>(src[0]) == 0xEF &&
+                static_cast<unsigned char>(src[1]) == 0xBB && static_cast<unsigned char>(src[2]) == 0xBF)
+                offset = 3;
+        }
 
         bool atEnd() const { return offset >= static_cast<int>(source.size()); }
 
@@ -39,9 +45,9 @@ namespace cuff
                 ++line;
                 column = 1;
             }
-            else
+            else if ((c & 0xC0) != 0x80)
             {
-                ++column;
+                ++column; // columns count characters: the continuation bytes of a multi-byte one do not
             }
             return c;
         }
