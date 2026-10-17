@@ -27,8 +27,22 @@ A location belongs to the **start** of a token, except for the tokens that end t
   past it.
 - `INDENT` and `DEDENT` inside the program are located at the first character of the line they begin.
 
-Tokens inside an `f"..."` literal are parsed from a fragment of text, so every location in the fragment is pinned to the
-literal's own location. An error inside the braces is reported at the line of the f-string, never at line 1 of a fragment.
+An f-string's `{...}` is parsed from a fragment of text that is scanned on its own, so its tokens start out with positions
+relative to the fragment (line 1, column 1). They are then moved to where they really are in the program:
+
+- The tokenizer stores a literal's value **after** escapes are decoded, so an offset into the value is not an offset into the source.
+  `LiteralParser::buildValueOffsets` decodes the literal again from the program text, with the same table of escapes
+  (`tokenizer/Escapes.h`, shared with the tokenizer), and records for every byte of the value the source offset it came from.
+- `FragmentOrigin::map` turns a position in the fragment into one in the program: the offset through that table, then
+  line and column counted forward from the literal's own location (`locationAfter`, the tokenizer's rules). So an escape such
+  as `\t` or `\"` before or inside the braces takes its two source columns, and a literal that runs over several lines puts the
+  expression on its own line.
+- Errors raised while the fragment is scanned (relative to it) and while it is parsed (already real) are both reported at the real
+  place, and say which expression they are in.
+
+If the decoded text does not reproduce the literal's value exactly, or the parser has no program text (it was built without a
+`SourceRef`), nothing in the fragment can be placed, and everything falls back to the start of the literal: coarse, but never on the
+wrong line. `error_snippet_test` covers escapes, wide characters, several lines and the fallback.
 
 ## SourceRef: which text
 

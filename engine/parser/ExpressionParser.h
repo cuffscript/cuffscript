@@ -453,15 +453,31 @@ namespace cuff
         return makeIdentifierExpr(p);
     }
 
-    inline std::unique_ptr<Expr> LiteralParser::parseEmbeddedExpression(
-        const std::string &exprSource, const SourceLocation &fallbackLoc)
+    inline std::unique_ptr<Expr> LiteralParser::parseEmbeddedExpression(const std::string &exprSource,
+                                                                        const FragmentOrigin &origin)
     {
+        // The fragment is scanned on its own, so its positions start from line 1, column 1; `origin` says where that
+        // really is. An error is reported at the real place, and says which expression it is in.
+        auto fail = [&](const CuffError &e, const SourceLocation &at)
+        {
+            return CuffError(e.code, "in f-string expression '{" + exprSource + "}': " + e.message, at, e.hint);
+        };
+
+        std::vector<Token> rawTokens;
         try
         {
             Tokenizer tokenizer(exprSource);
-            std::vector<Token> rawTokens = tokenizer.tokenize();
-            for (Token &t : rawTokens)
-                t.location = fallbackLoc;
+            rawTokens = tokenizer.tokenize();
+        }
+        catch (const CuffError &e)
+        {
+            throw fail(e, origin.map(e.location)); // raised while scanning the fragment: relative to it
+        }
+        for (Token &t : rawTokens)
+            t.location = origin.map(t.location);
+
+        try
+        {
             Lexer lexer(std::move(rawTokens));
             std::vector<Token> innerTokens = lexer.lex();
 
@@ -470,12 +486,12 @@ namespace cuff
             innerParser.skipNewlinesOnly();
             if (!innerParser.atEnd())
                 throw SyntaxError("unexpected " + describeToken(innerParser.current()) + " after the expression",
-                                  fallbackLoc);
+                                  innerParser.current().location);
             return expr;
         }
         catch (const CuffError &e)
         {
-            throw CuffError(e.code, "in f-string expression '{" + exprSource + "}': " + e.message, fallbackLoc, e.hint);
+            throw fail(e, e.location); // raised on tokens that already carry real locations
         }
     }
 

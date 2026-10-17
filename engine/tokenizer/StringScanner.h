@@ -2,6 +2,7 @@
 
 #include "../common/Token.h"
 #include "../common/CuffError.h"
+#include "Escapes.h"
 #include "ScanState.h"
 #include "CharUtils.h"
 #include <string>
@@ -58,31 +59,7 @@ namespace cuff
             {
                 s.advance();
                 int esc = s.advance();
-                switch (esc)
-                {
-                case 'n':
-                    value += '\n';
-                    break;
-                case 't':
-                    value += '\t';
-                    break;
-                case 'r':
-                    value += '\r';
-                    break;
-                case '"':
-                    value += '"';
-                    break;
-                case '\'':
-                    value += '\'';
-                    break;
-                case '\\':
-                    value += '\\';
-                    break;
-                default:
-                    value += '\\';
-                    value += static_cast<char>(esc);
-                    break;
-                }
+                appendEscaped(value, esc);
                 continue;
             }
 

@@ -247,6 +247,13 @@ int main()
         check(!r.success && r.error.find("[E4-006]") != std::string::npos, "operators and indexing mixed in one chain: " + r.error.substr(0, 120));
     }
 
+    // Every supported platform can say how much stack is left, which is what lets the budget follow the real stack.
+    // (A platform that cannot makes the engine use its default budget, which is safe, but this is the place to
+    // notice that a platform lost the ability: on Windows it is looked up at run time, see Attributes.h.)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+    check(cuff::availableStackBytes() > 64 * 1024, "the platform reports how much stack is left: " + std::to_string(cuff::availableStackBytes()));
+#endif
+
     // The stack plan: a configured budget is honoured only as far as the thread can back it.
     {
         using cuff::Interpreter;

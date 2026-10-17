@@ -6,46 +6,72 @@ import re, wcwidth
 # heavily loaded machine: CUFFSH_TEST_SCALE=3 waits three times as long for the shell to answer.
 TIME_SCALE = float(os.environ.get("CUFFSH_TEST_SCALE", "1"))
 
+
 class WideAwareScreen(pyte.Screen):
     """pyte writes a double-width glyph into the last column instead of wrapping it
     to the next row the way xterm, VTE, Terminal.app and Windows Terminal do."""
+
     def draw(self, data):
         for ch in data:
             if wcwidth.wcwidth(ch) == 2 and self.cursor.x == self.columns - 1:
-                self.cursor.x = self.columns   # makes pyte perform its normal wrap first
+                self.cursor.x = self.columns  # makes pyte perform its normal wrap first
             super().draw(ch)
+
 
 class WideAwareHistoryScreen(pyte.HistoryScreen):
     """Same wrap fix, but keeps the lines that scroll off the top, so tests can see
     stale copies of text left behind in the terminal's scrollback."""
+
     def draw(self, data):
         for ch in data:
             if wcwidth.wcwidth(ch) == 2 and self.cursor.x == self.columns - 1:
                 self.cursor.x = self.columns
             super().draw(ch)
 
+
 # Mode-setting sequences pyte doesn't implement (it would print them as text).
 _STRIP = re.compile(rb"\x1b\[[<>]1u|\x1b\[\?u|\x1b\[c")
+
 
 class Session:
     """Test harness for cuffsh. Runs a program on a real pty with a given window size and feeds everything it
     prints into a pyte terminal emulator, so tests can assert on what a user would
     actually SEE (screen text + cursor), not just on raw escape bytes."""
-    def __init__(self, argv, cols=80, rows=24, env_extra=None, stdin_tty=True, kitty=True, answer_queries=True, history=False):
+
+    def __init__(
+        self,
+        argv,
+        cols=80,
+        rows=24,
+        env_extra=None,
+        stdin_tty=True,
+        kitty=True,
+        answer_queries=True,
+        history=False,
+    ):
         self.kitty, self.answer_queries = kitty, answer_queries
         self.cols, self.rows = cols, rows
-        self.screen = WideAwareHistoryScreen(cols, rows, history=5000) if history else WideAwareScreen(cols, rows)
+        self.screen = (
+            WideAwareHistoryScreen(cols, rows, history=5000)
+            if history
+            else WideAwareScreen(cols, rows)
+        )
         self.has_history = history
         self.stream = pyte.ByteStream(self.screen)
         self.raw = b""
-        env = dict(os.environ); env["TERM"] = "xterm-256color"
-        if env_extra: env.update(env_extra)
+        env = dict(os.environ)
+        env["TERM"] = "xterm-256color"
+        if env_extra:
+            env.update(env_extra)
         pid, fd = pty.fork()
         if pid == 0:
-            for k, v in env.items(): os.environ[k] = v
-            try: os.execvp(argv[0], argv)
+            for k, v in env.items():
+                os.environ[k] = v
+            try:
+                os.execvp(argv[0], argv)
             except Exception as e:
-                os.write(2, f"exec failed: {e}\n".encode()); os._exit(127)
+                os.write(2, f"exec failed: {e}\n".encode())
+                os._exit(127)
         self.pid, self.fd = pid, fd
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         self.rc = None
@@ -54,20 +80,29 @@ class Session:
         end = time.time() + seconds * TIME_SCALE
         while True:
             left = end - time.time()
-            if left <= 0: break
-            try: r, _, _ = select.select([self.fd], [], [], min(0.05, left))
-            except OSError: break
+            if left <= 0:
+                break
+            try:
+                r, _, _ = select.select([self.fd], [], [], min(0.05, left))
+            except OSError:
+                break
             if self.fd in r:
-                try: chunk = os.read(self.fd, 65536)
+                try:
+                    chunk = os.read(self.fd, 65536)
                 except OSError:
-                    self._poll(0.5); return          # pty closed: the child is exiting
-                if not chunk: break
+                    chunk = b""
+                if not chunk:
+                    # The other end of the pty is gone, so the child is exiting. Reading a closed pty master gives EIO on
+                    # Linux and end-of-file on macOS; both mean the same. The child is not reaped at the instant its
+                    # pty closes, so wait for it here: looking once and finding it "still running" is a race.
+                    self._poll(1.0 * TIME_SCALE)
+                    return
                 self.raw += chunk
                 if self.answer_queries:
                     if b"\x1b[?u" in chunk and self.kitty:
-                        os.write(self.fd, b"\x1b[?0u")
+                        self._write(b"\x1b[?0u")
                     if b"\x1b[c" in chunk:
-                        os.write(self.fd, b"\x1b[?62;c")
+                        self._write(b"\x1b[?62;c")
                 self.stream.feed(_STRIP.sub(b"", chunk))
         self._poll()
 
@@ -75,22 +110,32 @@ class Session:
         end = time.time() + wait_exit
         while True:
             self._poll_once()
-            if self.rc is not None or time.time() >= end: break
+            if self.rc is not None or time.time() >= end:
+                break
             time.sleep(0.02)
 
     def _poll_once(self):
         if self.rc is None:
-            try: wpid, st = os.waitpid(self.pid, os.WNOHANG)
-            except ChildProcessError: wpid, st = self.pid, 0
+            try:
+                wpid, st = os.waitpid(self.pid, os.WNOHANG)
+            except ChildProcessError:
+                wpid, st = self.pid, 0
             if wpid == self.pid:
                 self.rc = os.WEXITSTATUS(st) if os.WIFEXITED(st) else -os.WTERMSIG(st)
 
-    def send(self, data, wait=0.15):
-        if isinstance(data, str): data = data.encode()
+    def _write(self, data):
+        """Writes to the child. A child that has already exited is not an error here (macOS reports EIO for a write to a
+        pty whose other end is closed; Linux accepts it): what the test checks is what the child did before it left.
+        """
         try:
             os.write(self.fd, data)
         except OSError:
             pass
+
+    def send(self, data, wait=0.15):
+        if isinstance(data, str):
+            data = data.encode()
+        self._write(data)
         self.pump(wait)
 
     def text(self):
@@ -100,28 +145,39 @@ class Session:
         """everything the user could scroll back to: scrolled-off lines + the screen"""
         top = []
         if self.has_history:
-            top = ["".join(row[x].data for x in range(self.cols)).rstrip() for row in self.screen.history.top]
+            top = [
+                "".join(row[x].data for x in range(self.cols)).rstrip()
+                for row in self.screen.history.top
+            ]
         return top + self.text()
 
     def nonblank(self):
         t = self.text()
-        while t and not t[-1]: t.pop()
+        while t and not t[-1]:
+            t.pop()
         return t
 
-    def cursor(self): return (self.screen.cursor.y, self.screen.cursor.x)
+    def cursor(self):
+        return (self.screen.cursor.y, self.screen.cursor.x)
 
     def finish(self, wait=1.0):
         self.pump(wait)
         if self.rc is None:
-            try: os.kill(self.pid, signal.SIGKILL)
-            except ProcessLookupError: pass
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             try:
                 _, st = os.waitpid(self.pid, 0)
                 self.rc = os.WEXITSTATUS(st) if os.WIFEXITED(st) else -os.WTERMSIG(st)
-            except ChildProcessError: pass
-        try: os.close(self.fd)
-        except OSError: pass
+            except ChildProcessError:
+                pass
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
         return self.rc
 
-SHIFT_ENTER = b'\x1b[13;2u'
-UP, DOWN, RIGHT, LEFT = b'\x1b[A', b'\x1b[B', b'\x1b[C', b'\x1b[D'
+
+SHIFT_ENTER = b"\x1b[13;2u"
+UP, DOWN, RIGHT, LEFT = b"\x1b[A", b"\x1b[B", b"\x1b[C", b"\x1b[D"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SourceLocation.h"
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -21,6 +23,29 @@ namespace cuff
     };
 
     using SourceRef = std::shared_ptr<const SourceText>;
+
+    // The location of byte `offset` of `text`, counted forward from a location whose own offset is not later. It
+    // applies the tokenizer's rules: a line ends at LF, and a column counts characters, not the continuation bytes
+    // of a multi-byte one. Used to place something that was found inside a piece of text (the expression in an
+    // f-string's braces) at its true position in the program.
+    inline SourceLocation locationAfter(const std::string &text, SourceLocation from, size_t offset)
+    {
+        for (size_t i = static_cast<size_t>(from.offset); i < offset && i < text.size(); ++i)
+        {
+            const unsigned char c = static_cast<unsigned char>(text[i]);
+            if (c == '\n')
+            {
+                ++from.line;
+                from.column = 1;
+            }
+            else if ((c & 0xC0) != 0x80)
+            {
+                ++from.column;
+            }
+        }
+        from.offset = static_cast<int>(offset);
+        return from;
+    }
 
     inline SourceRef makeSourceRef(std::string text, std::string name = std::string())
     {

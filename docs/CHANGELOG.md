@@ -6,6 +6,8 @@
 
 - **Fixed: errors from imported files were drawn from the wrong file.** An error inside a module's function or top-level code used the module's line and column but showed the importing file's line, and an error in a function declared by an earlier `cuffsh` entry showed the current entry. An error now carries the text it points into, so the report shows the right line and names the file (`Runtime Error in './lib/ratio.cuff' at line 3`). A module that fails to parse (`E5-002`) shows the `use` statement and then the module's own line and column.
 
+- **Fixed: an error inside an f-string's braces pointed at the start of the f-string.** In `print(f"fib(10) = {fib(10)}")` a failing call put the caret under the `f`, because everything in the braces was placed at the literal's location. The error is now reported at the call itself, also after escapes such as `\t` or `\"`, after Korean text, and when the literal runs over several lines.
+
 - **Behavior change: columns count characters, and the caret follows display width.** `column` used to count bytes, so a Korean string earlier on a line made the headline disagree with the caret. It now counts characters. The caret copies tabs and gives wide characters two columns, so it lines up in a terminal. Offsets are still bytes.
 
 - **Fixed: a UTF-8 byte order mark at the start of a file was rejected by `cuffc`.** The engine now ignores it, as the shell already did.
@@ -15,6 +17,10 @@
 - **Fixed: a program the parser accepts could still fail, or crash a small thread.** A chain of operators, indexes or slices just under the expression limit failed with `E4-017` because evaluating it used stack in proportion to its length. Such chains are now evaluated iteratively, and a long expression tree is freed iteratively too (it overflowed a 256 KiB stack when it was merely destroyed). A stack budget configured larger than the thread's real stack used to turn runaway recursion into a crash; it is now reduced to the stack that exists. The relationships between limits are checked at compile time (`static_assert`s in `Limits.h`) and covered by new tests.
 
 - **Fixed: one `Session` per thread was a data race.** The table of identifier names shared by all threads was unsynchronised; it is now locked. A thread-safety test runs under ThreadSanitizer in the documented setup.
+
+- **Fixed: the Windows build failed with MinGW-w64 from MSYS2.** `GetCurrentThreadStackLimits` is a Windows 8 function that headers declare only for a newer `_WIN32_WINNT` than this project targets, so `Attributes.h` did not compile there (older MinGW headers let it through). It is now looked up when first needed, which works with any header and on a Windows without it, where the engine uses its default stack budget.
+
+- **Fixed: two shell tests failed on macOS.** The test harness took a closed pseudo-terminal to mean "still running" because macOS reports it as end-of-file where Linux raises an error, and the fuzzer wrote to a shell that had already exited (macOS refuses such a write). Both are handled; the shell itself did not change.
 
 - **Fixed: calls queued by `async` survived an error.** When a queued call failed, the calls still waiting ran at the next `cuffsh` entry. The queue is now emptied when an error ends a run.
 

@@ -1066,6 +1066,12 @@ text it points into and a rule for where it sits.
 - **A UTF-8 byte order mark was rejected** by `cuffc` (the shell stripped it itself). The
   tokenizer now skips it, and the shell's own `stripBom` is gone.
 
+- **An error inside an f-string's braces was reported at the start of the f-string.** The expression is
+  parsed from a fragment and every token was pinned to the literal's location, so a failing call in
+  `f"... {fib(10)}"` put the caret under the `f`. Positions are now mapped back to the program through a table
+  of where each decoded character came from (item 42's `SourceRef` mechanism supplies the text); see
+  [source locations](source-locations.md).
+
 Also found on the way: text left over inside an f-string's braces (`{n 2}`) was silently
 ignored, and is now `E2-001`; `cuffc` accepted unknown options as file names; a file was read
 in text mode on Windows, which translates line endings and stops at a Ctrl+Z byte.

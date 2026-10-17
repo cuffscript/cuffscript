@@ -141,12 +141,65 @@ int main()
     expectSnippet("runtime error caret", "set number a to 5\nset number b to 0\nprint(a / b)\n",
                   "print(a / b)", "        ^");
 
-    // An error inside an f-string's {...} must point at the f-string's own line
-    // in the file, not at line 1 of the fragment it was parsed from.
-    expectSnippet("f-string runtime error line", "print(\"ok\")\nprint(f\"v: {nope(1)}\")\n",
-                  "print(f\"v: {nope(1)}\")", "      ^");
-    expectSnippet("f-string syntax error line", "print(\"ok\")\nprint(f\"v: {1 +}\")\n",
-                  "print(f\"v: {1 +}\")", "      ^");
+    // An error inside an f-string's {...} is reported where it really is: on the f-string's own line, and at the
+    // character inside the braces, not at line 1 of the fragment it was parsed from and not at the start of the
+    // literal. (A call is reported at its opening parenthesis, as it is outside an f-string.)
+    expectSnippet("f-string runtime error", "print(\"ok\")\nprint(f\"v: {nope(1)}\")\n",
+                  "print(f\"v: {nope(1)}\")", "                ^");
+    expectSnippet("f-string syntax error", "print(\"ok\")\nprint(f\"v: {1 +}\")\n",
+                  "print(f\"v: {1 +}\")", "               ^");
+    expectSnippet("f-string, same error outside the f-string", "print(nope(1))\n", "print(nope(1))", "          ^");
+
+    // The case that was reported: a call inside an f-string that fails when its argument is checked.
+    {
+        auto r = runSource("set returnable func fib(str n) do:\n    return n\nend\nprint(f\"fib(10) = {fib(10)}\")\n");
+        check(!r.success && contains(r.error, "[E4-030] Runtime Error at line 4, column 23") &&
+                  contains(r.error, "    print(f\"fib(10) = {fib(10)}\")\n                          ^\n"),
+              "a failing call inside an f-string is reported at the call:\n" + r.error);
+    }
+
+    // Escapes before and inside the braces shift the source but not the result: the position is still the one in
+    // the file, where "\t" and "\"" take two columns each.
+    expectSnippet("f-string after escapes", "print(f\"a\\tb \\\"q\\\" {1 / 0}\")\n",
+                  "print(f\"a\\tb \\\"q\\\" {1 / 0}\")", "                      ^");
+    expectSnippet("f-string with an escape inside the braces",
+                  "set map m to {\"k\": 1}\nprint(f\"{m[\\\"k\\\"] / 0}\")\n",
+                  "print(f\"{m[\\\"k\\\"] / 0}\")", "                  ^");
+
+    // Wide characters before the braces: the headline counts characters, the caret counts columns.
+    {
+        auto r = runSource("print(f\"\xED\x95\x9C\xEA\xB8\x80 {1 / 0}\")\n");
+        check(!r.success && contains(r.error, "line 1, column 15") &&
+                  contains(r.error, "    print(f\"\xED\x95\x9C\xEA\xB8\x80 {1 / 0}\")\n" + std::string(20, ' ') + "^"),
+              "f-string after Hangul:\n" + r.error);
+    }
+
+    // A literal that runs over several lines: the expression is on the line it is written on.
+    expectSnippet("f-string over two lines", "print(f\"first line\nsecond {1 / 0}\")\n", "second {1 / 0}\")", "          ^");
+    {
+        auto r = runSource("print(f\"first line\nsecond {1 / 0}\")\n");
+        check(contains(r.error, "line 2, column 11"), "f-string over two lines, position:\n" + r.error);
+    }
+
+    // With no program text to measure against (a parser built without a SourceRef), the position falls back to the
+    // start of the literal, which is coarse but never wrong about the line.
+    {
+        const std::string src = "print(f\"v: {nope(1)}\")\n";
+        try
+        {
+            cuff::Tokenizer tokenizer(src);
+            cuff::Lexer lexer(tokenizer.tokenize());
+            cuff::Parser parser(lexer.lex());
+            auto program = parser.parse();
+            cuff::Interpreter interp{cuff::EngineOptions()};
+            interp.run(*program, ".");
+            check(false, "the program should fail");
+        }
+        catch (const cuff::CuffError &e)
+        {
+            check(e.location.line == 1 && e.location.column == 7, "without source text: the literal's start, got " + e.location.toString());
+        }
+    }
 
     // Text left over after an f-string expression is an error, not silently dropped.
     {
@@ -280,6 +333,13 @@ int main()
         "print(\"line one\nline two\" + 1)\n",
         ("\xEF\xBB\xBF" "set number x to 2\r\nprint(x / 0)\r\n"),
         "set number y to 1 +\n",
+        "set number n to 3\nprint(f\"tab\\t and \\\"quote\\\" {n / 0}\")\n",
+        "set str s to \"\xED\x95\x9C\xEA\xB8\x80\"\nprint(f\"\xED\x95\x9C\xEA\xB8\x80 {s + 1} {s}\")\n",
+        "print(f\"first\nsecond {1 +}\")\n",
+        "set map m to {\"k\": 1}\nprint(f\"{m[\\\"z\\\"]} {m[\\\"k\\\"]}\")\n",
+        "print(f\"{{literal}} {nope(2)} done\")\n",
+        "print(f\"{1 2}\")\n",
+        "print(f\"{\")\n",
         "loop repeat i to 1 ~ 2 do:\n    print(i)\n",
     };
     uint32_t rng = 12345;

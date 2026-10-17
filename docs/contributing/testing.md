@@ -65,6 +65,11 @@ both `cuffc` and `cuffsh` and requires identical text (this check is skipped whe
 | `PYTHON` | The interpreter to use (default `python3`). |
 | `CUFFSH_TEST_SCALE` | Multiplies every wait, for a slow or heavily loaded machine. `run_tests.ps1 -TimeScale N` sets it. |
 
+The harness (`cli/tests/harness.py`) is written for the differences between operating systems' pseudo-terminals: reading a pty
+whose other end has closed raises an error on Linux and returns end-of-file on macOS, a write to such a pty fails on macOS but is
+accepted on Linux, and a child is not yet reaped at the moment its pty closes. All three mean "the child is exiting", and the harness
+waits for it and carries on; a test that checks an exit status must not look once and conclude the child is still running.
+
 `cli/tests/requirements.txt` lists the Python packages, with a marker for the one only Windows needs (`pywinpty`). On Windows,
 `powershell -File cli\tests\run_tests.ps1` runs the same suites through a ConPTY and can install the packages for you
 (`-InstallDeps`). The suites need a Unix pty or a ConPTY, so inside Git Bash use WSL.

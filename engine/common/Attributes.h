@@ -66,8 +66,21 @@ namespace cuff
 #if defined(__EMSCRIPTEN__)
         return emscripten_stack_get_free();
 #elif defined(_WIN32)
+        // GetCurrentThreadStackLimits exists from Windows 8, and a header declares it only when _WIN32_WINNT says
+        // so: the MinGW-w64 headers of MSYS2 enforce that (this file asks for Vista), older ones did not. Looking it
+        // up when it is first needed does not depend on the header at all, and on a Windows that lacks it the answer
+        // is "unknown" (0), which makes the engine use its default stack budget.
+        using StackLimitsFn = void(WINAPI *)(PULONG_PTR, PULONG_PTR);
+        static const StackLimitsFn getLimits = []() -> StackLimitsFn
+        {
+            const HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+            const FARPROC found = kernel ? GetProcAddress(kernel, "GetCurrentThreadStackLimits") : nullptr;
+            return reinterpret_cast<StackLimitsFn>(reinterpret_cast<void *>(found));
+        }();
+        if (!getLimits)
+            return 0;
         ULONG_PTR low = 0, high = 0;
-        GetCurrentThreadStackLimits(&low, &high);
+        getLimits(&low, &high);
         if (low == 0)
             return 0;
         const uintptr_t sp = stackPointer();
