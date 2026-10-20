@@ -54,7 +54,12 @@ python3 -m pip install -r cli/tests/requirements.txt
 cli/tests/run_tests.sh [path/to/cuffsh] [--fuzz N]
 ```
 
-The suites drive `cuffsh` on a real pseudo-terminal and feed what it prints into a terminal emulator (`pyte`), so they check what
+On Windows the same entry point is `powershell -File cli\tests\run_tests.ps1` (also PowerShell 7 on Linux and macOS). It
+has two parts. The **native checks** need nothing but PowerShell and run everywhere: piped scripts, error text identical to
+`cuffc`'s, Korean text and paths, the command-line flags, the resource limits, and a comparison of `cuffsh` with `cuffc` over every
+script in the repository. The **interactive suites** below are the Python ones.
+
+The interactive suites drive `cuffsh` on a real pseudo-terminal and feed what it prints into a terminal emulator (`pyte`), so they check what
 a user would see on screen: wrapping, wide characters, cursor editing, paste, key protocols, terminal restore on exit and on
 being killed, `input()`, piped use, and the command-line flags. A randomised test compares the screen with an independent model of
 the layout, and a fuzzer sends random and malformed terminal input. The suite also runs every script in the repository through
@@ -70,9 +75,11 @@ whose other end has closed raises an error on Linux and returns end-of-file on m
 accepted on Linux, and a child is not yet reaped at the moment its pty closes. All three mean "the child is exiting", and the harness
 waits for it and carries on; a test that checks an exit status must not look once and conclude the child is still running.
 
-`cli/tests/requirements.txt` lists the Python packages, with a marker for the one only Windows needs (`pywinpty`). On Windows,
-`powershell -File cli\tests\run_tests.ps1` runs the same suites through a ConPTY and can install the packages for you
-(`-InstallDeps`). The suites need a Unix pty or a ConPTY, so inside Git Bash use WSL.
+`cli/tests/requirements.txt` lists the Python packages (`-InstallDeps` installs them for `run_tests.ps1`). The interactive
+suites need a Unix pseudo-terminal and assert Unix behaviour (the terminal modes `termios` reports, `SIGINT`, `SIGTERM` and
+`SIGHUP`), so they run on Linux, macOS and WSL; `run_tests.ps1` reports them as not applicable on Windows, where the native
+checks and the manual checklist it prints at the end cover the shell. CI runs the native checks on Windows
+(`.github/workflows/repl-test.yaml`).
 
 ## Documentation checks
 

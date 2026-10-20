@@ -8,5 +8,3 @@
 # the workflow's "show versions" step prints what was installed, and the bound below is the thing to raise.
 pyte>=0.8.2,<0.9
 wcwidth>=0.2.13,<1
-# The Windows tests drive cuffsh through a ConPTY (a pseudo-terminal); pywinpty provides it.
-pywinpty>=2.0; sys_platform == "win32"

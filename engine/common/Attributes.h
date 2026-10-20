@@ -44,9 +44,12 @@
 namespace cuff
 {
 
+    // Where the current frame sits on the stack. __builtin_frame_address forces a frame pointer, and on Windows
+    // GCC then describes the XMM saves of such frames wrongly in the SEH unwind data: an exception passing
+    // through them returns xmm6-xmm15 corrupted to the catching function. A local's address needs no frame pointer.
     CUFF_ALWAYS_INLINE uintptr_t stackPointer()
     {
-#if defined(__GNUC__) || defined(__clang__)
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(_WIN32)
         return reinterpret_cast<uintptr_t>(__builtin_frame_address(0));
 #else
         volatile char probe = 0;

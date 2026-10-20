@@ -10,14 +10,14 @@ Numbers in CuffScript are double-precision floating point. The functions below t
 | :--- | :--- |
 | `math_sqrt(x)` | The square root. A negative `x` is `E4-025`. |
 | `math_abs(x)` | The absolute value. |
-| `math_pow(base, exponent)` | `base` to the power `exponent`. `0` to a negative power is `E4-006`; a negative base with a fractional exponent, or a result too large to represent, is `E4-025`. |
+| `math_pow(base, exponent)` | `base` to the power `exponent`, the same as `base ** exponent`. `0` to a negative power is `E4-006`; a negative base with a fractional exponent, or a result too large to represent, is `E4-025`. |
 | `math_round(x [, digits])` | Rounds to `digits` decimal places (0 to 15, default 0). Halves round away from zero. |
 | `math_floor(x)`, `math_ceil(x)` | Round down, round up. |
 | `math_trunc(x)` | Rounds toward zero. |
 | `math_sign(x)` | `-1`, `0` or `1`. |
 | `math_min(a, b, ...)`, `math_max(a, b, ...)` | The smallest or largest of one or more numbers, or of the numbers in a single list. |
 | `math_clamp(value, low, high)` | `value`, kept between `low` and `high`. |
-| `math_mod(a, b)` | The remainder of `a / b`. The result takes the sign of `b`. |
+| `math_mod(a, b)` | The remainder of `a / b`, the same as `a % b`. The result takes the sign of `b`. |
 | `math_log(x [, base])` | The natural logarithm, or the logarithm to `base`. `x` must be positive. |
 | `math_log2(x)`, `math_log10(x)` | Base-2 and base-10 logarithms. |
 | `math_exp(x)` | `e` to the power `x`. |

@@ -217,8 +217,9 @@ grammar:
   turns `name(...)` into a call and `name[...]` into an indexing, so treating them
   as "construct start" here would leave no way to call or index a function/variable
   with that name.
-- Block/control-flow keywords (`end`, `do`, `if`, ...) and the literals
-  (`true`/`false`/`empty`) are deliberately kept reserved — such a token appearing
+- Block/control-flow keywords (`end`, `do`, `if`, ...), the operators written as
+  words (`is`, `and`, `or`) and the literals (`true`/`false`/`empty`) are
+  deliberately kept reserved — such a token appearing
   where an expression should be usually means a real syntax error with a missing
   operand, and accepting it as a name would turn a clear "unexpected token" into a
   misleading runtime error.

@@ -42,6 +42,16 @@ namespace cuff
             return Token(TokenType::LT, "<", start, s.pendingSpaceBefore);
         }
 
+        // Operators spelled with a doubled character.
+        auto doubled = [&](char ch, TokenType tt, const char *label) -> Token
+        {
+            s.advance();
+            if (s.peek() != ch)
+                throw SyntaxError(std::string("unexpected '") + ch + "' — CuffScript spells this operator '" + label + "'", start);
+            s.advance();
+            return Token(tt, label, start, s.pendingSpaceBefore);
+        };
+
         switch (c)
         {
         case '+':
@@ -49,7 +59,19 @@ namespace cuff
         case '-':
             return make(TokenType::MINUS, "-");
         case '*':
-            return make(TokenType::STAR, "*");
+            s.advance();
+            if (s.peek() == '*')
+            {
+                s.advance();
+                return Token(TokenType::POWER, "**", start, s.pendingSpaceBefore);
+            }
+            return Token(TokenType::STAR, "*", start, s.pendingSpaceBefore);
+        case '%':
+            return make(TokenType::PERCENT, "%");
+        case '&':
+            return doubled('&', TokenType::AND, "&&");
+        case '|':
+            return doubled('|', TokenType::OR, "||");
         case '/':
             return make(TokenType::SLASH, "/");
         case '!':

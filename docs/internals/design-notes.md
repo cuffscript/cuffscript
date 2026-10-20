@@ -1109,3 +1109,59 @@ empties the `async` queue when an error leaves it, which a one-shot `cuffc` neve
 The relationships that matter are now `static_assert`s at the end of `Limits.h`, the limits page is
 generated from the comments above each constant, and `tests/unit/limits_test.cpp` covers long chains
 under a tiny budget, the stack plan, and a real small thread.
+
+## 44. v3.5.0: `and`, `or`, `%` and `**`
+
+The language had no way to combine conditions except nesting `if`, and no remainder or power operator. The additions
+follow the common spelling of other languages, and where the language already had a rule for the same thing they use it
+rather than a second one.
+
+- **`and` / `or` are binary operators on the existing `BinaryOp` node** (`BinOp::And`, `BinOp::Or`), with `&&` and `||`
+  scanned to the same two tokens, so the parser and the evaluator have one form of each. They sit below `!` in the
+  precedence chain (`or` < `and` < `!` < comparison), the order Python uses, so the meaning of `!x is 3` did not change.
+- **The result is a `boolean`, not one of the operands.** `!`, `is` and the comparisons already produce booleans, and a
+  declaration such as `set boolean ok to a and b` has to hold whatever the operands were. Choosing a default value is the
+  job of `or_else`, which keeps `or` from reading as a second, different error-recovery feature.
+- **The right operand is evaluated only when needed.** `evalLogical` is called from both `evalBinaryOp` and the iterative
+  `evalSpine`, so a chain of hundreds of `and`s stops at the first decision exactly as a short one does, on a small stack
+  too (`tests/unit/limits_test.cpp`).
+- **`%` takes the sign of the divisor, like `math_mod`.** C, Java and JavaScript give the remainder the sign of the
+  dividend; Python and `math_mod` (older than the operator) give it the sign of the divisor. Having `-7 % 3` and
+  `math_mod(-7, 3)` differ would be the worse inconsistency, and a non-negative result suits the 1-based, wrap-around
+  index arithmetic the language is used for. The two agree for non-negative operands, which is most programs.
+- **`**` is `math_pow`.** Both call the same function (`common/Arithmetic.h`: `floorMod` and `power`), so results and
+  refusals cannot drift apart: zero to a negative power is `E4-006`, a negative base with a fractional exponent or a result
+  too large to represent is `E4-025`. `**` binds tighter than a unary `-` on its left (`-2 ** 2` is `-4`), takes a unary
+  operand on its right (`2 ** -1`), and groups to the right. A long right-leaning chain is bounded by the parser's depth
+  guard (`E2-008`) like a long run of `!`.
+- **`==` and `!=` are still absent.** `is` already means equality, with a pattern test when a string literal stands on the
+  right (`language.md` section 4.4). A second equality operator would either repeat that special case or silently differ
+  from it, and `is` / `is not` read the same in every context.
+
+`and` and `or` are reserved words and, unlike `not` or `count`, are never usable as names, which is what `if` and `is`
+already are. A program that used either as a variable name has to rename it. A lone `&` or `|` is a syntax error that
+names the doubled spelling, as `=` names `to`.
+
+## 45. v3.5.0: exceptions through frames that have a frame pointer, on Windows
+
+On Windows with GCC (MinGW-w64, `x86_64-w64-mingw32`) a program built with `-O2 -flto` or `-O3 -flto` crashed with an
+access violation whenever an error was thrown inside a user function and caught further out: every `or_else` around a
+failing call, and every error report from inside a function. The same program was correct on Linux and macOS, and on
+Windows at `-O1`, which is why nothing but the Windows job noticed.
+
+The cause is not in the interpreter's logic. `stackPointer()` used `__builtin_frame_address(0)`, which makes GCC give each
+function that inlines it (`execStatement`, `evalExpr`) a frame pointer. For such a frame GCC saves `xmm6`-`xmm15` with
+`movups %xmm6, -N(%rbp)` and describes the slot to the SEH unwinder relative to the stack pointer after the frame was
+allocated, while the unwinder, which has a frame register, reads it relative to the frame register. So an exception passing
+through the frame returned `xmm6`-`xmm15` with whatever was on the stack. Those registers are callee-saved, and the
+compiler had kept a constant 0 in `xmm6` across the call in `callUserFunction`; the cleanup after the throw used it to
+empty the function's variable list, and the destructor then walked a vector of garbage. A 20-line program reproduces it
+(a function using `__builtin_frame_address(0)` and `xmm6`, a caller that checks `xmm6` after a `catch`) with GCC 13 as well
+as 16, so it is a toolchain defect that the engine's code merely triggered.
+
+`stackPointer()` now takes the address of a local variable on Windows, which needs no frame pointer; the other platforms
+keep `__builtin_frame_address`. No build flag was changed. The fix was found by building the Windows binary with a MinGW
+cross compiler and running it under Wine (the method `docs/contributing/testing.md` recommends), and the failing set is
+exactly the tests that throw inside a function. Engine code that can sit between a `throw` and its `catch` should not
+force a frame pointer on Windows by other means either (`alloca`, variable-length arrays, over-aligned locals,
+`-fno-omit-frame-pointer`).

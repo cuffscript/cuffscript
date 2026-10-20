@@ -46,8 +46,7 @@ S l eou
 
 ## Deciding
 
-There is no `and` or `or`; nest `if` statements instead. Equality is written `is` and `is not`, and a comparison
-works on two numbers or two strings.
+Equality is written `is` and `is not`, and a comparison works on two numbers or two strings.
 
 ```cuff
 set number temp to 18
@@ -62,6 +61,22 @@ end
 
 ```output
 mild
+```
+
+`and` and `or` combine conditions and `!` reverses one. `a and b` stops as soon as `a` is false, and `a or b` as soon
+as `a` is true. `%` gives the remainder of a division and `**` raises to a power.
+
+```cuff
+set number hour to 14
+if hour >= 9 and hour < 18 do:
+    print("open")
+end
+print(hour % 12, 2 ** 5)
+```
+
+```output
+open
+2 32
 ```
 
 ## Repeating
@@ -193,6 +208,6 @@ matched
 
 ## What is not here
 
-No classes, no closures, no `and`/`or`, no `%` or exponent operator, and no one-line function declarations. The
+No classes, no closures, no `==` or `!=` (equality is `is`), and no one-line function declarations. The
 language is small on purpose, and the [reference](../reference/language.md) says exactly what is and is not
 allowed.

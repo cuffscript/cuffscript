@@ -13,9 +13,10 @@
   interactive  Drives cuffsh on a real pseudo-terminal and checks what ends up on screen:
                typing, wrapping, Korean text, cursor keys, Shift+Enter, paste, history,
                Ctrl+C, input(), entries taller than the window ... plus a fuzzer.
-               Needs Python 3.8+ and, on Windows (10 version 1809 or newer, for ConPTY):
-                   python -m pip install -r cli\tests\requirements.txt
-               (-InstallDeps does this for you). Without Python the native checks still run.
+               Needs Python 3.8+ and the packages in requirements.txt (-InstallDeps installs
+               them), and a POSIX pseudo-terminal: it runs on Linux and macOS, and is reported
+               as N/A on Windows, where the native checks and the checklist at the end apply.
+               Without Python the native checks still run.
 
   Works on Windows PowerShell 5.1 and PowerShell 7. The file is plain ASCII on purpose: 5.1
   reads BOM-less files in the ANSI code page, so non-ASCII text is built from code points.
@@ -265,9 +266,7 @@ function Find-Python {
 }
 
 function Test-PythonDeps($py) {
-  $imports = 'import pyte, wcwidth'
-  if ($isWin) { $imports = 'import pyte, wcwidth, winpty' }
-  $r = Invoke-Native $py.File ($py.Pre + @('-c', $imports))
+  $r = Invoke-Native $py.File ($py.Pre + @('-c', 'import pyte, wcwidth'))
   return ($r.Code -eq 0)
 }
 
@@ -304,18 +303,19 @@ function Invoke-PythonSuite($py, [string]$Label, [string]$ScriptName, [string[]]
 }
 
 function Run-Interactive([string[]]$Which) {
+  if ($isWin) {
+    Write-Host ''
+    Write-Host 'The interactive suites need a POSIX pseudo-terminal (pty, termios, signals): not run on Windows.' -ForegroundColor DarkGray
+    Write-Host '  The native checks cover the shell here; use WSL, Linux or macOS for the interactive suites.' -ForegroundColor DarkGray
+    foreach ($w in $Which) { Add-Row ('interactive: ' + $w) 'N/A' 'needs a POSIX pty' }
+    return
+  }
   $py = Find-Python
   if (-not $py) {
     Write-Host ''
     Write-Host 'No usable Python 3.8+ found: skipping the interactive suites.' -ForegroundColor Yellow
     Write-Host '  Install Python from https://www.python.org/downloads/ (tick "Add python.exe to PATH"), then re-run.' -ForegroundColor Yellow
     foreach ($w in $Which) { Add-Row ('interactive: ' + $w) 'SKIPPED' 'Python not found' }
-    return
-  }
-  if ($isWin -and [System.Environment]::OSVersion.Version.Build -lt 17763) {
-    Write-Host ''
-    Write-Host 'The interactive suites need ConPTY (Windows 10 version 1809, build 17763, or newer): skipping.' -ForegroundColor Yellow
-    foreach ($w in $Which) { Add-Row ('interactive: ' + $w) 'SKIPPED' 'Windows too old for ConPTY' }
     return
   }
   if (-not (Test-PythonDeps $py)) {
@@ -472,10 +472,10 @@ if ($runNative) {
     # whose column depends on exactly how much stack each program's frames use.
     $nondeterministic = @('08_dlc_libraries.cuff', 'stack_budget_nested_recursion.cuff')
     $groups = @(
-      @{ Dir = 'tests\cases'; Stdin = $true },
-      @{ Dir = 'tests\errors'; Stdin = $false },
+      @{ Dir = 'tests/cases'; Stdin = $true },
+      @{ Dir = 'tests/errors'; Stdin = $false },
       @{ Dir = 'examples'; Stdin = $true },
-      @{ Dir = 'examples\error_cases'; Stdin = $false }
+      @{ Dir = 'examples/error_cases'; Stdin = $false }
     )
     $nFile = 0; $nStdin = 0; $diffs = New-Object System.Collections.ArrayList
     foreach ($g in $groups) {
@@ -487,14 +487,14 @@ if ($runNative) {
         $a = Invoke-Proc $Cuffc @($_.Name) $null $dir
         $b = Invoke-Proc $Cuffsh @('--timeout', '0', $_.Name) $null $dir
         $nFile++
-        if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '\' + $_.Name + '  (as a file)')) }
+        if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (as a file)')) }
         # as a script on stdin (how cuffc reads a script when given no file)
         if ($g.Stdin) {
           $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
           $a = Invoke-Proc $Cuffc @() $bytes $root
           $b = Invoke-Proc $Cuffsh @('--timeout', '0') $bytes $root
           $nStdin++
-          if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '\' + $_.Name + '  (on stdin)')) }
+          if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (on stdin)')) }
         }
       }
     }
@@ -519,6 +519,7 @@ foreach ($row in $script:rows) {
   $color = 'Green'
   if ($row.Status -eq 'FAIL') { $color = 'Red'; $anyFail = $true }
 elseif ($row.Status -eq 'SKIPPED') { $color = 'Yellow'; $anySkip = $true }
+elseif ($row.Status -eq 'N/A') { $color = 'DarkGray' }
 Write-Host ('{0,-8} {1}  [{2}]' -f $row.Status, $row.Name, $row.Detail) -ForegroundColor $color
 }
 
@@ -526,7 +527,7 @@ if (-not $NoChecklist) {
   Write-Host @'
 
 Not covered above - needs a person at a real console (cmd, PowerShell or Windows Terminal):
-  [ ] Shift+Enter in YOUR terminal app (the automated check feeds ConPTY a Shift+Enter key event; this confirms the app sends it)
+  [ ] Shift+Enter in YOUR terminal app adds a line to the entry instead of running it
   [ ] type Korean with the IME (composition, Backspace on a syllable) at the prompt
   [ ] paste several lines from the clipboard: ONE entry, not run line by line; paste more lines than the window is
       tall, then move the cursor - the screen must not fill with repeated copies of your code

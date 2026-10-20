@@ -99,7 +99,7 @@ An error can also be *prevented*: check `length` before indexing, `map_has_key` 
 | [`E4-001`](../reference/errors.md#e4-001) | A variable that does not exist (yet). | Check the spelling, and that it was declared with `set` before this line, in a scope that can see it. |
 | [`E4-002`](../reference/errors.md#e4-002) | A function that does not exist. | A library function needs its `use DLC:...` line first. |
 | [`E4-005`](../reference/errors.md#e4-005) | A value of the wrong type, such as `"a" + 1`. | Convert explicitly with `to_str` or `to_number`. |
-| [`E4-006`](../reference/errors.md#e4-006) | Division by zero. | Test the divisor first. |
+| [`E4-006`](../reference/errors.md#e4-006) | Division or remainder by zero, or zero to a negative power. | Test the divisor first. |
 | [`E4-008`](../reference/errors.md#e4-008) | A position outside a list or string. | Positions run from 1 to the length, or from -1 (the last) backwards. |
 | [`E4-010`](../reference/errors.md#e4-010) | The wrong number of arguments. | Compare the call with the function's parameters. |
 | [`E4-017`](../reference/errors.md#e4-017) | Recursion that went too deep. | Make sure the recursion has a base case. |

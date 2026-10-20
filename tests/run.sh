@@ -4,9 +4,10 @@ set -uo pipefail
 shopt -s nullglob
 cd "$(dirname "$0")/.."
 
-# CUFFC and UNIT_FLAGS let a sanitizer build be tested, e.g.
+# CUFFC, CXX and UNIT_FLAGS let a sanitizer build or another compiler be tested, e.g.
 #   CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g -fsanitize=address,undefined" tests/run.sh
 BIN=${CUFFC:-./cuffc}
+CXX=${CXX:-g++}
 UNIT_FLAGS=${UNIT_FLAGS:--O2}
 PASS=0
 FAIL=0
@@ -103,11 +104,13 @@ run_error_case() {
 check_bin
 
 echo "== tests/unit (C++ unit tests) =="
+UNIT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/cuff_unit.XXXXXX")
+trap 'rm -rf "$UNIT_DIR"' EXIT
 for src in tests/unit/*.cpp; do
-    bin="/tmp/cuff_unit_$(basename "${src%.cpp}")"
-    if ! g++ -std=c++17 -Wall -Wextra -pthread $UNIT_FLAGS -I. "$src" -o "$bin" 2>/tmp/cuff_unit_build.log; then
+    bin="$UNIT_DIR/$(basename "${src%.cpp}")"
+    if ! "$CXX" -std=c++17 -Wall -Wextra -pthread $UNIT_FLAGS -I. "$src" -o "$bin" 2>"$UNIT_DIR/build.log"; then
         echo "FAIL (build): $src"
-        cat /tmp/cuff_unit_build.log
+        cat "$UNIT_DIR/build.log"
         FAIL=$((FAIL + 1))
         continue
     fi

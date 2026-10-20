@@ -28,7 +28,39 @@ namespace cuff
     public:
         static std::unique_ptr<Expr> parse(ParserCore &p)
         {
-            return parseLogicalNot(p);
+            return parseOr(p);
+        }
+
+        static std::unique_ptr<Expr> parseOr(ParserCore &p)
+        {
+            auto left = parseAnd(p);
+
+            while (p.check(TokenType::OR))
+            {
+                SourceLocation loc = p.current().location;
+                p.advance();
+                auto right = parseAnd(p);
+                left = std::make_unique<Expr>(ExprKind::BinaryOp,
+                                              BinaryOp(BinOp::Or, std::move(left), std::move(right), loc));
+            }
+
+            return left;
+        }
+
+        static std::unique_ptr<Expr> parseAnd(ParserCore &p)
+        {
+            auto left = parseLogicalNot(p);
+
+            while (p.check(TokenType::AND))
+            {
+                SourceLocation loc = p.current().location;
+                p.advance();
+                auto right = parseLogicalNot(p);
+                left = std::make_unique<Expr>(ExprKind::BinaryOp,
+                                              BinaryOp(BinOp::And, std::move(left), std::move(right), loc));
+            }
+
+            return left;
         }
 
         static std::unique_ptr<Expr> parseLogicalNot(ParserCore &p)
@@ -124,9 +156,9 @@ namespace cuff
         {
             auto left = parseUnary(p);
 
-            while (p.checkAny({TokenType::STAR, TokenType::SLASH}))
+            while (p.checkAny({TokenType::STAR, TokenType::SLASH, TokenType::PERCENT}))
             {
-                BinOp op = p.check(TokenType::STAR) ? BinOp::Mul : BinOp::Div;
+                BinOp op = p.check(TokenType::STAR) ? BinOp::Mul : p.check(TokenType::SLASH) ? BinOp::Div : BinOp::Mod;
                 SourceLocation loc = p.current().location;
                 p.advance();
                 auto right = parseUnary(p);
@@ -148,7 +180,22 @@ namespace cuff
                 return std::make_unique<Expr>(ExprKind::UnaryOp,
                                               UnaryOp(UnOp::Negate, std::move(operand), loc));
             }
-            return parsePostfixExpr(p);
+            return parsePower(p);
+        }
+
+        // `**` binds tighter than a unary minus on its left (-2 ** 2 is -4), takes a unary operand on its right
+        // (2 ** -1) and groups to the right (2 ** 3 ** 2 is 2 ** 9).
+        static std::unique_ptr<Expr> parsePower(ParserCore &p)
+        {
+            auto base = parsePostfixExpr(p);
+            if (!p.check(TokenType::POWER))
+                return base;
+            SourceLocation loc = p.current().location;
+            ParseDepthScope depth(loc);
+            p.advance();
+            auto exponent = parseUnary(p);
+            return std::make_unique<Expr>(ExprKind::BinaryOp,
+                                          BinaryOp(BinOp::Pow, std::move(base), std::move(exponent), loc));
         }
 
         static std::unique_ptr<Expr> parsePostfixExpr(ParserCore &p)

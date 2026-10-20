@@ -49,7 +49,7 @@ namespace cuff
         ConstantReassignment = 4003, // A constant that is changed after it was created.
         InvalidConstantName = 4004, // A constant whose name is not all uppercase letters, digits and underscores.
         TypeMismatch = 4005, // A value of the wrong type for an operation.
-        DivisionByZero = 4006, // Division by zero.
+        DivisionByZero = 4006, // Division or remainder by zero, or zero to a negative power.
         ZeroIndexAccess = 4007, // Position 0, which does not exist (positions start at 1).
         IndexOutOfRange = 4008, // A position outside a list, string or slice.
         KeyNotFound = 4009, // A map key that is not present.
@@ -68,7 +68,7 @@ namespace cuff
         ReturnOutsideFunction = 4022, // `return` outside any function.
         StopOutsideLoop = 4023, // `stop` outside any loop.
         FractionalIndex = 4024, // A position or range bound that is not a whole number.
-        InvalidArgumentValue = 4025, // An argument of the right type but a value the function does not accept.
+        InvalidArgumentValue = 4025, // An argument of the right type but a value the function or operator does not accept.
         SizeLimitExceeded = 4026, // A string, list, map or `async` queue larger than its limit.
         PureFunctionGlobalAccess = 4027, // A `pure` function that reaches a global variable.
         NetworkRequestFailed = 4028, // A network request that failed, timed out, or targeted a blocked address.

@@ -95,7 +95,7 @@ The reserved words are:
 
 ```text
 set change constant if else loop repeat while match do end stop return await use from note endnote
-empty async returnable pure func add remove replace to or_else global not find split count by in
+empty async returnable pure func add remove replace to or_else global not and or find split count by in
 number str list map boolean true false is IS
 ```
 
@@ -217,24 +217,44 @@ From the tightest to the loosest binding:
 | Level | Operators | Associativity |
 | :---: | :--- | :--- |
 | 1 | call `f(...)`, index `x[i]`, slice `x[i~j]` | left |
-| 2 | unary `-` | right |
-| 3 | `*` `/` | left |
-| 4 | `+` `-` | left |
-| 5 | `is` `IS` `is not` `IS not` `>` `<` `>=` `<=` | left |
-| 6 | `!` | right |
+| 2 | `**` | right |
+| 3 | unary `-` | right |
+| 4 | `*` `/` `%` | left |
+| 5 | `+` `-` | left |
+| 6 | `is` `IS` `is not` `IS not` `>` `<` `>=` `<=` | left |
+| 7 | `!` | right |
+| 8 | `and` `&&` | left |
+| 9 | `or` `\|\|` | left |
 
-Parentheses group. Because `!` binds loosest, `!x is 3` means `!(x is 3)`.
+Parentheses group. `**` binds tighter than a unary `-` on its left and takes a unary operand on its
+right, so `-2 ** 2` is `-4` and `2 ** -1` is `0.5`. Because `!` binds looser than a comparison,
+`!x is 3` means `!(x is 3)`; because it binds tighter than `and`, `!a and b` means `(!a) and b`.
 
-There is no `and`, `or`, `%`, `==`, `!=` or exponent operator. Combine conditions with nested `if`
-statements. Comparison does not chain: `1 < 2 < 3` compares the boolean `true` with `3` and is an
-error (`E4-005`).
+There is no `==` or `!=`; equality is `is` and `is not` (section 4.4). Comparison does not chain:
+`1 < 2 < 3` compares the boolean `true` with `3` and is an error (`E4-005`).
 
 ### 4.2 Arithmetic
 
-`*`, `/` and unary `-` need numbers. `/` always divides as floating point (`5 / 2` is `2.5`), and
-division by zero is an error (`E4-006`). `+` adds two numbers, concatenates two strings, or joins two
-lists into a new list. Any other combination, such as `"a" + 1`, is an error (`E4-005`); convert
-explicitly with `to_str` or `to_number`.
+`*`, `/`, `%`, `**` and unary `-` need numbers. `/` always divides as floating point (`5 / 2` is
+`2.5`), and division by zero is an error (`E4-006`). `+` adds two numbers, concatenates two strings, or
+joins two lists into a new list. Any other combination, such as `"a" + 1`, is an error (`E4-005`);
+convert explicitly with `to_str` or `to_number`.
+
+`%` is the remainder of a division and takes the sign of the divisor: `-7 % 3` is `2` and `7 % -3`
+is `-2`, so `x % n` stays from `0` up to `n` for a positive `n`. It is the operator form of
+`math_mod`. A remainder by zero is `E4-006`; one that is not a finite number is `E4-025`.
+
+`**` raises to a power, is the operator form of `math_pow`, and groups to the right: `2 ** 10` is
+`1024`, `9 ** 0.5` is `3` and `2 ** 3 ** 2` is `2 ** 9`. `0 ** -1` is `E4-006`; a negative base with a
+fractional exponent, or a result too large to represent, is `E4-025`.
+
+```cuff
+print(7 % 3, -7 % 3, 2 ** 10, 2 ** 3 ** 2, -2 ** 2)
+```
+
+```output
+1 2 1024 512 -4
+```
 
 ### 4.3 Comparison
 
@@ -263,9 +283,30 @@ if age is not 18 do: ... end                  note: equality; 18 is not a string
 A syntax error in a literal pattern is reported before the program runs; the escape rules for
 patterns that contain `\` are in `patterns.md`.
 
-### 4.5 Negation: `!`
+### 4.5 Logic: `!`, `and`, `or`
 
 `!x` is `true` when `x` is falsy. It applies to a whole comparison to its right.
+
+`a and b` is `true` when both operands are truthy, and `a or b` when at least one is. The operands may
+be of any type (section 2 lists what is falsy) and the result is always a `boolean`, never one of the
+operands. The right operand is evaluated only when the left one does not already decide the result:
+`and` stops at a falsy left operand and `or` at a truthy one, so `x is not 0 and 10 / x > 1` never
+divides by zero. `&&` and `||` are other spellings of `and` and `or`.
+
+```cuff
+set number age to 30
+if age >= 18 and age < 65 do:
+    print("working age")
+end
+print(age < 18 or age >= 65, !(age > 20) or age is 30)
+print(0 and 1 / 0, 7 or 1 / 0)
+```
+
+```output
+working age
+false true
+false true
+```
 
 ### 4.6 Indexing and slicing
 

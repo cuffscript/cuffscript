@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Value.h"
+#include "../common/Arithmetic.h"
 #include "../common/Attributes.h"
 #include "../common/Limits.h"
 #include "../common/Utf8.h"
@@ -932,6 +933,11 @@ namespace cuff
             throw DivisionByZeroError("division by zero", loc);
         }
 
+        [[noreturn]] CUFF_COLD static void throwModuloByZero(const SourceLocation &loc)
+        {
+            throw DivisionByZeroError("modulo by zero", loc);
+        }
+
         Value evalExpr(const Expr &expr, Environment &env)
         {
             guardStack(expr);
@@ -1108,6 +1114,11 @@ namespace cuff
                 case ExprKind::BinaryOp:
                 {
                     const BinaryOp &b = *std::get_if<BinaryOp>(&e.data);
+                    if (isLogical(b.op))
+                    {
+                        acc = evalLogical(b, acc, env);
+                        break;
+                    }
                     Value r = evalExpr(*b.right, env);
                     acc = applyBinaryOp(b, acc, r);
                     break;
@@ -1135,8 +1146,22 @@ namespace cuff
         Value evalBinaryOp(const BinaryOp &b, Environment &env)
         {
             Value l = evalExpr(*b.left, env);
+            if (isLogical(b.op))
+                return evalLogical(b, l, env);
             Value r = evalExpr(*b.right, env);
             return applyBinaryOp(b, l, r);
+        }
+
+        static bool isLogical(BinOp op) { return op == BinOp::And || op == BinOp::Or; }
+
+        // `and` / `or` take any value as an operand and give a boolean. The right operand is evaluated only when the
+        // left one does not already decide the result (false for `and`, true for `or`).
+        Value evalLogical(const BinaryOp &b, const Value &left, Environment &env)
+        {
+            const bool l = left.truthy();
+            if (l == (b.op == BinOp::Or))
+                return Value::makeBool(l);
+            return Value::makeBool(evalExpr(*b.right, env).truthy());
         }
 
         Value applyBinaryOp(const BinaryOp &b, const Value &l, const Value &r)
@@ -1156,6 +1181,13 @@ namespace cuff
                     if (y == 0.0)
                         throwDivisionByZero(b.loc);
                     return Value::makeNumber(x / y);
+                case BinOp::Mod:
+                    return Value::makeNumber(moduloOf(x, y, b.loc));
+                case BinOp::Pow:
+                    return Value::makeNumber(powerOf(x, y, b.loc));
+                case BinOp::And:
+                case BinOp::Or:
+                    break;
                 case BinOp::Is:
                 case BinOp::IsCase:
                     return Value::makeBool(x == y);
@@ -1215,6 +1247,13 @@ namespace cuff
                 throw TypeError("'*' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
             case BinOp::Div:
                 throw TypeError("'/' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
+            case BinOp::Mod:
+                throw TypeError("'%' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
+            case BinOp::Pow:
+                throw TypeError("'**' requires two numbers, got " + valueTypeName(l.type()) + " and " + valueTypeName(r.type()), b.loc);
+            case BinOp::And:
+            case BinOp::Or:
+                break;
 
             case BinOp::Is:
                 return Value::makeBool(valuesEqual(l, r, b.loc));
@@ -1232,6 +1271,34 @@ namespace cuff
                 return compareOrdered(b.op, l, r, b.loc);
             }
             throw InternalEngineError("unknown binary operator");
+        }
+
+        // `%` and `**` follow math_mod() and math_pow(): the same results and the same refusals.
+        CUFF_NOINLINE static double moduloOf(double x, double y, const SourceLocation &loc)
+        {
+            if (y == 0.0)
+                throwModuloByZero(loc);
+            const double r = arith::floorMod(x, y);
+            if (!std::isfinite(r))
+                throw ValueError("'%' result is not a finite number", loc);
+            return r;
+        }
+
+        CUFF_NOINLINE static double powerOf(double x, double y, const SourceLocation &loc)
+        {
+            double r = 0.0;
+            switch (arith::power(x, y, r))
+            {
+            case arith::PowStatus::ZeroToNegative:
+                throw DivisionByZeroError("'**' cannot raise 0 to a negative power (division by zero)", loc);
+            case arith::PowStatus::NegativeToFraction:
+                throw ValueError("'**' cannot raise a negative number to a fractional power", loc);
+            case arith::PowStatus::TooLarge:
+                throw ValueError("'**' result is too large to represent", loc);
+            case arith::PowStatus::Ok:
+                break;
+            }
+            return r;
         }
 
         static bool caseInsensitiveEquals(const Value &l, const Value &r, const SourceLocation &loc)

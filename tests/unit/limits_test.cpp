@@ -71,6 +71,8 @@ int main()
     expectError("nested match calls", "print(" + rep("await ", N) + "f())\n", "E2-008");
     expectError("index chain", "set list a to [1]\nprint(a" + rep("[1]", N) + ")\n", "E2-008");
     expectError("long binary chain", "print(" + rep("1+", 20000) + "1)\n", "E2-008");
+    expectError("power chain", "print(" + rep("2**", N) + "2)\n", "E2-008");
+    expectError("long logical chain", "print(" + rep("true and ", 20000) + "true)\n", "E2-008");
 
     expectOk("100 nested parens", "set number x to " + rep("(", 100) + "1" + rep(")", 100) + "\n");
     expectOk("100 nested lists", "set list x to " + rep("[", 100) + rep("]", 100) + "\n");
@@ -80,6 +82,7 @@ int main()
     expectError("700 nested parens exceeds the raised 512 ceiling", "print(" + rep("(", 700) + "1" + rep(")", 700) + ")\n", "E2-008");
     expectOk("500-term chain", "set number x to " + rep("1+", 500) + "1\n");
     expectOk("1500-term chain", "set number x to " + rep("1+", 1500) + "1\n");
+    expectOk("500-term logical chain", "set boolean x to " + rep("true and ", 500) + "true\n");
 
     expectError("huge number literal", "print(1" + rep("0", 400) + ")\n", "E1-003");
     expectError("source too large", std::string(cuff::limits::kMaxSourceBytes + 1, ' '), "E2-009");
@@ -228,6 +231,35 @@ int main()
         tooLong += "\n";
         r = CuffEngine::execute(tooLong, ".", small);
         check(!r.success && r.error.find("[E2-008]") != std::string::npos, "a chain past kMaxExprHeight is E2-008: " + r.error.substr(0, 120));
+    }
+
+    // `and` / `or` chains take the same iterative path, and stop evaluating once the result is decided: the
+    // operands that would fail are never reached.
+    {
+        const int terms = static_cast<int>(cuff::limits::kMaxExprHeight) - 10;
+        CuffEngine::Options small;
+        small.stackBudgetBytes = 512 * 1024;
+
+        std::string andChain = "set boolean r to true";
+        for (int i = 1; i < terms; ++i)
+            andChain += " and true";
+        andChain += "\nif !r do:\n    set number z to 1 / 0\nend\n";
+        auto r = CuffEngine::execute(andChain, ".", small);
+        check(r.success, "an 'and' chain of " + std::to_string(terms) + " terms evaluates under a 512 KiB budget: " + r.error.substr(0, 200));
+
+        std::string orChain = "set boolean r to true";
+        for (int i = 1; i < terms; ++i)
+            orChain += " or 1 / 0 is 1";
+        orChain += "\nif !r do:\n    set number z to 1 / 0\nend\n";
+        r = CuffEngine::execute(orChain, ".", small);
+        check(r.success, "an 'or' chain stops at the first true operand: " + r.error.substr(0, 200));
+
+        std::string andFalse = "set boolean r to false";
+        for (int i = 1; i < terms; ++i)
+            andFalse += " and 1 / 0 is 1";
+        andFalse += "\nif r do:\n    set number z to 1 / 0\nend\n";
+        r = CuffEngine::execute(andFalse, ".", small);
+        check(r.success, "an 'and' chain stops at the first false operand: " + r.error.substr(0, 200));
     }
 
     // The evaluation order of a long chain is the same as that of the recursive form: left to right, and a

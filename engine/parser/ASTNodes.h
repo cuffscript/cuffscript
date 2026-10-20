@@ -97,6 +97,10 @@ namespace cuff
         Sub,
         Mul,
         Div,
+        Mod,
+        Pow,
+        And,
+        Or,
         Is,
         IsCase,
         IsNot,
@@ -121,6 +125,10 @@ namespace cuff
         case BinOp::Sub: return "-";
         case BinOp::Mul: return "*";
         case BinOp::Div: return "/";
+        case BinOp::Mod: return "%";
+        case BinOp::Pow: return "**";
+        case BinOp::And: return "and";
+        case BinOp::Or: return "or";
         case BinOp::Is: return "is";
         case BinOp::IsCase: return "IS";
         case BinOp::IsNot: return "is not";

@@ -84,7 +84,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e4-003"></a>`E4-003` | A constant that is changed after it was created. | yes |
 | <a id="e4-004"></a>`E4-004` | A constant whose name is not all uppercase letters, digits and underscores. | yes |
 | <a id="e4-005"></a>`E4-005` | A value of the wrong type for an operation. | yes |
-| <a id="e4-006"></a>`E4-006` | Division by zero. | yes |
+| <a id="e4-006"></a>`E4-006` | Division or remainder by zero, or zero to a negative power. | yes |
 | <a id="e4-007"></a>`E4-007` | Position 0, which does not exist (positions start at 1). | yes |
 | <a id="e4-008"></a>`E4-008` | A position outside a list, string or slice. | yes |
 | <a id="e4-009"></a>`E4-009` | A map key that is not present. | yes |
@@ -103,7 +103,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e4-022"></a>`E4-022` | `return` outside any function. | yes |
 | <a id="e4-023"></a>`E4-023` | `stop` outside any loop. | yes |
 | <a id="e4-024"></a>`E4-024` | A position or range bound that is not a whole number. | yes |
-| <a id="e4-025"></a>`E4-025` | An argument of the right type but a value the function does not accept. | yes |
+| <a id="e4-025"></a>`E4-025` | An argument of the right type but a value the function or operator does not accept. | yes |
 | <a id="e4-026"></a>`E4-026` | A string, list, map or `async` queue larger than its limit. | yes |
 | <a id="e4-027"></a>`E4-027` | A `pure` function that reaches a global variable. | yes |
 | <a id="e4-028"></a>`E4-028` | A network request that failed, timed out, or targeted a blocked address. | yes |

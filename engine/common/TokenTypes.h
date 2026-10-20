@@ -17,6 +17,8 @@ namespace cuff
         MINUS,  // -
         STAR,  // *
         SLASH,  // /
+        PERCENT,  // %
+        POWER,  // **
         GE,  // >=
         LE,  // <=
         GT,  // >
@@ -69,6 +71,8 @@ namespace cuff
         OR_ELSE,
         GLOBAL,
         NOT,
+        AND,  // and, &&
+        OR,  // or, ||
         FIND,
         SPLIT,
         COUNT,
@@ -110,6 +114,10 @@ namespace cuff
             return "*";
         case TokenType::SLASH:
             return "/";
+        case TokenType::PERCENT:
+            return "%";
+        case TokenType::POWER:
+            return "**";
         case TokenType::GE:
             return ">=";
         case TokenType::LE:
@@ -208,6 +216,10 @@ namespace cuff
             return "global";
         case TokenType::NOT:
             return "not";
+        case TokenType::AND:
+            return "and";
+        case TokenType::OR:
+            return "or";
         case TokenType::FIND:
             return "find";
         case TokenType::SPLIT:

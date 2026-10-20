@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DLCCommon.h"
+#include "../common/Arithmetic.h"
 
 #include <cmath>
 
@@ -37,13 +38,18 @@ namespace cuff
             expectArgCount("math_pow", args, 2, loc);
             double base = expectNumber("math_pow", args, 0, loc);
             double exponent = expectNumber("math_pow", args, 1, loc);
-            if (base == 0.0 && exponent < 0)
+            double r = 0.0;
+            switch (arith::power(base, exponent, r))
+            {
+            case arith::PowStatus::ZeroToNegative:
                 throw DivisionByZeroError("math_pow() cannot raise 0 to a negative power (division by zero)", loc);
-            if (base < 0 && exponent != std::floor(exponent))
+            case arith::PowStatus::NegativeToFraction:
                 throw ValueError("math_pow() cannot raise a negative number to a fractional power", loc);
-            double r = std::pow(base, exponent);
-            if (std::isfinite(base) && std::isfinite(exponent) && !std::isfinite(r))
+            case arith::PowStatus::TooLarge:
                 throw ValueError("math_pow() result is too large to represent", loc);
+            case arith::PowStatus::Ok:
+                break;
+            }
             return Value::makeNumber(r);
         };
         reg["math_round"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
@@ -144,10 +150,7 @@ namespace cuff
             double b = expectNumber("math_mod", args, 1, loc);
             if (b == 0.0)
                 throw DivisionByZeroError("math_mod() cannot divide by zero", loc);
-            double r = std::fmod(a, b);
-            if (r != 0.0 && ((r < 0) != (b < 0)))
-                r += b;
-            return Value::makeNumber(checkedResult("math_mod", r, "result is not a finite number", loc));
+            return Value::makeNumber(checkedResult("math_mod", arith::floorMod(a, b), "result is not a finite number", loc));
         };
 
         reg["math_log"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value

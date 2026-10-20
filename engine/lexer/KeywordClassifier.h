@@ -41,6 +41,8 @@ namespace cuff
             {"or_else", TokenType::OR_ELSE},
             {"global", TokenType::GLOBAL},
             {"not", TokenType::NOT},
+            {"and", TokenType::AND},
+            {"or", TokenType::OR},
             {"find", TokenType::FIND},
             {"split", TokenType::SPLIT},
             {"count", TokenType::COUNT},

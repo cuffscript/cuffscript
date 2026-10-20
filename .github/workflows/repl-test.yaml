@@ -9,6 +9,7 @@ name: REPL Build and Test
             - "engine/**"
             - "main.cpp"
             - "Makefile"
+            - "Makefile.win"
             - ".github/workflows/repl-test.yaml"
     pull_request:
         paths:
@@ -16,6 +17,7 @@ name: REPL Build and Test
             - "engine/**"
             - "main.cpp"
             - "Makefile"
+            - "Makefile.win"
             - ".github/workflows/repl-test.yaml"
 
 permissions:
@@ -74,3 +76,47 @@ jobs:
                 shell: bash
                 working-directory: cli
                 run: PYTHON=python ./tests/run_tests.sh
+
+    # The interactive suites need a POSIX pseudo-terminal, so on Windows the native checks run: piped scripts, error
+    # text, UTF-8 and Korean paths, the flags, the limits, and cuffsh compared with cuffc over every shipped script.
+    repl-test-windows:
+        runs-on: windows-latest
+        timeout-minutes: 30
+
+        steps:
+            -   name: Checkout code
+                uses: actions/checkout@v4
+
+            -   name: Install MinGW-w64
+                id: msys2
+                uses: msys2/setup-msys2@v2
+                with:
+                    msystem: MINGW64
+                    update: false
+                    install: >-
+                        mingw-w64-x86_64-gcc
+                        mingw-w64-x86_64-make
+
+            -   name: Put the MinGW tools on PATH
+                shell: pwsh
+                run: Add-Content -Path $env:GITHUB_PATH -Value "${{ steps.msys2.outputs.msys2-location }}\mingw64\bin"
+
+            -   name: Show tool versions
+                shell: pwsh
+                run: |
+                    g++ --version | Select-Object -First 1
+                    mingw32-make --version | Select-Object -First 1
+                    $PSVersionTable.PSVersion.ToString()
+
+            # run_tests.ps1 compares cuffsh's output with cuffc.exe and skips that check when cuffc has not been built.
+            -   name: Build cuffc
+                shell: pwsh
+                run: mingw32-make -f Makefile.win
+
+            -   name: Build cuffsh
+                shell: cmd
+                run: cli\build.bat
+
+            -   name: Test cuffsh
+                shell: pwsh
+                run: ./cli/tests/run_tests.ps1 -Suite native -NoChecklist
