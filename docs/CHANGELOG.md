@@ -1,3 +1,25 @@
+## v3.5.0 - 2026-10-20
+
+## Description
+
+- **New: `and` and `or`.** `a and b` and `a or b` combine conditions, and `&&` and `||` are other spellings of them. The operands can be of any type (the usual falsy values apply) and the result is always a `boolean`. The right operand is evaluated only when the left one does not already decide the result, so `x is not 0 and 10 / x > 1` never divides by zero; a chain of hundreds of operands stops early too. They bind looser than `!`, which binds looser than a comparison, so `!x is 3` still means `!(x is 3)`.
+
+- **New: `%` and `**`.** `%` is the remainder of a division and takes the sign of the divisor, like `math_mod` (`-7 % 3` is `2`). `**` raises to a power, groups to the right and binds tighter than a unary minus on its left (`-2 ** 2` is `-4`, `2 ** 3 ** 2` is `512`), like `math_pow`. Both operators and both functions now run the same code (`engine/common/Arithmetic.h`), so results and refusals agree: a remainder by zero and `0 ** -1` are `E4-006`, a negative base with a fractional exponent or a result too large to represent is `E4-025`, and a non-number operand is `E4-005`.
+
+- **Behavior change: `and` and `or` are reserved words.** A program that used either as the name of a variable, function or parameter must rename it. A lone `&` or `|` is a syntax error that names the doubled spelling (`&&`, `||`), as `=` names `to`. `==` and `!=` are still not operators; equality is `is` and `is not`.
+
+- **Fixed: on Windows, an error thrown inside a function crashed `cuffc.exe` built with GCC at `-O2 -flto` or `-O3 -flto`.** Every error report from inside a function and every `or_else` around a failing call ended in an access violation (14 tests of the Windows job). `stackPointer()` used `__builtin_frame_address`, which gives the functions that inline it a frame pointer; GCC then describes the saved `xmm6`-`xmm15` of such a frame wrongly to the Windows exception unwinder, so an exception passing through it returned those callee-saved registers corrupted to the catching function. On Windows the engine now takes the address of a local variable instead, and the build flags are unchanged. The cause was found by reproducing the failure with a MinGW cross compiler under Wine; the design notes describe it.
+
+- **Fixed: `cli/tests/run_tests.ps1` skipped the comparison of `cuffsh` with `cuffc` on Linux and macOS, and failed the interactive suites on Windows.** The folders it compares were written with backslashes, so PowerShell 7 outside Windows found none of them. The interactive suites drive a POSIX pseudo-terminal (`pty`, `termios`, signals) that Windows does not have; they are now reported as not applicable there instead of failing, and the unused `pywinpty` requirement is gone.
+
+- **New: the shell workflow runs on Windows.** `repl-test.yaml` builds `cuffc.exe` and `cuffsh.exe` with MSYS2's MinGW-w64 and runs the native checks of `run_tests.ps1` (piped scripts, error text, Korean paths, flags, limits, and `cuffsh` against `cuffc` over every shipped script). It also runs when `Makefile.win` changes.
+
+- **Fixed: `tests/run.sh` ignored `CXX`.** The unit tests were always built with `g++`, although the documentation lists `CXX`; it is honoured now. The unit-test binaries are built in a private temporary directory instead of fixed names in `/tmp`, so two runs no longer overwrite each other. `*.sh` files are checked out with LF line endings on every platform.
+
+- **Tests and documentation.** New cases for `%`, `**`, `and`, `or`, short-circuit evaluation and the precedence of all of them, error cases for each refusal and for a lone `&` or `|`, and unit tests that run long `and` / `or` / `**` chains under a small stack. The language reference (precedence table, arithmetic, logic, reserved words), the tour, the `math` page and the error descriptions of `E4-006` and `E4-025` describe the new operators; the design notes record the decisions (items 44 and 45).
+
+---
+
 ## v3.4.0 - 2026-10-14
 
 ## Description
