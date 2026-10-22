@@ -26,41 +26,57 @@ namespace cuff
     class ExpressionParser
     {
     public:
+        // Nodes are built in functions of their own, so that the temporaries of a node stay out of the frames of the
+        // parse functions: every nesting level of the program passes through all of them, and the stack the parser
+        // may use is budgeted per level (limits::kParseStackBytesPerLevel).
+        CUFF_NOINLINE static std::unique_ptr<Expr> binary(BinOp op, std::unique_ptr<Expr> left,
+                                                          std::unique_ptr<Expr> right, const SourceLocation &loc)
+        {
+            return std::make_unique<Expr>(ExprKind::BinaryOp, BinaryOp(op, std::move(left), std::move(right), loc));
+        }
+
+        CUFF_NOINLINE static std::unique_ptr<Expr> unary(UnOp op, std::unique_ptr<Expr> operand, const SourceLocation &loc)
+        {
+            return std::make_unique<Expr>(ExprKind::UnaryOp, UnaryOp(op, std::move(operand), loc));
+        }
+
+        // The common case, an expression without `or` or `and`, passes through here with a frame of a few words; the
+        // operators are handled in a function of their own that is on the stack only when they occur.
         static std::unique_ptr<Expr> parse(ParserCore &p)
         {
-            return parseOr(p);
+            auto first = parseLogicalNot(p);
+            if (!p.check(TokenType::AND) && !p.check(TokenType::OR))
+                return first;
+            return parseLogicalRest(p, std::move(first));
         }
 
-        static std::unique_ptr<Expr> parseOr(ParserCore &p)
+        CUFF_NOINLINE static std::unique_ptr<Expr> parseLogicalRest(ParserCore &p, std::unique_ptr<Expr> first)
         {
-            auto left = parseAnd(p);
+            std::unique_ptr<Expr> disjunction;
+            SourceLocation orLoc;
+            auto conjunction = std::move(first);
 
-            while (p.check(TokenType::OR))
+            for (;;)
             {
-                SourceLocation loc = p.current().location;
+                while (p.check(TokenType::AND))
+                {
+                    SourceLocation loc = p.current().location;
+                    p.advance();
+                    auto right = parseLogicalNot(p);
+                    conjunction = binary(BinOp::And, std::move(conjunction), std::move(right), loc);
+                }
+
+                if (disjunction)
+                    disjunction = binary(BinOp::Or, std::move(disjunction), std::move(conjunction), orLoc);
+                else
+                    disjunction = std::move(conjunction);
+
+                if (!p.check(TokenType::OR))
+                    return disjunction;
+                orLoc = p.current().location;
                 p.advance();
-                auto right = parseAnd(p);
-                left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                              BinaryOp(BinOp::Or, std::move(left), std::move(right), loc));
+                conjunction = parseLogicalNot(p);
             }
-
-            return left;
-        }
-
-        static std::unique_ptr<Expr> parseAnd(ParserCore &p)
-        {
-            auto left = parseLogicalNot(p);
-
-            while (p.check(TokenType::AND))
-            {
-                SourceLocation loc = p.current().location;
-                p.advance();
-                auto right = parseLogicalNot(p);
-                left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                              BinaryOp(BinOp::And, std::move(left), std::move(right), loc));
-            }
-
-            return left;
         }
 
         static std::unique_ptr<Expr> parseLogicalNot(ParserCore &p)
@@ -71,8 +87,7 @@ namespace cuff
                 ParseDepthScope depth(loc);
                 p.advance();
                 auto operand = parseLogicalNot(p);
-                return std::make_unique<Expr>(ExprKind::UnaryOp,
-                                              UnaryOp(UnOp::Not, std::move(operand), loc));
+                return unary(UnOp::Not, std::move(operand), loc);
             }
             return parseComparison(p);
         }
@@ -127,8 +142,7 @@ namespace cuff
                 }
                 else
                 {
-                    left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                                  BinaryOp(binOp, std::move(left), std::move(right), loc));
+                    left = binary(binOp, std::move(left), std::move(right), loc);
                 }
             }
 
@@ -145,8 +159,7 @@ namespace cuff
                 SourceLocation loc = p.current().location;
                 p.advance();
                 auto right = parseMultiplicative(p);
-                left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                              BinaryOp(op, std::move(left), std::move(right), loc));
+                left = binary(op, std::move(left), std::move(right), loc);
             }
 
             return left;
@@ -162,8 +175,7 @@ namespace cuff
                 SourceLocation loc = p.current().location;
                 p.advance();
                 auto right = parseUnary(p);
-                left = std::make_unique<Expr>(ExprKind::BinaryOp,
-                                              BinaryOp(op, std::move(left), std::move(right), loc));
+                left = binary(op, std::move(left), std::move(right), loc);
             }
 
             return left;
@@ -177,25 +189,24 @@ namespace cuff
                 ParseDepthScope depth(loc);
                 p.advance();
                 auto operand = parseUnary(p);
-                return std::make_unique<Expr>(ExprKind::UnaryOp,
-                                              UnaryOp(UnOp::Negate, std::move(operand), loc));
+                return unary(UnOp::Negate, std::move(operand), loc);
             }
-            return parsePower(p);
+
+            auto base = parsePostfixExpr(p);
+            if (!p.check(TokenType::POWER))
+                return base;
+            return parsePowerRest(p, std::move(base));
         }
 
         // `**` binds tighter than a unary minus on its left (-2 ** 2 is -4), takes a unary operand on its right
         // (2 ** -1) and groups to the right (2 ** 3 ** 2 is 2 ** 9).
-        static std::unique_ptr<Expr> parsePower(ParserCore &p)
+        CUFF_NOINLINE static std::unique_ptr<Expr> parsePowerRest(ParserCore &p, std::unique_ptr<Expr> base)
         {
-            auto base = parsePostfixExpr(p);
-            if (!p.check(TokenType::POWER))
-                return base;
             SourceLocation loc = p.current().location;
             ParseDepthScope depth(loc);
             p.advance();
             auto exponent = parseUnary(p);
-            return std::make_unique<Expr>(ExprKind::BinaryOp,
-                                          BinaryOp(BinOp::Pow, std::move(base), std::move(exponent), loc));
+            return binary(BinOp::Pow, std::move(base), std::move(exponent), loc);
         }
 
         static std::unique_ptr<Expr> parsePostfixExpr(ParserCore &p)

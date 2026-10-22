@@ -1134,6 +1134,14 @@ rather than a second one.
   too large to represent is `E4-025`. `**` binds tighter than a unary `-` on its left (`-2 ** 2` is `-4`), takes a unary
   operand on its right (`2 ** -1`), and groups to the right. A long right-leaning chain is bounded by the parser's depth
   guard (`E2-008`) like a long run of `!`.
+- **The expression parser did not get deeper per nesting level.** Every level of nesting passes through each function of
+  the expression chain, and the parser's stack budget (`kParseStackBytesPerLevel`) was sized against the sanitizer builds,
+  where 512 nested parentheses used all of it. Giving `or`, `and` and `**` a function each cost about 1 KiB per level there
+  and `limits_test` (`480 nested parens`) failed. So they are parsed by functions that are on the stack only when the
+  operator occurs (`parseLogicalRest`, `parsePowerRest`), and nodes are built by two small functions (`binary`, `unary`)
+  that keep their temporaries out of the chain. The chain now takes less stack per level than before (4.3 KiB instead of
+  4.6 KiB under `-fsanitize=address,undefined`). A new level in this chain has to be measured the same way
+  (`-fstack-usage`).
 - **`==` and `!=` are still absent.** `is` already means equality, with a pattern test when a string literal stands on the
   right (`language.md` section 4.4). A second equality operator would either repeat that special case or silently differ
   from it, and `is` / `is not` read the same in every context.

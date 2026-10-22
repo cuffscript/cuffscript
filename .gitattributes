@@ -1,3 +1,4 @@
 * text=auto
+*.sh text eol=lf
 CHANGELOG.md -text
 Makefile.win linguist-language=Makefile
