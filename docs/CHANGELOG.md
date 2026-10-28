@@ -1,3 +1,27 @@
+## v3.5.1 - 2026-10-28
+
+## Description
+
+- **Fixed: `DLC:random` was not safe to use from several threads at once.** The generator is one per process and was shared without a lock, so two programs on different threads that called `random_int`, `random_float`, `random_choice`, `random_shuffle` or `random_seed` together could corrupt it (ThreadSanitizer reported a data race). Every use of the generator is now locked. Seeded sequences are the same as before, and a single program is not measurably slower.
+
+- **Behavior change: `input()` no longer returns the carriage return of a CRLF line on Linux and macOS.** A line that ended in `\r\n` was returned with a trailing `\r`, so `input() is "yes"` failed for input written on Windows, while Windows itself and `file_readlines` already dropped it. A program now reads the same text from a file written on any platform. A carriage return inside a line is kept.
+
+- **Behavior change: `cuffsh` exits with status 1 when a script it was given through a pipe or a redirect fails**, as `cuffc` does, and with 0 when the script ran. It used to exit with 0 either way, so a shell script or a CI job could not tell. An interactive session still ends with 0.
+
+- **Changed: the `User-Agent` of `DLC:network` is `CuffScript (+DLC:network)`.** It named version 1.7, which was never kept up to date. The error for an `https://` address points at the `DLC:network` page.
+
+- **Fixed: the usage text of `--no-network` and `--no-filesystem`** said they disable the `use` line. They switch the library off: `use` succeeds and every call raises `E5-005`. The usage text now says that.
+
+- **Fixed: examples and statements in the documentation that did not match the engine.** The pattern reference had examples that failed (`"<tag>[any]*</tag>"` is `E3-001`, because `<` begins a named capture; `set match ... to find ...` is `E4-020`) and one that could never run (`match` finding nothing gives `empty`, not an error). Besides those it now says what the engine does for `match` (it searches), unknown words in brackets (a set of letters), `|`, `~`, `<`, `>` and `]` in patterns, optional groups, flags per statement, and the exact shapes of `[int]`, `[float]`, `[email]`, `[phone]` and `[url]`. The language reference now says that `return` with a value outside a function is `E4-016`, that `length` and `contains` come with the string, list or map library and `index_of` with the string or list library only, that `set` requires its type, that a `repeat` range is never empty (`1 ~ 0` runs twice), that the target of `add` and `remove` is a plain name, how a constant map is protected, and how numbers are displayed. The library pages describe `to_number`, `str_pad_left`, `str_pad_right`, `list_range`, the JSON reader, the network client's redirects and the filesystem functions' failure values as they behave, and the module guide describes `use ... from` paths as they are resolved.
+
+- **Fixed: the error catalogue and other stale text.** The descriptions of `E2-009`, `E3-001`, `E3-004`, `E3-007`, `E3-009` and `E5-005` now match when the engine raises them. `SECURITY.md` named `get` and `post` instead of `network_get` and `network_post`, the extending guide and the design notes cited files and versions that do not exist, and the question issue template used `#` comments and commands that do not exist.
+
+- **Added: documentation.** An installation guide for Linux, macOS and Windows, a cookbook, a FAQ, the grammar of the language and of patterns, a glossary, a C++ API reference, a list of known limitations, a description of the continuous integration, a map of the source files, and `SUPPORT.md`. Every error code a program can raise is explained in the catalogue with an example that the documentation check runs, the pages of all ten libraries describe each function's arguments, edge cases and errors, and `examples/embedding` is a complete C++ program that hosts the engine. The documentation check runs 148 examples, up from 30. Bug report and feature request issue forms and a rewritten `CONTRIBUTING.md` complete the repository's community files.
+
+- **Added: tests.** `builtins_test.cpp` covers `input()` with LF and CRLF endings and the behaviour of `DLC:random`; the threads test now draws random numbers on every thread; the shell tests check the exit status of piped scripts.
+
+---
+
 ## v3.5.0 - 2026-10-20
 
 ## Description
