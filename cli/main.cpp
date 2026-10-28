@@ -127,6 +127,5 @@ int main(int argc, char **argv)
 
     cuff::cli::Terminal term;
     cuff::cli::Repl repl(term, options);
-    repl.run();
-    return 0;
+    return repl.run();
 }

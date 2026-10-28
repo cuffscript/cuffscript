@@ -68,8 +68,8 @@ The report names the file and line where the error happened, but not who called 
 
 ## Recovering with `or_else`
 
-Errors in the runtime, pattern-matching and module categories can be caught. Put an `or_else` block after the
-statement that may fail:
+Errors raised while the program runs can be caught: the run-time errors (`E4-`), the module and sandbox errors (`E5-`) and the errors a pattern raises
+while matching (`E3-1`). Put an `or_else` block after the statement that may fail:
 
 ```cuff
 set number port to to_number("80a") or_else do:
@@ -85,7 +85,8 @@ port is not a number, using 80
 ```
 
 The handler runs in its own scope, what the statement did before failing stays done, and an error inside the handler
-is not caught by the same `or_else`. Syntax errors and resource-limit errors cannot be caught. The full rules are in
+is not caught by the same `or_else`. Syntax errors (`E1-`, `E2-`), errors in the syntax of a pattern (`E3-0`) and resource-limit errors (`E6-`) cannot be caught: they
+mean the program or its budget has to change. The last column of the [catalogue](../reference/errors.md) says which codes can be caught. The full rules are in
 the [language reference](../reference/language.md#8-errors-and-or_else).
 
 An error can also be *prevented*: check `length` before indexing, `map_has_key` before reading a key, and
@@ -99,10 +100,22 @@ An error can also be *prevented*: check `length` before indexing, `map_has_key` 
 | [`E4-001`](../reference/errors.md#e4-001) | A variable that does not exist (yet). | Check the spelling, and that it was declared with `set` before this line, in a scope that can see it. |
 | [`E4-002`](../reference/errors.md#e4-002) | A function that does not exist. | A library function needs its `use DLC:...` line first. |
 | [`E4-005`](../reference/errors.md#e4-005) | A value of the wrong type, such as `"a" + 1`. | Convert explicitly with `to_str` or `to_number`. |
+| [`E4-003`](../reference/errors.md#e4-003) | A change to a constant, or to a read-only list. | Use `set` for a value that changes; make a copy of a constant list with `+ []` before changing it. |
+| [`E4-004`](../reference/errors.md#e4-004) | A constant whose name is not in capitals. | Write the name in capitals, digits and underscores: `MAX_USERS`. |
 | [`E4-006`](../reference/errors.md#e4-006) | Division or remainder by zero, or zero to a negative power. | Test the divisor first. |
+| [`E4-007`](../reference/errors.md#e4-007) | Position `0`. | Positions start at 1; the last element is `-1`. |
 | [`E4-008`](../reference/errors.md#e4-008) | A position outside a list or string. | Positions run from 1 to the length, or from -1 (the last) backwards. |
+| [`E4-009`](../reference/errors.md#e4-009) | A map key that is not there. | Test with `map_has_key` first, or recover with `or_else`. |
 | [`E4-010`](../reference/errors.md#e4-010) | The wrong number of arguments. | Compare the call with the function's parameters. |
+| [`E4-016`](../reference/errors.md#e4-016) | `return` with a value in a function that is not `returnable`, or at the top level. | Declare it `set returnable func`. |
 | [`E4-017`](../reference/errors.md#e4-017) | Recursion that went too deep. | Make sure the recursion has a base case. |
+| [`E4-020`](../reference/errors.md#e4-020) | The value does not have the type `set` declared. | Declare the type the value really has: `find` gives a `str`, `match` gives a `match`. |
+| [`E4-024`](../reference/errors.md#e4-024) | A position or count that is not a whole number, such as `list[1.5]`. | Round it first with `math_floor` or `math_round`. |
+| [`E4-025`](../reference/errors.md#e4-025) | A value of the right type that a function does not accept, such as `to_number("abc")` or `math_sqrt(-1)`. | Check the value first, or recover with `or_else`. |
+| [`E4-028`](../reference/errors.md#e4-028) | A network request that could not be completed. | The message says why (blocked address, no TLS, timeout). Catch it with `or_else`. |
+| [`E5-001`](../reference/errors.md#e5-001) | A module file that cannot be found. | `use name from ./dir` loads `./dir/name.cuff`, relative to the script. |
+| [`E5-005`](../reference/errors.md#e5-005) | A call into `DLC:network` or `DLC:filesystem` that the host switched off. | Run without `--no-network` or `--no-filesystem`, or do not call the library. |
+| [`E3-001`](../reference/errors.md#e3-001) | A pattern with an unclosed `(`, or with a `<` that is not a named capture. | Close it, or escape the character as `\<` or `\(`. |
 | [`E6-001`](../reference/errors.md#e6-001), [`E6-002`](../reference/errors.md#e6-002) | The run used up `--max-steps` or `--timeout`. | Look for a loop that never ends, or raise the budget. |
 
 ## Finding a bug
@@ -114,6 +127,7 @@ An error can also be *prevented*: check `length` before indexing, `map_has_key` 
   broken program ends with a report instead of hanging.
 - **Try a piece in the shell.** [`cuffsh`](../reference/cuffsh.md) keeps what you declared, so you can call a
   function with different arguments until it misbehaves. `:load file.cuff` runs a file in the session.
+- **Check the type.** Many surprises are a value that is not what you think: `print(type_of(x))`. A `number` and a `str` are never equal, and `"5" + 1` is an error.
 - **Reduce it.** Delete lines until the error stops, then put back the last one. A short program that shows the
   error is also what a bug report needs.
 

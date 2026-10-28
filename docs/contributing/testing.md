@@ -45,14 +45,18 @@ normalises line endings and links the unit tests the way `Makefile.win` does.
 | `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which file it is drawn from, and that a reported line and column always agree with the offset. |
 | `limits_test.cpp` | The limits and how they relate: long chains, the stack plan, a small real thread stack. |
 | `dlc_guards_test.cpp` | The network and filesystem guards. |
-| `threads_test.cpp` | One `Session` per thread, with nothing unsynchronised shared. |
+| `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
 
 ## The shell suite
 
 ```sh
-python3 -m pip install -r cli/tests/requirements.txt
-cli/tests/run_tests.sh [path/to/cuffsh] [--fuzz N]
+python3 -m venv .venv                                    # once; .venv/ is ignored by git
+.venv/bin/pip install -r cli/tests/requirements.txt      # once
+PYTHON=.venv/bin/python cli/tests/run_tests.sh [path/to/cuffsh] [--fuzz N]
 ```
+
+A virtual environment is the portable way to install the two packages: Debian, Ubuntu and Homebrew mark their system Python as externally managed, and `pip install` into it is refused. With
+the packages installed some other way, plain `cli/tests/run_tests.sh` is enough.
 
 On Windows the same entry point is `powershell -File cli\tests\run_tests.ps1` (also PowerShell 7 on Linux and macOS). It
 has two parts. The **native checks** need nothing but PowerShell and run everywhere: piped scripts, error text identical to

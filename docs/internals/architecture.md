@@ -65,9 +65,12 @@ repository).
   the module sources. A `Session` keeps one interpreter for as long as it lasts.
 - Values are small tagged unions. Strings are shared and immutable; lists and maps are shared and mutable, which is why
   assigning one to a second name shares it.
-- The one piece of process-wide state is the table that turns identifier names into numbers (`NameInterner`). It is
-  locked, so one `Session` per thread needs no further care. The rest is per `Session`, or per-thread bookkeeping of how
-  much stack is left.
+- Two pieces of state are process-wide, and both are locked: the table that turns identifier names into numbers
+  (`NameInterner`), and the random generator behind [`DLC:random`](../reference/dlc/random.md), which is one generator per
+  process, so `random_seed` in one `Session` changes the sequence every other `Session` sees. One `Session` per thread therefore
+  needs no further care. The rest is per `Session`, or per-thread bookkeeping of how much stack is left.
+- A `Session` keeps every program it has run alive for as long as it lasts, because the interpreter holds pointers to the functions
+  inside them. A long-lived `Session` therefore grows with the amount of code it has run, until `reset()` starts it again.
 
 ## Related reading
 

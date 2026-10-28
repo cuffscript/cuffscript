@@ -38,7 +38,20 @@ into `mod.FS` (e.g. `mod.FS.mkdirTree("/project/lib")`,
 `mod.FS.writeFile("/project/lib/foo.cuff", "...")`) before calling `cuffRun`,
 then pass the entry file's directory as `scriptDir`.
 
-Full API surface: see `dist/cuffscript.d.ts`.
+## API
+
+| Member | What it does |
+| :--- | :--- |
+| `mod.cuffRun(source, scriptDir)` | Parses and runs the program. `scriptDir` is the directory in the virtual file system that `use <name> from <path>` is resolved against. Returns `{ success, error }`; on failure `error` is the complete report, with the source line and a caret. |
+| `mod.cuffDump(source)` | Parses without running and writes the token and syntax-tree dump through `print`. Returns `{ success, error }`. |
+| `mod.FS` | Emscripten's virtual file system, for the files of a multi-file project. |
+
+The module configuration takes `print` (called once per line a program prints), `printErr`, `stdin` (called once per byte that `input()` reads; return a byte from 0 to 255, or `null` at the end of the input) and `locateFile` (to fetch the `.wasm` file from somewhere else). Full types: `dist/cuffscript.d.ts`.
+
+## Limits of the browser build
+
+The module runs a program with the engine's default options: no step or time budget, and every library enabled. A browser cannot make ordinary network connections, so `DLC:network` is not usable there. Memory is capped by the build flags in the repository's `Makefile`.
+A page that runs code it did not write should run the module in a Web Worker that it can terminate. [Embedding the engine](https://github.com/cuffscript/cuffscript/blob/main/docs/guide/embedding.md#webassembly-and-npm) says more.
 
 ## Rebuilding
 

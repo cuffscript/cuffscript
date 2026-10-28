@@ -181,6 +181,11 @@ check(
     r.stderr.startswith(b"ERROR: [E4-006]"),
     r.stderr,
 )
+check("piped stdin: a failing script exits 1", r.returncode == 1, r.returncode)
+r_syntax = subprocess.run([BIN], input=b"print(1 +", capture_output=True)
+check("piped stdin: a script with a syntax error exits 1", r_syntax.returncode == 1, r_syntax.returncode)
+r_ok = subprocess.run([BIN], input=b"print(1)\n", capture_output=True)
+check("piped stdin: a script that runs exits 0", r_ok.returncode == 0, r_ok.returncode)
 cuffc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "cuffc")
 if os.path.exists(cuffc):
     rc = subprocess.run([cuffc], input=b"print(1/0)\n", capture_output=True)
@@ -188,6 +193,11 @@ if os.path.exists(cuffc):
         "piped error text identical to cuffc's own output",
         rc.stderr == r.stderr,
         (rc.stderr, r.stderr),
+    )
+    check(
+        "piped exit status identical to cuffc's own",
+        rc.returncode == r.returncode,
+        (rc.returncode, r.returncode),
     )
 ae = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),

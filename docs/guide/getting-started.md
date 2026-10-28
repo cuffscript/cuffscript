@@ -1,6 +1,6 @@
 # Getting started
 
-This page takes you from nothing to running your first CuffScript program. It needs about five minutes.
+This page takes you from nothing to running your first CuffScript program. It needs about five minutes. If the build below does not work on your machine, [Installation](installation.md) covers each platform in more detail.
 
 ## What you need
 
@@ -59,7 +59,7 @@ Hello, World!
 Line by line:
 
 - `set str name to "World"` declares a variable. `set` is followed by a type (`number`, `str`, `boolean`, `list`,
-  `map`), the name, the word `to`, and the value. The word is `to`, never `=`.
+  `map`), the name, the word `to`, and the value. The type is required, and the word is `to`, never `=`.
 - `set returnable func greet(person) do:` starts a function that gives a value back. A block ends with `end`, and
   the body is indented.
 - `f"Hello, {person}!"` is an f-string: whatever is inside the braces is evaluated and inserted.
@@ -92,6 +92,7 @@ ERROR: [E4-006] Runtime Error at line 2, column 9: division by zero
 ## Where to go next
 
 - [A tour of the language](language-tour.md) covers everything in the language, with examples you can run.
+- [The cookbook](cookbook.md) has short recipes for common jobs, and the [FAQ](faq.md) answers the questions beginners ask first.
 - [The language reference](../reference/language.md) is the complete definition.
 - [`examples/`](../../examples/README.md) holds runnable programs, each with its expected output.
 - [Libraries](../reference/dlc/README.md) lists what `use DLC:math` and friends provide.

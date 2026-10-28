@@ -56,36 +56,41 @@ namespace cuff::cli
 
         // Runs a .cuff file in the current session, exactly the way cuffc runs
         // a script. Used for the startup file and for ':load'. Never throws.
-        void loadFile(const std::string &pathUtf8)
+        // Returns whether the file was read and ran without an error.
+        bool loadFile(const std::string &pathUtf8)
         {
             std::string source, ioError;
             if (!platform::readFile(pathUtf8, cuff::limits::kMaxSourceBytes, source, ioError))
             {
                 printShellError("Cannot open file '" + text::sanitize(pathUtf8) + "' (" + ioError + ")");
-                return;
+                return false;
             }
             if (source.size() > cuff::limits::kMaxSourceBytes)
             {
                 printShellError("File is too large (limit " + cuff::limits::formatBytes(cuff::limits::kMaxSourceBytes) + ")");
-                return;
+                return false;
             }
-            executeSource(source, platform::parentDirectory(pathUtf8));
+            return executeSource(source, platform::parentDirectory(pathUtf8));
         }
 
-        void run()
+        // The process exit status: an interactive session always ends with 0, and a
+        // session fed from a pipe or a file ends with 1 when the startup file or the
+        // script it ran failed, like cuffc.
+        int run()
         {
             const bool interactive = term_.inputIsTerminal();
             // The logo goes first, before anything the startup file prints.
             if (interactive && opts_.showBanner)
                 printBanner();
 
+            bool ok = true;
             if (!opts_.startupFile.empty())
-                loadFile(opts_.startupFile);
+                ok = loadFile(opts_.startupFile);
 
             if (!interactive)
             {
-                runNonInteractive();
-                return;
+                ok = runNonInteractive() && ok;
+                return ok ? 0 : 1;
             }
 
             LineEditor editor(term_);
@@ -111,6 +116,7 @@ namespace cuff::cli
 
                 executeSource(entry, scriptDir_);
             }
+            return 0;
         }
 
     private:
@@ -122,25 +128,25 @@ namespace cuff::cli
         // stdin isn't a terminal (piped or redirected): there is no prompt and
         // no Shift+Enter to press, so the whole input is one script, exactly
         // like `cuffc` reading a script from stdin.
-        void runNonInteractive()
+        bool runNonInteractive()
         {
             std::string source;
             if (!platform::readAllStdin(cuff::limits::kMaxSourceBytes, source))
             {
                 printShellError("Failed to read stdin");
-                return;
+                return false;
             }
             if (source.size() > cuff::limits::kMaxSourceBytes)
             {
                 printShellError("Input is too large (limit " + cuff::limits::formatBytes(cuff::limits::kMaxSourceBytes) + ")");
-                return;
+                return false;
             }
-            executeSource(source, scriptDir_);
+            return executeSource(source, scriptDir_);
         }
 
         // ---- execution -------------------------------------------------------
 
-        void executeSource(const std::string &source, const std::string &dir)
+        bool executeSource(const std::string &source, const std::string &dir)
         {
             cuff::Session::Outcome outcome;
             {
@@ -149,6 +155,7 @@ namespace cuff::cli
             }
             if (!outcome.success)
                 printEngineError(outcome.error);
+            return outcome.success;
         }
 
         // Matches cuffc's own error output ("ERROR: " + engine message). Only

@@ -32,10 +32,10 @@ Usage: cuffsh [options] [file.cuff]
   --root <dir>           allow 'use ... from' to load modules anywhere under <dir>
   --max-steps <n>        stop after <n> loop iterations + function calls (0 = unlimited)
   --timeout <ms>         stop after <ms> milliseconds of run time (0 = unlimited)
-  --no-network           disable 'use DLC:network' entirely
+  --no-network           switch DLC:network off (calls into it raise E5-005)
   --allow-private-network
                          let DLC:network reach loopback/private/link-local addresses
-  --no-filesystem        disable 'use DLC:filesystem' entirely
+  --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)
   --no-color             disable colored output
   --no-banner            skip the startup banner
   -h, --help             show this help and exit
@@ -59,8 +59,10 @@ closes the whole shell instead (see :help).
 | Shift+Enter, Alt+Enter | Insert a newline (multi-line code). |
 | Left, Right, Home, End, Delete, Backspace | Edit anywhere in the entry. |
 | Ctrl+A / E / K / U / W / L | Line start / end / kill to end / kill to start / delete word / clear screen. |
+| Ctrl+B / F, Ctrl+H | Left / right / backspace, as in a Unix shell. |
+| Ctrl+P / N | Up / down, as in a Unix shell. |
 | Ctrl+Left, Ctrl+Right, Alt+B, Alt+F | Move by word. |
-| Up, Down | Move between lines of a multi-line entry; at the first or last line, step through earlier entries. |
+| Up, Down | Move between lines of a multi-line entry; at the first or last line, step through earlier entries. The shell remembers the most recent entries of the session, and an entry identical to the one before it is stored once. |
 | Tab | Insert four spaces. |
 | Ctrl+C | Cancel the entry. |
 | Ctrl+D (Ctrl+Z on Windows) | Leave, when the prompt is empty. |
@@ -79,12 +81,14 @@ A line that starts with a colon is a command; it can never be valid CuffScript, 
 
 | Command | Does |
 | :--- | :--- |
-| `:help` | List the commands and keys. |
-| `:load <path>` | Run a file in the current session. |
-| `:reset` | Forget everything the session declared. |
-| `:clear` | Clear the screen. |
+| `:help`, `:h`, `:?` | List the commands and keys. |
+| `:load <path>` | Run a file in the current session. The path may be quoted. Without a path the shell answers `usage: :load <path>`. |
+| `:reset` | Forget everything the session declared; the shell answers `Session reset.` |
+| `:clear`, `:cls` | Clear the screen. |
 | `:version` | Show the version. |
-| `:exit`, `:quit` | Leave. |
+| `:exit`, `:quit`, `:q` | Leave. |
+
+Any other word after the colon is reported as `Unknown command` and the session is untouched.
 
 Functions may be redefined. Errors in a function that was declared in an earlier entry are shown against
 the entry that declared it, not against the one that called it.
@@ -93,7 +97,8 @@ the entry that declared it, not against the one that called it.
 
 If standard input is not a terminal (`echo ... | cuffsh`, `cuffsh < file`) there is no prompt: the whole input
 runs as one script, exactly as `cuffc` reads it from standard input, and an error is printed as `ERROR: ...`
-on standard error. If the terminal cannot do cursor movement (`TERM=dumb`, very old Windows consoles), a plain
+on standard error. The exit status is the one `cuffc` gives: 0 when the script ran, 1 when it failed. An interactive session
+always ends with 0. If the terminal cannot do cursor movement (`TERM=dumb`, very old Windows consoles), a plain
 line prompt is used instead, without Shift+Enter.
 
 ## Does Shift+Enter work in my terminal?

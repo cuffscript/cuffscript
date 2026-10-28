@@ -12,3 +12,5 @@ testfile.cuff
 *.log
 .DS_Store
 Thumbs.db
+
+/examples/embedding/host

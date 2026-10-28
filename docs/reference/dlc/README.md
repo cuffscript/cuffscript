@@ -22,7 +22,7 @@ Function names follow `library_verb`: `math_sqrt`, `str_upper`, `list_sort`. The
 ## The libraries
 
 <!-- BEGIN GENERATED: dlc-table -->
-_This table is generated from `the engine's library tables` by `tools/docs.py`. Change the source, then run `python3 tools/docs.py generate`._
+_This table is generated from the engine's library tables by `tools/docs.py`. Change the source, then run `python3 tools/docs.py generate`._
 
 | Library | Load it with | Functions | Reference |
 | :--- | :--- | ---: | :--- |
@@ -47,10 +47,14 @@ All functions are also listed together in the [function index](../functions.md).
   `E4-006`. All of these can be caught with `or_else`.
 - Functions return new values and never change their arguments. A list or map you pass in comes back unchanged.
 - Strings are measured and indexed in characters (Unicode code points), not bytes.
-- A library the host has switched off (`DLC:network`, `DLC:filesystem`) is refused with `E5-005`.
 
 ## Libraries that reach outside the program
 
 [`DLC:network`](network.md) and [`DLC:filesystem`](filesystem.md) touch the real world, so a host that runs
-scripts it did not write should switch them off (`--no-network`, `--no-filesystem`) or confine them. The
-[security policy](../../../SECURITY.md) explains what each one can do and what protects it.
+scripts it did not write should confine them or switch them off. The [security policy](../../../SECURITY.md) explains what each
+one can do and what protects it.
+
+A host switches a library off with `--no-network` or `--no-filesystem`, or with the matching engine options. `use DLC:network`
+and `use DLC:filesystem` still succeed, so a program loads the same way everywhere, and every call into a library that is
+switched off is refused with `E5-005`, before its arguments are looked at and before anything is sent or touched. The error can be
+caught with `or_else`.

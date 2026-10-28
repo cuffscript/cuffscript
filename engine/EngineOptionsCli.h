@@ -90,10 +90,10 @@ namespace cuff
         return "  --root <dir>           allow 'use ... from' to load modules anywhere under <dir>\n"
                "  --max-steps <n>        stop after <n> loop iterations + function calls (0 = unlimited)\n"
                "  --timeout <ms>         stop after <ms> milliseconds of run time (0 = unlimited)\n"
-               "  --no-network           disable 'use DLC:network' entirely\n"
+               "  --no-network           switch DLC:network off (calls into it raise E5-005)\n"
                "  --allow-private-network\n"
                "                         let DLC:network reach loopback/private/link-local addresses\n"
-               "  --no-filesystem        disable 'use DLC:filesystem' entirely\n";
+               "  --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)\n";
     }
 
 }

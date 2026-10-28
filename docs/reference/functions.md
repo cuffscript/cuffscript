@@ -4,7 +4,7 @@ Every function a script can call, with the page that describes it. Functions mar
 `use`; the others come with the library named in the second column.
 
 <!-- BEGIN GENERATED: function-index -->
-_This table is generated from `the engine's library tables` by `tools/docs.py`. Change the source, then run `python3 tools/docs.py generate`._
+_This table is generated from the engine's library tables by `tools/docs.py`. Change the source, then run `python3 tools/docs.py generate`._
 
 | Function | Library |
 | :--- | :--- |

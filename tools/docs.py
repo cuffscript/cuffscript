@@ -146,7 +146,7 @@ def ask_engine(limits, error_names):
 # The generated parts
 # ---------------------------------------------------------------------------------------------------------------
 
-BANNER = "_This table is generated from `{src}` by `tools/docs.py`. Change the source, then run `python3 tools/docs.py generate`._"
+BANNER = "_This table is generated from {src} by `tools/docs.py`. Change the source, then run `python3 tools/docs.py generate`._"
 
 
 def fmt_value(name, value):
@@ -177,7 +177,7 @@ def block_limits(limits, records):
             continue
         rows.append("| %s | %s | %s | %s |" % (e["title"], fmt_value(e["name"], values[e["name"]]),
                                               link_code(e["error"]), e["description"]))
-    return BANNER.format(src="engine/common/Limits.h") + "\n\n" + "\n".join(rows)
+    return BANNER.format(src="`engine/common/Limits.h`") + "\n\n" + "\n".join(rows)
 
 
 def block_internal(limits, records):
@@ -187,12 +187,12 @@ def block_internal(limits, records):
         if e["kind"] != "internal":
             continue
         rows.append("| %s (`%s`) | %s | %s |" % (e["title"], e["name"], fmt_value(e["name"], values[e["name"]]), e["description"]))
-    return BANNER.format(src="engine/common/Limits.h") + "\n\n" + "\n".join(rows)
+    return BANNER.format(src="`engine/common/Limits.h`") + "\n\n" + "\n".join(rows)
 
 
 def block_errors(descriptions, records):
     info = {r[2]: r for r in records if r[0] == "error"}
-    out = [BANNER.format(src="engine/common/ErrorCodes.h")]
+    out = [BANNER.format(src="`engine/common/ErrorCodes.h`")]
     category = None
     for name, text in descriptions:
         tag, _, cat, recoverable = info[name][1], info[name][2], info[name][3], info[name][4]
@@ -201,7 +201,7 @@ def block_errors(descriptions, records):
             out += ["", "### " + (cat if cat.endswith("s") else cat + "s"), "",
                     "| Code | Meaning | `or_else` can catch it |", "| :--- | :--- | :---: |"]
         note = "" if error_is_raised(name) else " _Reserved: never raised._"
-        out.append("| <a id=\"%s\"></a>`%s` | %s%s | %s |" % (tag.lower(), tag, text, note, "yes" if recoverable == "1" else "no"))
+        out.append("| <a id=\"%s\"></a>`%s` | %s%s | %s |" % (tag.lower(), tag, text.replace("|", "\\|"), note, "yes" if recoverable == "1" else "no"))
     return "\n".join(out)
 
 
@@ -378,6 +378,23 @@ def markdown_files():
             yield path
 
 
+def check_tables():
+    """A table row with a different number of columns than its header is a stray `|` (inside code it still has to be written `\\|`)."""
+    for path in markdown_files():
+        rows, in_fence = [], False
+        for number, line in enumerate(read(path).splitlines() + [""], 1):
+            if line.startswith("```"):
+                in_fence = not in_fence
+            if not in_fence and line.startswith("|"):
+                rows.append((number, len(re.findall(r"(?<!\\)\|", line))))
+                continue
+            for row_number, columns in rows:
+                if columns != rows[0][1]:
+                    problem("%s:%d: a table row has %d separators but its header has %d (write a literal pipe as \\|)"
+                            % (path.relative_to(ROOT), row_number, columns, rows[0][1]))
+            rows = []
+
+
 def anchors_of(path, cache={}):
     if path not in cache:
         text = read(path)
@@ -509,6 +526,7 @@ def main():
             check_limit_duplicates(limits, records)
         check_versions()
         check_links()
+        check_tables()
         check_examples(args.require_binaries)
 
     for note in NOTES:

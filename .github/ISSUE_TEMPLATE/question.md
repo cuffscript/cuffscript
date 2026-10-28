@@ -1,59 +1,44 @@
 ---
 name: "Question"
-about: "Ask about using Cuffscript, language features, tools, or examples"
+about: "Ask about using CuffScript, a language feature, a tool or an example"
 title: "[Question] "
 labels: ["question"]
 assignees: []
 
 ---
 
+Please look in the [documentation](https://github.com/cuffscript/cuffscript/blob/main/docs/README.md) and the [FAQ](https://github.com/cuffscript/cuffscript/blob/main/docs/guide/faq.md) first. A question the documentation does not answer is useful to know about.
+
 ## Summary
-One-line summary of your question.
+One line describing what you want to know.
 
 ## Category
 (please check one)
-- [ ] Language (syntax/semantics)
-- [ ] Runtime / Standard library
-- [ ] Tooling (compiler, CLI, REPL, build)
-- [ ] Examples / Tutorials / Docs
+- [ ] Language (syntax and meaning)
+- [ ] Libraries (`use DLC:...`)
+- [ ] Tools (`cuffc`, `cuffsh`, building)
+- [ ] Embedding the engine
+- [ ] Examples or documentation
 - [ ] Other
 
-## Reproduction / Example
-Provide the smallest complete example that reproduces the issue or shows the behavior you have a question about. Prefer a single file or a short snippet.
+## Your code
+The smallest complete program that shows what you are asking about.
 
 ```cuff
-# paste the Cuffscript code, command, or config here
+note: paste the CuffScript code here
 ```
 
-If the example is in a repository, provide a link and relevant file path(s).
+## How you ran it
+The exact command, for example `cuffc program.cuff`.
 
-## Commands / How you ran it
-Include the exact commands you used (e.g., `cuff run file.cuff`, `cuff build --release`, or compiler flags).
+## What you expected, and what happened
+Include the complete output, with the `ERROR: [E...]` report if there is one.
 
-```
-# commands you ran
+```text
+paste the output here
 ```
 
 ## Environment
-- OS (name and version):
-- Architecture (x86_64 / arm64 / ...):
-- Cuffscript version (commit, tag, or build date):
-- Installation method (source build / prebuilt binary / package manager):
-
-## What you expected to happen
-Describe the expected behavior or output.
-
-## What actually happened
-Describe the observed behavior or output. Include exact error messages, compiler output, or REPL logs:
-
-```
-# paste full error output or logs
-```
-
-## Additional information
-- Does this still happen on the latest release or main branch? (yes / no / unknown)
-- Workarounds you've tried:
-- Links to related issues, docs, or tests:
-- Screenshots or small recordings (if helpful):
-
-Thank you — providing this information helps us answer your question faster and makes it easier for maintainers to reproduce and test your case.
+- Operating system and version:
+- CuffScript version (`cuffsh --version`, or the commit you built):
+- How you installed it (built from source, prebuilt package):

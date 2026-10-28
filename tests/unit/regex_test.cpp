@@ -142,7 +142,7 @@ int main() {
         }
     }
 
-    // log line example from REGEX.md section 36
+    // log line example from docs/reference/patterns.md section 36
     {
         auto p = eng.compile("<date:[num]4-[num]2-[num]2> \\[[one:INFO|WARN|ERROR]\\] <ip:[num]1~3\\.[num]1~3\\.[num]1~3\\.[num]1~3> - <msg:[any]+>", loc);
         MatchOutcome out;

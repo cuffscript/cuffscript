@@ -8,8 +8,7 @@ be here — if you find a new one, please add it to this document.
 
 ## 1. The `async` / `await` execution model
 
-`language.md` (section 6.5) states the model; this item records how the engine implements it and why
-(improved in v0.2.0 — see "change history" below).
+`language.md` (section 6.5) states the model; this item records how the engine implements it and why.
 
 - When an `async` function is **called with `await`**, it runs to completion right there,
   synchronously, with no event loop or thread, and the value comes back immediately.
@@ -80,12 +79,15 @@ map it removes by string key, and deleting a key that does not exist quietly doe
 
 ## 7. `loop match` removed
 
-There was once a third loop form, `loop match <target> is/IS <state> do: ... end`, but the
-interpreter implemented it exactly like `loop while` — only as re-checking the condition on
-every iteration (even the parser code that parses the condition expression was the same). It
-was a complete duplicate that nobody used and that only caused confusion, so it was removed
-from the language. `LoopStmt::LoopKind` now has only the two values `Repeat`/`While`. If you
-need the same effect, just use `loop while [condition] do: ... end`.
+There was once a third loop form, `loop match <target> is/IS <state> do: ... end`. `LoopStmt::LoopKind` had three values
+(`Repeat`, `While`, `Match`), but the interpreter implemented `Match` with exactly the code of `While`, re-checking a
+boolean condition on every iteration, and `LoopParser` parsed its condition the same way as `while`'s. It was a complete
+duplicate with no functional difference, nobody used it, and it only caused confusion, so it was removed outright
+rather than kept as sugar.
+
+`LoopKind` now has only `Repeat` and `While`, `loop match ... do:` is a plain syntax error (`expected 'repeat' or
+'while' after 'loop'`), and the debug dump (`ASTPrinter`) was simplified to match. `loop while [condition] do: ... end` covers
+the same case.
 
 ## 8. Module merging (`use ... from ...`)
 
@@ -169,13 +171,12 @@ is not a kind of `Value`; it is managed in a separate name table inside the inte
 (`userFunctions_`). A function declaration that is not at the top level (nested inside another
 function) throws a `NestedFunctionNotSupported` error.
 
-(During v1.7.1 development this restriction was once lifted and closures treated as values
-were introduced, but the capture was implemented as "by value, once at definition time" — the
+(Release 3.0.0 once lifted this restriction and introduced closures treated as values, but the capture was implemented as "by value, once at definition time" — the
 only approach that could be implemented safely without the far bigger change of turning the
 stack-based `Environment` into a heap-based one — and as a result a closure that captured a
 scalar such as a number or string did not accumulate state between calls. The counter
 pattern, the "classic example" of closures, did not work; a half-finished feature like that
-did not fit the direction of this language (for beginners, easy and light), so it was removed
+did not fit the direction of this language (for beginners, easy and light), so release 3.1.0 removed the feature
 and this item was restored.)
 
 ## 13. `return`/`stop` are not C++ exceptions (performance + correctness)
@@ -534,7 +535,8 @@ function's own body, not the whole call graph: a pure function calling a non-pur
 and the callee's own purity (or lack of it) governs its own body, exactly as `returnable` and
 `async` already worked per-call via the same `FrameGuard`. Removing `pure` is a complete,
 literal escape hatch, by construction — there's no separate override flag to keep in sync.
-_(Update, item 40: the three per-site checks described above were replaced by the single
+_(Update, item 26: the restriction to a function's own body was tightened; a pure function may now call
+only other pure user-defined functions (library functions are exempt). Update, item 40: the three per-site checks described above were replaced by the single
 failure path `throwUnresolved()`, which raises the same `PureFunctionGlobalAccess` error.)_
 
 **`DLC:network`.** A dependency-free HTTP/1.1 client, `engine/net/HttpClient.h`: POSIX sockets
@@ -740,17 +742,10 @@ their domain and direction without a prefix. **This is a breaking rename** — e
 example, test, and doc snippet using the old bare names was updated in this repository,
 but any script outside it needs the same mechanical find-and-replace per function.
 
-## 32. `loop match` removed
+## 32. `loop match` removed (see item 7)
 
-`LoopStmt::LoopKind` had three values — `Repeat`, `While`, `Match` — but `execLoop`
-(`Interpreter.h`) implemented `Match` with the exact same code path as `While` (re-check
-a boolean condition every iteration), and `LoopParser` parsed `loop match target is/IS
-state do: ... end`'s condition the same way `while`'s condition is parsed. It was a
-complete, confusing duplicate with no functional difference and no use in this
-repository's examples or tests, so it was removed outright rather than kept as sugar:
-`LoopKind` now has just `Repeat`/`While`, `loop match ... do:` is a plain syntax error
-("expected 'repeat' or 'while' after 'loop'"), and `ASTPrinter`'s debug dump for loops
-was simplified to match. `loop while [condition] do: ... end` covers the exact same case.
+This item described the same removal as [item 7](#7-loop-match-removed). It is kept so that the numbers of the other items,
+which other documents cite, do not change.
 
 ## 33. Async: reasoned decision not to add OS threads, plus a light pass
 
@@ -927,7 +922,7 @@ same situation raises `PureFunctionGlobalAccess` (E4-027) exactly as before — 
 cannot bridge, so it can never reach a global — which is why the three
 `look.owner == &globalEnv_` checks from item 25 are gone: they could no longer fire.
 
-**Knock-on changes.** `examples/02_comprehensive_demo.cuff` (and the SPEC code that mirrors it)
+**Knock-on changes.** `examples/02_comprehensive_demo.cuff` (and the comprehensive example in `language.md`, Appendix A, that mirrors it)
 reads the constant `MAX_LEVEL` inside a function, and `examples/lib/greetings.cuff` reads a
 module-level constant, so both now begin with `change <NAME> to global`. Module functions follow
 the same rule as any function (item 8).
@@ -947,7 +942,7 @@ bridge, allowed with one, local shadowing, the global untouched afterwards) and
   connects to the local host, but `isPrivateOrLoopback()` only blocked `::1`. `::` is now blocked
   too (`tests/unit/dlc_guards_test.cpp`).
 - **`file_remove` also deleted empty directories** (`std::filesystem::remove` does both). It now
-  removes regular files only, matching `file_exist()` and the SPEC table.
+  removes regular files only, matching `file_exist()` and the language reference.
 - **`[int]` could match a bare `+` or `-`.** Its backtracking tried lengths down to 1, which is
   just the sign, so `"+5" is "[int][one:5]"` was true. It now always keeps at least one digit.
 - **An error at the very first character of a file lost the first character of the quoted source

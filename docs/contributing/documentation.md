@@ -28,6 +28,10 @@ If the same fact is written in two places, one of them goes stale. So every fact
 - **Command-line help** is the program's own `--help`, embedded in [`cuffc`](../reference/cuffc.md) and [`cuffsh`](../reference/cuffsh.md).
 - **The language** is defined once, in the [language reference](../reference/language.md); guides teach it and link to it.
 
+A guide, an FAQ or a summary page may state a fact again in a sentence when the reader needs it there to follow the text. What it must not carry is the
+detail: the full rule, a table or a number stays in the home, and the sentence links to it. Before finishing a change to behaviour, search the
+documentation for the words that describe it (`grep -rn` over `docs`, the root pages and the READMEs), so that a restatement is not left saying the old thing.
+
 ## Generated parts
 
 A generated part sits between two markers and is never edited by hand:
@@ -80,7 +84,12 @@ Link to a page, not to a line. When you rename or move a file, `tools/docs.py ch
 | An error code | `ErrorCodes.h` (with the description), then `generate` |
 | A library function | The library's page under `docs/reference/dlc/` |
 | An option or flag | The code only; the help text is the documentation, then `generate` |
-| The syntax or meaning of the language | The [language reference](../reference/language.md), and the [pattern reference](../reference/patterns.md) for patterns |
+| The syntax or meaning of the language | The [language reference](../reference/language.md), and the [pattern reference](../reference/patterns.md) for patterns. The [grammar](../reference/grammar.md) lists what the parser accepts, so a change to the shape of a statement or an expression updates it too |
+| A word with a special meaning in these pages | The [glossary](../reference/glossary.md) |
+| Something the language cannot do, or a behaviour that surprises | [Known limitations](../reference/known-limitations.md) and, for beginners, the [FAQ](../guide/faq.md) |
+| The public C++ API (`CuffEngine`, `Session`, the options) | The [C++ API reference](../reference/cpp-api.md), and the options table in [Embedding the engine](../guide/embedding.md#options) |
+| What a CI workflow does | [Continuous integration](ci.md) |
+| Where a source file lives, or what it is for | The [source map](../internals/source-map.md) |
 | How the engine works | The page under [`docs/internals/`](../internals/architecture.md) that describes that part |
 
 `tools/docs.py check` needs a C++ compiler and the built binaries; with `--require-binaries` (as in CI) a missing one is an error,

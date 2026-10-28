@@ -16,5 +16,5 @@ use it (`main.cpp`, `cli/`, `wasm/`) are thin.
 Entry points: `CuffEngine.h` runs a whole program, `Session.h` runs it in pieces, `ParseProgram.h` is the one place the front-end
 stages are chained, and `EngineOptionsCli.h` reads the command-line flags that configure the engine.
 
-How it fits together is in [Architecture](../docs/internals/architecture.md); how to add to it is in
+How it fits together is in [Architecture](../docs/internals/architecture.md), and which file does what is in the [Source map](../docs/internals/source-map.md); the public API is in the [C++ API reference](../docs/reference/cpp-api.md); how to add to it is in
 [Extending the engine](../docs/contributing/extending.md); the conventions are in [Code style](../docs/contributing/code-style.md).

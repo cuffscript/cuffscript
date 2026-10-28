@@ -372,6 +372,12 @@ if ($runNative) {
   $r = Invoke-Proc $Cuffsh @() (Bytes "print(1 + 2)")
   Check 'piped script without a trailing newline works' ($r.Out -ceq "3`n") $r.Out
 
+  # ---- the exit status of a piped script is 0 when it ran and 1 when it failed, as with cuffc
+  $r = Invoke-Proc $Cuffsh @() (Bytes "print(1)`nprint(1 / 0)`nprint(2)`n")
+  Check 'a failing piped script exits 1 and reports the error' (($r.ExitCode -eq 1) -and ($r.Out -ceq "1`n") -and ($r.Err -cmatch '^ERROR: \[E4-006\]')) ("exit " + $r.ExitCode + "; " + $r.Out + '|' + $r.Err)
+  $r = Invoke-Proc $Cuffsh @() (Bytes "print(1 +")
+  Check 'a piped script with a syntax error exits 1' (($r.ExitCode -eq 1) -and ($r.Err -cmatch '^ERROR: \[E2-001\]')) ("exit " + $r.ExitCode + "; " + $r.Err)
+
   $r = Invoke-Proc $Cuffsh @() (@(0xEF, 0xBB, 0xBF) + [byte[]](Bytes "print(5)`n"))
   Check 'UTF-8 BOM at the start of piped input is ignored' ($r.Out -ceq "5`n" -and $r.Err -ceq '') ($r.Out + '|' + $r.Err)
 
@@ -460,7 +466,7 @@ if ($runNative) {
 
   $deep = "set returnable func f(n) do:`n    return f(n + 1)`nend`nprint(f(0))`n"
   $r = Invoke-Proc -Exe $Cuffsh -ArgList @('--timeout', '0') -InputBytes (Bytes $deep) -TimeoutMs 60000
-  Check 'runaway recursion ends with the engine''s stack error, not a crash' (($r.Err -cmatch '\[E4-017\]') -and (-not $r.TimedOut) -and ($r.ExitCode -eq 0)) ("exit " + $r.ExitCode + "; " + $r.Err)
+  Check 'runaway recursion ends with the engine''s stack error, not a crash' (($r.Err -cmatch '\[E4-017\]') -and (-not $r.TimedOut) -and ($r.ExitCode -eq 1)) ("exit " + $r.ExitCode + "; " + $r.Err)
 
   # ---- the same scripts give the same output under cuffc and cuffsh
   if ($SkipDifferential) {

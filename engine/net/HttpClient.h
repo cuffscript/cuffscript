@@ -46,7 +46,7 @@ namespace cuff::net
         int totalTimeoutMs = limits::kHttpTotalTimeoutMs;
         size_t maxResponseBytes = limits::kHttpMaxResponseBytes;
         int maxRedirects = limits::kHttpMaxRedirects;
-        std::string userAgent = "CuffScript/1.7 (+DLC:network)";
+        std::string userAgent = "CuffScript (+DLC:network)";
     };
 
     struct HttpResponse
@@ -169,7 +169,7 @@ namespace cuff::net
             if (out.scheme != "http")
             {
                 err = out.scheme == "https"
-                          ? "https:// is not supported (this client is plain HTTP only — see docs/reference/language.md)"
+                          ? "https:// is not supported (this client is plain HTTP only — see docs/reference/dlc/network.md)"
                           : "unsupported URL scheme '" + out.scheme + "' (only http:// is supported)";
                 return false;
             }

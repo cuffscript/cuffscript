@@ -1,13 +1,15 @@
-# CuffScript Regex Specification
+# Pattern syntax
 
-> Specification for CuffScript regular expressions and pattern matching
-> Version: 2.0
+The full definition of CuffScript's pattern language: the tokens, quantifiers, groups, anchors and flags
+that `is`, `IS`, `match`, `find`, `replace`, `split` and `count` understand. [Text and
+patterns](../guide/text-and-patterns.md) is a gentler introduction; the [quick
+reference](#39-token-quick-reference) at the end of this page lists every token on one screen.
 
 ---
 
 ## 1. Purpose
 
-CuffScript regular expressions (regex) keep the text validation and processing power
+CuffScript patterns (its regular expressions) keep the text validation and processing power
 of JavaScript, but drop the complicated, cryptic special symbols (`\d`, `\w`, `\s`,
 `(?<=...)`, `\1`, ...) in favor of intuitive word-style tokens (`[num]`, `[str]`,
 ...) and natural-language syntax.
@@ -31,8 +33,24 @@ if user_code is "[up]2-[num]4" do:
 end
 ```
 
-When a string literal contains a bracket token (`[num]`, `[str]`, ...) or a
-quantifier symbol, the engine recognizes it as a regex pattern automatically.
+Whenever the right-hand side of `is` or `IS` is a string literal, it is read as a pattern. A
+literal with no special characters, such as `"AB-1234"`, is a pattern that matches exactly that
+text. A string that is held in a variable and written on the right of `is` is compared as plain
+text instead; a pattern held in a variable works with `match`, `find`, `replace`, `split` and
+`count`.
+
+Every form that takes a pattern uses the same syntax:
+
+| Form | What it does | Result |
+| :--- | :--- | :--- |
+| `text is "pattern"` | The whole text matches the pattern | `boolean` |
+| `match pattern from text` | Finds the first place the pattern matches and keeps its captures | a `match`, or `empty` when nothing matches |
+| `find pattern from text` | Finds the first match, or every match with the `g` flag | a `str` or `empty`; with `g`, a `list` of `str` |
+| `replace pattern in text to replacement` | Replaces the first match, or every match with `g` | a `str` |
+| `split text by pattern` | Cuts the text at every match | a `list` of `str` |
+| `count pattern in text` | Counts the non-overlapping matches | a `number` |
+
+A pattern that is not a `str` is a `TypeError` (`E4-005`), and so is a text that is not a `str`.
 
 ---
 
@@ -238,12 +256,22 @@ Adding `?` right after a quantifier switches it to **lazy** matching, which matc
 as short a string as possible.
 
 ```cuff
-note: Greedy: swallows everything from the first <tag> to the very last </tag>
-"<tag>[any]*</tag>"
+set str html to "<b>one</b> and <b>two</b>"
 
-note: Lazy: the match completes as soon as the nearest </tag> is found
-"<tag>[any]*?</tag>"
+note: Greedy: swallows everything from the first <b> to the very last </b>
+print(find "\<b\>[any]+\</b\>" from html)
+
+note: Lazy: the match completes as soon as the nearest </b> is found
+print(find "\<b\>[any]+?\</b\>" from html)
 ```
+
+```output
+<b>one</b> and <b>two</b>
+<b>one</b>
+```
+
+`<` and `>` open and close a named capture ([section 23](#23-named-capture-), so a
+literal angle bracket must be escaped as `\<` and `\>` ([section 20](#20-escaping-special-symbols-)).
 
 ---
 
@@ -304,6 +332,12 @@ if gender_code is "[1234]" do:
 end
 ```
 
+Inside a set every character stands for itself and nothing is escaped, apart from `a-z` style ranges (the start of a range may not come after its end: `[z-a]` is `E3-004`). A few consequences:
+
+- A word that is not one of the named tokens is a set of its letters. `[nope]` is not an error and not a token: it matches one of `n`, `o`, `p` or `e`. A misspelled token such as `[nun]` therefore quietly matches the wrong thing.
+- `^` is an ordinary member, not negation: `[^a]` matches `^` or `a`. Negation is `!` ([section 16](#16-negated-character-sets-)).
+- A set ends at the first `]`, so `]` itself cannot be a member. Match it outside a set, as `\]`.
+
 ---
 
 ## 16. Negated character sets (`[!...]`)
@@ -350,9 +384,11 @@ right away, without assembling them from regex symbols each time.
 
 | Preset token | Description                              | Example matches         |
 | :----------- | :--------------------------------------- | :---------------------- |
-| `[int]`      | An integer that may carry a sign         | `100`, `-25`, `+7`      |
-| `[float]`    | A decimal number that may carry a sign   | `3.14`, `-0.05`, `10.0` |
+| `[int]`      | An optional `+` or `-`, then one or more digits | `100`, `-25`, `+7` |
+| `[float]`    | An optional `+` or `-`, one or more digits, a `.`, then one or more digits | `3.14`, `-0.05`, `10.0` |
 | `[hex]`      | One hexadecimal character (`0-9`, `a-f`, `A-F`) | `A`, `f`, `9`    |
+
+`[float]` needs digits on both sides of the point and has no exponent, so `10`, `.5`, `5.` and `1e5` are not floats. To accept both whole and decimal numbers, test twice: `value is "[int]" or value is "[float]"`. A bare sign is never an `[int]`.
 
 ```cuff
 set str coordinate to "-12.54"
@@ -375,6 +411,12 @@ with a single shortcut token.
 | `[phone]`    | South Korean landline/mobile number format | `010-XXXX-XXXX`, `02-XXX-XXXX`, etc.  |
 | `[url]`      | Web address protocol format              | an address starting with `http://` or `https://` |
 
+The exact shapes are:
+
+- `[email]`: a local part of one or more English letters, digits, `.`, `_`, `%`, `+` or `-`; an `@`; and a domain of English letters, digits, `.` and `-` whose last dot-separated label is two or more English letters. `a@b.co` and `a.b+c@sub.example.org` match; `a@b.c`, `a@b` and an address with Hangul in it do not.
+- `[phone]`: digits and hyphens in one of four shapes, `3-4-4`, `2-3-4`, `2-4-4` and `3-3-4` digits (`010-1234-5678`, `02-123-4567`, `02-1234-5678`, `031-123-4567`). It checks the shape only: the area or carrier prefix is not validated, and a number without hyphens does not match.
+- `[url]`: `http://` or `https://` followed by one or more English letters, digits or any of `. - _ / ? = & % # ~ : +`. A space ends the address, so an address that contains a space does not match as a whole.
+
 ```cuff
 set str user_contact to "010-8888-9999"
 
@@ -390,7 +432,8 @@ end
 To treat a character that has syntactic meaning inside a pattern as just the plain
 character itself, put a backslash (`\`) in front of it.
 
-- Escapable symbols: `[`, `]`, `(`, `)`, `<`, `>`, `+`, `*`, `?`, `~`, `|`, `.`, `\`, `:`
+- Escapable symbols: `[`, `]`, `(`, `)`, `{`, `}`, `<`, `>`, `+`, `*`, `?`, `~`, `|`, `.`, `\`, `:`, `!`
+- Any other backslash sequence (`\d`, `\w`, `\n`, ...) is `E3-008`, and so is a backslash at the very end of a pattern.
 
 ```cuff
 note: escaping is recommended when checking for a literal dot (.) character.
@@ -403,6 +446,18 @@ if math_exp is "\([num]+\)" do:
     print("A number wrapped in parentheses.")
 end
 ```
+
+Which symbols have to be escaped to mean themselves:
+
+| Symbol | Needs `\` when you mean the character itself? |
+| :--- | :--- |
+| `[`, `(`, `<` | Yes. They open a token or set, a group, or a named capture. |
+| `]`, `)`, `>` | Yes. An unescaped one with nothing to close is `E3-010`. |
+| `~` | Yes, unless it is part of a repeat range (`3~5`, `3~`, `~5`); any other `~` is `E3-009`. |
+| `+`, `*`, `?` | Only after something they could repeat. At the start of a pattern or group they are plain characters. |
+| `\` | Yes. |
+| `\|` | No. Outside `[one:...]` it is an ordinary character: there is no alternation operator, so `"(a\|b)"` matches the text `a\|b`, not `a` or `b`. Use `[one:a\|b]`. |
+| `.`, `:`, `!`, `{`, `}` | No. They are ordinary characters; escaping them is allowed. |
 
 > `.` is an ordinary literal character in CuffScript patterns (it does **not** mean
 > "any character"; that is `[any]`), so `\.` is accepted but not required. See item 2
@@ -428,9 +483,13 @@ parse time, before the script runs.
 To extract the actual value of a part wrapped in parentheses `()`, use the `match`
 statement.
 
-Following the language philosophy, the result's access index **starts at 1**.
+`match` searches the text for the first place the pattern matches, the way `find` does; it does not
+require the whole text to match (pin the pattern with `[start]` and `[end]` for that). Following the
+language philosophy, captures are numbered from **1**, in the order of their opening parentheses,
+and a negative number counts from the end: `result[-1]` is the last capture.
 
-If the match fails, `empty` is assigned to the result variable.
+If nothing matches, `empty` is the result. That is not an error, so an `or_else` block does not
+run; test for it with `is empty`.
 
 ```cuff
 set str serial to "SN-2026-998"
@@ -441,6 +500,14 @@ if result is not empty do:
     print(f"Serial number: {result[2]}") note: "998"
 end
 ```
+
+A `match` value prints as `<match "text">`, where `text` is the whole text that matched, and `type_of` names it `match`. Asking for `result[0]`, for a position past the last capture, or for a name that was not captured is an error (`E4-007`, `E4-008`, `E4-009`). `length()` and `to_json()` do not accept a `match`; copy the captures you need into a list or map first.
+
+Details of numbering:
+
+- Groups are numbered by where they open: in `(a(b)(c))(d)` capture 1 is `abc`, 2 is `b`, 3 is `c` and 4 is `d`.
+- A group that did not take part in the match, such as the `(b)?` of `(a)(b)?` matched against `a`, is captured as an empty string, not as `empty`.
+- A group that repeats, such as `(ab)+`, holds its last repetition.
 
 ---
 
@@ -460,6 +527,8 @@ if res is not empty do:
 end
 ```
 
+A name is whatever stands between `<` and `:`; letters, digits and underscores all work (`<my_name:...>`). Named and numbered captures are counted separately: in `<key:[let]>=(v)` the named capture is `key` and the only numbered capture is `1`, so a pattern with only named captures has no `result[1]`. Reusing a name keeps the last value. A key that is not in the result is `E4-009`. A `<` that does not begin a `<name:...>` capture must be escaped as `\<`.
+
 ---
 
 ## 24. Searching the body and collecting everything (`find` & `g`)
@@ -470,6 +539,10 @@ the whole string, use the `find` command.
 - On its own: **returns the first text found, as a string**.
 - Combined with the `g` flag: **returns every matching text as a 1-based list**.
 - No match: **returns `empty`** (with the `g` flag, an empty list `[]`)
+
+Matches are found from left to right and never overlap. Because the single-match form returns the
+matched text itself (a `str`), declare its result as `str`; a `match` result comes only from the
+`match` statement.
 
 ```cuff
 set str article to "Ticket number: T-101, next ticket: T-205, spare ticket: T-309"
@@ -508,6 +581,10 @@ set str masked_log to replace "010-[num]4-" in raw_log to "010-****-"
 print(masked_log) note: "Phone: 010-****-5678 (personal data)"
 ```
 
+Without a flag only the first match is replaced, and a text with no match comes back unchanged. The
+replacement is plain text: `[num]`, `\1` or `$1` in it stand for themselves, because there are no
+back-references.
+
 To replace every occurrence, add the `g` flag at the end of the statement.
 
 ```cuff
@@ -533,6 +610,8 @@ loop repeat i to 1 ~ 4 do:
 end
 ```
 
+Empty pieces are kept: splitting `",a,,b,"` by `","` gives `["", "a", "", "b", ""]`. A text with no match comes back as a list of one piece, and so does a split by the empty pattern. `split` takes no flags.
+
 ---
 
 ## 27. Counting pattern occurrences (`count pattern in text`)
@@ -555,6 +634,8 @@ set number grape_count to count "grape" in document
 print(f"Occurrences of the word grape: {grape_count}") note: 0
 ```
 
+Matches do not overlap (`count "aa" in "aaaa"` is `2`). `count` always counts every match, so it needs no `g`. An empty pattern matches between every pair of characters, so `count "" in "abc"` is `4`.
+
 ---
 
 ## 28. The flags system
@@ -569,6 +650,19 @@ statements (`find`, `match`, `count`, `replace`).
 | `m`  | Multiline   | Applies start and end to each line, using line-break characters.      |
 
 Several flags can be written back to back with no spaces: `gim`
+
+Which statements take which flags:
+
+| Statement | Flags it accepts | Notes |
+| :--- | :--- | :--- |
+| `find` | `i`, `g`, `m` | `g` turns the single result into a list of every match |
+| `replace` | `i`, `g`, `m` | `g` replaces every match instead of the first |
+| `count` | `i`, `g`, `m` | Every match is always counted, so `g` changes nothing |
+| `match` | `i`, `g`, `m` | The result is always the first match, so `g` changes nothing |
+| `split` | none | |
+| `is` | none | `IS` is the case-insensitive form |
+
+`i` folds only the English letters `A`-`Z` and `a`-`z`. `m` changes only `[start]` and `[end]`: they then match at the start and the end of every line (a line feed ends a line), not just of the whole text. A letter that is not a flag is a syntax error (`E2-001`).
 
 ```cuff
 set list matches to find "error:[num]+" from server_logs gi
@@ -589,14 +683,21 @@ correspond to `^` and `$` in traditional regex.)
 set str message to "NOTICE: maintenance is starting."
 
 note: search only for the notice header at the very start
-set match alert to find "[start]NOTICE:" from message
+set str header to find "[start]NOTICE:" from message
+print(header)
 ```
+
+```output
+NOTICE:
+```
+
+Both anchors are zero-width: they match a position and consume nothing. With the `m` flag they also match at every line break.
 
 ---
 
 ## 30. Empty patterns and blank checks
 
-- `""` (the empty pattern) matches only an empty string of length 0.
+- With `is`, `""` (the empty pattern) matches only an empty string of length 0. In `find`, `count` and `replace` it matches the empty string between characters (`replace "" in "abc" to "-"` is `-abc`).
 - Forms with a missing space or empty syntax, such as `[one:]`, are blocked at
   compile time.
 
@@ -612,23 +713,48 @@ end
 
 ## 31. Combining with the `or_else` safety net
 
-When matching or parsing with a regex fails and produces `empty`, or a runtime error
-is expected, you can attach CuffScript's own `or_else do:` block right away.
+A pattern that does not match is a normal outcome, not an error: `match` and `find` give `empty`, `find ... g` gives `[]` and `count` gives `0`, so the way to handle it is an `is empty` check.
 
 ```cuff
-set match user_info to match input_str from "<name:[str]+>-(<id:[str]+>)" or_else do:
-    print("Could not parse the format! Falling back to default info.")
-    change user_info to {"name": "guest", "id": "0000"}
+set str text to "no digits here"
+set match found to match text from "([num]+)"
+
+if found is empty do:
+    print("no number in the text")
 end
 ```
+
+```output
+no number in the text
+```
+
+`or_else` is for the errors a pattern can raise at run time: matching that runs past its step, time or recursion budget (`E3-101`, `E3-102`, `E3-103`), a text that is not a `str` (`E4-005`) or a statement that is too large (`E4-026`). The matching budget is the usual way to meet one, with a pattern that backtracks badly:
+
+```cuff
+set str text to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
+
+set boolean ok to text is "([any]*)*x" or_else do:
+    print("the pattern is too complex for this text")
+    change ok to false
+end
+print(ok)
+```
+
+```output
+the pattern is too complex for this text
+false
+```
+
+A pattern with a syntax error is different: it is never caught (see the next section).
 
 ---
 
 ## 32. Regex syntax errors (Regex Syntax Error)
 
 If the syntax inside a pattern string is wrong, the engine does not quietly return
-`false`; it raises a `Regex Syntax Error` immediately, when the script is parsed
-(before it runs), to isolate the bug quickly.
+`false`; it raises a `Regex Syntax Error`. A pattern written as a string literal is checked
+when the script is parsed, before anything runs. A pattern held in a variable can only be checked when it is
+used, so its syntax error appears at run time. Either way `or_else` cannot catch it: a broken pattern is a bug to fix, not a condition to recover from.
 
 **Cases that raise a syntax error:**
 
@@ -637,6 +763,11 @@ If the syntax inside a pattern string is wrong, the engine does not quietly retu
 - A wrong space before a colon: `"[one :a|b]"`
 - A reversed repeat range: `"[num]5~2"` (the start is greater than the end)
 - Pointless stacked quantifiers: `"[num]++"`
+- A `<` that does not begin a named capture, such as the `<b>` of `"<b>"`: write `"\<b\>"`
+- A `~` that is not part of a range, such as `"a~b"`: write `"a\~b"`
+- A closing `)`, `]` or `>` with nothing to close, or an unknown escape such as `"\d"`
+
+The [error catalogue](errors.md) lists every code with an example.
 
 ---
 
@@ -646,8 +777,9 @@ To prevent endless loops (catastrophic backtracking) caused by a beginner's care
 quantifier combinations (such as `([any]+)+`), the engine ships with a maximum match
 step count (step limit) and a time limit (timeout).
 
-When the configured threshold is exceeded, it raises a `Regex Runtime Error` and
-stops the engine safely, to keep the system from running away.
+When the threshold is exceeded, it raises a `Regex Runtime Error` (`E3-101` for steps, `E3-102` for time, `E3-103` for recursion depth) and
+stops matching safely, to keep the system from running away. These errors can be caught with `or_else`. The other
+limits that apply to patterns (their size, nesting and repeat counts) are on the [limits](limits.md) page.
 
 ---
 
@@ -734,7 +866,7 @@ end
 
 ---
 
-## 39. CuffScript regex token quick reference
+## 39. Token quick reference
 
 ```text
 [Character tokens]
@@ -778,11 +910,20 @@ end
   (...)       : capture group (1-based index access)
   <name:...>  : named capture (looked up by key)
 
+[Escapes]
+  \ + one of  [ ] ( ) { } < > + * ? ~ | . \ : !   : that character itself
+  elsewhere    : < > ] ) and ~ outside a range must be escaped to mean themselves
+
 [Command API]
   is / IS     : whole-string match test (IS ignores case)
-  match       : extract pattern captures (empty on failure)
+  match       : extract pattern captures (first match, empty on failure)
   find        : search the body for a part (supports the g flag, empty on failure)
   replace     : pattern-based text replacement
-  split       : split text on a pattern
+  split       : split text on a pattern (keeps empty pieces, no flags)
   count       : count pattern occurrences (0 when none)
+
+[Flags, at the end of find / match / count / replace]
+  i           : ignore English letter case
+  g           : every match
+  m           : [start] and [end] match at every line
 ```

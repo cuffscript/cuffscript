@@ -45,6 +45,8 @@ namespace cuff
             std::string line;
             if (!std::getline(std::cin, line))
                 return Value::makeStr(std::string());
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
             ensureStringSize(line.size(), loc);
             return Value::makeStr(std::move(line));
         };

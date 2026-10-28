@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/cuffscript/cuffscript/security/advisories/new
+    about: Report a vulnerability privately instead of opening a public issue.
+  - name: Documentation
+    url: https://github.com/cuffscript/cuffscript/blob/main/docs/README.md
+    about: Guides, the language reference and the error catalogue.

@@ -1,9 +1,10 @@
 // Several threads, each with its own Session, parsing and running different programs at the same time.
 //
-// The engine's contract for an embedder is "one Session per thread, no sharing". That holds only if nothing the
-// threads share is unsynchronised, and one thing is shared: the table that turns identifier names into numbers
-// (common/NameInterner.h). Every thread here introduces names of its own, so an unsynchronised table corrupts, hangs
-// or crashes; build this test with -fsanitize=thread to see the data race itself.
+// The engine's contract for an embedder is "one Session per thread, no sharing". Two things are shared by every
+// thread and have to be synchronised: the table that turns identifier names into numbers (common/NameInterner.h) and
+// the generator behind DLC:random (dlc/RandomDLC.h). Every thread here introduces names of its own and draws random
+// numbers, so an unsynchronised table or generator corrupts, hangs or crashes; build this test with
+// -fsanitize=thread to see a data race itself.
 #include "engine/CuffEngine.h"
 #include <atomic>
 #include <iostream>
@@ -42,7 +43,13 @@ int main()
                 const std::string f = "t" + std::to_string(t) + "_f" + std::to_string(round);
                 const std::string source = "set number " + a + " to " + std::to_string(round) + "\n"
                                            "set returnable func " + f + "(n) do:\n    return n + " + std::to_string(t) + "\nend\n"
-                                           "if " + f + "(" + a + ") is not " + std::to_string(round + t) + " do:\n    set number z to 1 / 0\nend\n";
+                                           "if " + f + "(" + a + ") is not " + std::to_string(round + t) + " do:\n    set number z to 1 / 0\nend\n"
+                                           "use DLC:random\n"
+                                           "set number d to random_int(1, 6)\n"
+                                           "set number u to random_float()\n"
+                                           "set list deck to random_shuffle([1, 2, 3, 4])\n"
+                                           "set number picked to random_choice([1, 2, 3])\n"
+                                           "if d < 1 or d > 6 or u < 0 or u >= 1 or picked < 1 or picked > 3 do:\n    set number z to 1 / 0\nend\n";
                 auto outcome = session.run(source);
                 if (!outcome.success)
                 {

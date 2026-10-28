@@ -284,7 +284,7 @@ after the job is queued.
 A DLC import is the `UseStmt::dlcs` list (name + each one's location), and a module
 import is `name`/`path` (three places: `ImportParser.h`, `Interpreter::execUse` and
 `ASTPrinter.h`). A `use` spanning several lines is deliberately unsupported, because
-of the SPEC rule "a module-load command is one line".
+the language defines a module-load command as one line (`language.md`, section 9).
 
 ## 14. Code comment policy
 

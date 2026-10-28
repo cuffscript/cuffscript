@@ -15,6 +15,22 @@ program may contain, what each construct means, and what a script can rely on wh
 - [Security policy](../../SECURITY.md): what a host that runs untrusted scripts must configure.
 - [Extending the engine](../contributing/extending.md): how to add features.
 
+**Contents**
+
+- [1. Lexical structure](#1-lexical-structure)
+- [2. Types and values](#2-types-and-values)
+- [3. Variables and constants](#3-variables-and-constants)
+- [4. Expressions](#4-expressions)
+- [5. Statements](#5-statements)
+- [6. Functions](#6-functions)
+- [7. Scope](#7-scope)
+- [8. Errors and `or_else`](#8-errors-and-or_else)
+- [9. Modules and libraries](#9-modules-and-libraries)
+- [10. Built-in functions and libraries](#10-built-in-functions-and-libraries)
+- [11. Running programs](#11-running-programs)
+- [Appendix A: Comprehensive example](#appendix-a-comprehensive-example)
+- [Appendix B: Error catalogue](#appendix-b-error-catalogue)
+
 **Conventions**
 
 - In a syntax summary, `[placeholder]` marks a part you replace with your own code.
@@ -33,11 +49,11 @@ program may contain, what each construct means, and what a script can rely on wh
 ### 1.1 Source text
 
 A program is UTF-8 text. Lines end with LF or CRLF. A program has a size limit (see [limits](limits.md)). A UTF-8 byte order mark at the start is ignored.
-Strings and comments may contain any Unicode text; everything else is ASCII.
+Strings and comments may contain any Unicode text; everything else is ASCII. The engine does not check that the text inside a string literal is valid UTF-8, and passes it through unchanged.
 
 ### 1.2 Lines, blocks and indentation
 
-A statement is written on one line. A block statement (`if`, `loop`, `set func`, and the
+A statement is written on one line. The exception is inside brackets: the elements of a list or map literal and the arguments of a call may continue over several lines between their opening and closing bracket, and a list or map literal may end with a trailing comma (a call or a parameter list may not). A line cannot end in the middle of an expression after an operator: `set number x to 1 +` is a syntax error. A block statement (`if`, `loop`, `set func`, and the
 `or_else` handler) opens with `do:` at the end of its header line, holds a body of further
 statements, and is closed by `end`. Every block needs its own `end`; a missing or surplus `end` is a
 syntax error.
@@ -145,10 +161,19 @@ legal; printing and comparing it terminates. (The engine never frees such a valu
 by content. Lists and maps compare structurally: the same length or keys, with equal elements. Two
 circular structures of the same shape compare equal.
 
-**Display form.** `print`, f-strings and `to_str` render a value as follows. A top-level `str` is
-printed as is. Numbers show at most 15 significant digits and use exponent form for very large or
-small magnitudes (`1e+20`, `1e-06`). `true`, `false` and `empty` print as those words. A list prints
-as `[1, "a", [2]]` and a map as `{"k": "v"}`, with strings quoted inside collections.
+**Display form.** `print`, f-strings and `to_str` render a value as follows.
+
+| Value | Display |
+| :--- | :--- |
+| a top-level `str` | the text itself |
+| a whole `number` smaller than 10<sup>15</sup> in magnitude | its digits, with no decimal point or exponent (`100`, `-3`, `100000000000000`); `-0` is `0` |
+| any other `number` | at most 15 significant digits, in exponent form when the magnitude is very large or small (`0.3`, `1234567.891`, `1e+15`, `1e-06`) |
+| `true`, `false`, `empty` | those words |
+| a `list` | `[1, "a", [2]]` |
+| a `map` | `{"k": "v"}` |
+| a `match` | `<match "matched text">` |
+
+Strings inside a list or map are wrapped in double quotes and are **not** escaped, so a quote or line break inside such a string appears as it is. A list or map that contains itself shows `[...]` or `{...}` where it repeats, and very deep nesting is cut off the same way.
 
 ---
 
@@ -165,7 +190,7 @@ set boolean active to true
 set empty nothing to empty
 ```
 
-- The type is one of `number`, `str`, `list`, `map`, `boolean`, `match`, or `empty`.
+- The type is one of `number`, `str`, `list`, `map`, `boolean`, `match`, or `empty`, and it is required: `set x to 5` is a syntax error. There is no type inference.
 - The value's type must equal the declared type (`E4-020`). `empty` is accepted for every type, so
   the `empty` that a failed `find` or `match` produces can be stored and then tested.
 - The assignment word is `to`; `=` is a syntax error.
@@ -192,12 +217,20 @@ A constant's name is written entirely in uppercase letters, digits and underscor
 otherwise). Changing a constant is an error (`E4-003`). These checks run when the statement
 executes, so a constant declared in a branch that never runs is never checked.
 
+A constant can have any of the types above, and none of them accepts `change` on the constant's own name. What else is
+protected depends on the type: a number, a string and a boolean have nothing else to protect, a list is read-only through every
+name (below), and a map is protected only through the constant's own name.
+
 **Constant lists.** `set constant list PRIMES to [2, 3, 5, 7]` creates a read-only list. `add`,
 `remove` and `change` on it are errors (`E4-003`). The value is copied when the constant is created,
 so freezing it never freezes a list another variable already refers to; and the read-only property
 belongs to that list, so it follows the value into other variables and function arguments. The
 protection is shallow: a list or map stored inside the constant list can still be changed unless it
 was itself declared constant.
+
+**Constant maps.** `change CONFIG["key"] to ...` and `remove "key" from CONFIG` are errors (`E4-003`) when `CONFIG` is a
+constant map, but the map itself is not frozen: another variable that was given the same map can still change it, and the constant then
+shows the change. Copy with `map_merge(CONFIG, {})` when a program needs a map that is independent of the constant.
 
 ```cuff
 set list source to [1, 2, 3]
@@ -320,12 +353,14 @@ print(colors[-1])       note: yellow
 print(colors[2~3])      note: ["green", "blue"]
 ```
 
-- `x[i~j]` takes positions `i` through `j`, **both included**. If `i` is after `j` the result is
-  empty (an empty list or string); a position outside the sequence is an error (`E4-008`).
-- Strings are indexed by **code point**, not by byte, so `"안녕"[1]` is `"안"`.
+- `x[i~j]` takes positions `i` through `j`, **both included**, and the bounds may be negative too: `colors[-2~-1]` is the
+  last two elements. If `i` is after `j` the result is empty (an empty list or string). A position outside the sequence is an
+  error (`E4-008`), and position `0` is an error in a slice as it is anywhere else (`E4-007`).
+- A position must be a whole number (`E4-024` otherwise).
+- Strings are indexed by **code point**, not by byte, so `"안녕"[1]` is `"안"`. A string cannot be changed in place:
+  `change text[1] to "x"` is an error (`E4-005`); build a new string with `+` and a slice instead.
 - A map is indexed by a string key. A missing key is an error (`E4-009`); assigning to a new key with
   `change` creates it.
-- A position must be a whole number (`E4-024` otherwise).
 
 ### 4.7 Pattern expressions
 
@@ -364,8 +399,45 @@ error inside the braces is reported at the line of the f-string.
 | `remove [value] from [list]` | Any non-number removes the first element equal to it (`E4-015` if none). |
 | `remove "key" from [map]` | Deletes the key; a missing key is ignored. |
 
-These statements change the collection in place, so every name that refers to it sees the change.
-They are errors on a constant collection (`E4-003`).
+These statements change the collection in place, so every name that refers to it sees the change. On a constant
+collection they are errors (`E4-003`).
+
+**Positions.** A position must exist: `0` is `E4-007` and one past the end is `E4-008`, for `change` and for `remove`
+alike. A map's entries are changed with `change [map]["key"]` and removed by key. `add`, and `remove` with a position, need a
+list (`E4-005` for a map).
+
+**Position or value.** `remove` decides by the *type* of its first operand: a number is always a position. To delete the
+number `20` from `[10, 20, 30]`, look its position up first:
+
+```cuff
+use DLC:list
+set list items to [10, 20, 30]
+remove index_of(items, 20) from items
+print(items)
+```
+
+```output
+[10, 30]
+```
+
+**The target is a name.** The target of `add` and `remove` is a variable name, and nothing else. Whatever follows the name
+belongs to the next statement, so `add 5 to grid[1]` appends `5` to `grid` itself and then evaluates the harmless expression `[1]`.
+To add to or remove from a list that is stored inside another collection, give the inner list a name first. The name shares the
+same list, so the change is seen through the outer one:
+
+```cuff
+set list grid to [[1], [2]]
+set list row to grid[1]
+add 5 to row
+print(grid)
+```
+
+```output
+[[1, 5], [2]]
+```
+
+**A second spelling.** `replace name[position] to value` means the same as `change name[position] to value`. It takes
+exactly one `[position]` (a nested position is a syntax error) and fails in the same ways.
 
 ### 5.2 Conditionals
 
@@ -397,6 +469,24 @@ end
 - `loop repeat [var] to [start] ~ [end]` runs the body once for each whole number from `start` to
   `end` inclusive, counting **down** when `start` is greater. Both bounds are evaluated once, before
   the first pass, and must be whole numbers (`E4-024`).
+- A `repeat` range is never empty: `1 ~ 1` runs once, and `1 ~ 0` runs **twice**, with `i` equal to `1` and then `0`, because the loop counts down. A loop over the positions of a list that may be empty has
+  to test the length first:
+
+  ```cuff
+  use DLC:list
+  set list items to []
+  if length(items) > 0 do:
+      loop repeat i to 1 ~ length(items) do:
+          print(items[i])
+      end
+  end
+  print("done")
+  ```
+
+  ```output
+  done
+  ```
+
 - `loop while` re-tests its condition before every pass.
 - `stop` ends the **nearest enclosing** loop only. Outside a loop it is an error (`E4-023`).
 - A loop does not open a scope: `[var]` and anything declared in the body remain visible after the
@@ -405,8 +495,14 @@ end
 ### 5.4 Printing and input
 
 `print(a, b, ...)` writes its arguments separated by spaces and ends the line; a `str` argument is
-written as is and anything else in its display form. `input()` or `input(prompt)` writes the optional
-prompt, reads one line and returns it as a `str` (empty at end of input).
+written as is and anything else in its display form. `print()` with no arguments writes an empty line,
+and an empty string argument still contributes its separator (`print("x", "", "y")` writes `x  y`).
+`print` gives `empty`.
+
+`input()` or `input(prompt)` writes the optional prompt (which must be a `str`), reads one line and returns it as a `str`, without
+its line ending: a line feed, or a carriage return and a line feed, so a program reads the same text from a file written on any
+platform. A last line without an ending is returned as it is. At the end of the input it returns the empty string, so a loop that
+reads until a blank line also stops at the end of a file.
 
 ---
 
@@ -456,7 +552,8 @@ line (`E4-030`). `empty` is accepted by every type.
   the body ends without `return`, the call gives `empty`.
 - In a function that is not `returnable`, a call gives `empty`, a bare `return` leaves the function
   early, and `return [value]` is an error (`E4-016`).
-- `return` outside any function is an error (`E4-022`).
+- Outside any function a bare `return` is an error (`E4-022`), and `return [value]` is `E4-016`, as it is in
+  a function that is not `returnable`.
 
 ### 6.4 Modifiers
 
@@ -618,7 +715,7 @@ end
    the handler can `change` it.
 5. An error raised **inside** the handler is not caught by the same `or_else`.
 6. `return` inside a handler returns from the enclosing function, and `stop` ends the enclosing loop.
-7. Errors that are not catchable (resource limits, internal errors) always end the program.
+7. Errors that are not catchable (resource limits, internal errors, and syntax errors in a pattern) always end the program.
 
 `or_else` guards the one statement it follows; to guard several, put them in a function and guard the
 call. It cannot guard the work of an `async` call that is queued rather than awaited (section 6.5).
@@ -679,20 +776,21 @@ loads the file `./maps/core_engine/stage_data.cuff`.
 | :--- | :--- |
 | `print(...)`, `input([prompt])` | See section 5.4. |
 | `type_of(x)` | The type name: `"number"`, `"str"`, `"boolean"`, `"list"`, `"map"`, `"match"` or `"empty"`. |
-| `to_number(x)` | A number, a decimal string parsed as a number (`E4-025` if it is not one), or a boolean as `1`/`0`. Other types are an error. |
+| `to_number(x)` | A number is returned as it is; `true` and `false` give `1` and `0`; a string is read as plain decimal text (`E4-025` for any other text, [exactly which is listed here](dlc/convert.md#what-to_number-accepts)). Any other type is `E4-005`. |
 | `to_str(x)` | The display form of any value (section 2). |
 | `to_boolean(x)` | The truthiness of any value (section 2). |
 
 ### 10.3 `length`, `contains`, `index_of`
 
-These three work on strings, lists and maps alike and become available once any of `DLC:string`,
-`DLC:list` or `DLC:map` is loaded.
+These three are not available until a library that registers them is loaded: `length` and `contains` come with
+any of `DLC:string`, `DLC:list` or `DLC:map`, and `index_of` with `DLC:string` or `DLC:list`. Without one of those lines
+the call is `E4-002`, and `use DLC:map` alone does not give `index_of`.
 
 | Function | Result |
 | :--- | :--- |
-| `length(x)` | Characters of a string, elements of a list, keys of a map. |
-| `contains(x, v)` | Whether a string contains the substring `v`, a list contains an element equal to `v`, or a map has the key `v`. |
-| `index_of(x, v)` | The 1-based position of the first occurrence of `v` in a string or list, or `empty` if there is none. |
+| `length(x)` | Characters of a string, elements of a list, keys of a map. Any other type is `E4-005`. |
+| `contains(x, v)` | Whether a string contains the substring `v`, a list contains an element equal to `v`, or a map has the key `v`. For a string or a map `v` must be a `str` (`E4-005`). |
+| `index_of(x, v)` | The 1-based position of the first occurrence of `v` in a string (counted in characters) or list, or `empty` if there is none. A map is `E4-005`. |
 
 ### 10.4 Library reference
 
@@ -700,10 +798,9 @@ Each library has its own page in the [library reference](dlc/README.md), and
 [all functions](functions.md) are indexed in one place. Names follow `library_verb`. The libraries are
 `math`, `string`, `time`, `random`, `list`, `map`, `convert`, `json`, `network` and `filesystem`.
 
-Two things hold for every library function: a library that a host has switched off (`DLC:network`,
-`DLC:filesystem`) is refused with `E5-005`, and nothing a library does can leave the sandbox described in
-[section 9.2](#92-your-own-modules-use--from-). `DLC:network` and `DLC:filesystem` act on the outside world and are
-described together with their risks in [the security policy](../../SECURITY.md).
+A host can switch `DLC:network` and `DLC:filesystem` off, and nothing a library does can leave the sandbox described in
+[section 9.2](#92-your-own-modules-use--from-). Both act on the outside world and are described together with their
+risks in [the security policy](../../SECURITY.md); [the rules for libraries](dlc/README.md#libraries-that-reach-outside-the-program) say what a switched-off library does.
 
 ---
 

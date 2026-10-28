@@ -11,6 +11,22 @@
    - `npm/package.json` (`version`).
 4. Regenerate the docs if anything they are generated from changed: `python3 tools/docs.py generate`.
 
+## Versioning
+
+A version is `MAJOR.MINOR.PATCH`, written with a leading `v` in tags and in the changelog (`v1.2.3`). The [changelog](../CHANGELOG.md) shows how the numbers are used:
+
+| Part | Used for |
+| :--- | :--- |
+| Patch | Fixes: corrections to what a feature does, and to what the documentation says it does |
+| Minor | New features, libraries and options, together with fixes; a change to the language that a program can notice is called out |
+| Major | A larger break, such as renaming a keyword or a library function |
+
+This is not Semantic Versioning to the letter. Instead, every change that can make a program that worked behave differently is labelled
+**Behavior change** in the release notes, whatever the number, so that someone upgrading can find them by searching for those words. The number is
+chosen from the list of changes when the release is made.
+
+The version is set in `cli/Version.h` and `npm/package.json` and must agree with the top entry of the changelog; the documentation check enforces it.
+
 ## The changelog
 
 `docs/CHANGELOG.md` is written when a GitHub release is **published**: the workflow `update-changelog.yaml` takes the release's
