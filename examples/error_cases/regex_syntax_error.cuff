@@ -1,4 +1,4 @@
 note: syntax error in the regex pattern itself -> RegexSyntaxError immediately at parse time
-if "x" is "[num" do:
+if "x" matches p"[num" do:
     print("never reached")
 end

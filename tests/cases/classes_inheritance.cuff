@@ -1,0 +1,86 @@
+note: extends, overriding, super, constructors and polymorphism.
+class Animal do:
+    set str name to "animal"
+    set number legs to 4
+
+    func init(str name) do:
+        change self.name to name
+        print(f"Animal.init {name}")
+    end
+
+    func speak() do:
+        return "..."
+    end
+
+    func intro() do:
+        return f"{self.name} says {self.speak()}"
+    end
+end
+
+class Dog extends Animal do:
+    set str trick to "sit"
+
+    func init(str name, str trick to "sit") do:
+        super.init(name)
+        change self.trick to trick
+        print("Dog.init")
+    end
+
+    func speak() do:
+        return "Woof"
+    end
+end
+
+class Puppy extends Dog do:
+    func speak() do:
+        return super.speak() + " (squeaky)"
+    end
+end
+
+class Bird extends Animal do:
+    func init(str name) do:
+        super.init(name)
+        change self.legs to 2
+    end
+
+    func speak() do:
+        return "Tweet"
+    end
+end
+
+set Dog rex to Dog("Rex", "roll")
+set Puppy pup to Puppy("Pip")
+set Bird tweety to Bird("Tweety")
+print(rex.intro())
+print(pup.intro(), pup.trick)
+print(tweety.intro(), tweety.legs)
+
+note: a child that defines init must call the parent's explicitly; fields are inherited
+print(rex.legs, pup.legs)
+
+note: parent-typed parameters accept children
+func present(Animal a) do:
+    print(f"{type_of(a)}: {a.intro()}")
+end
+present(rex)
+present(pup)
+present(tweety)
+
+set list zoo to [rex, pup, tweety]
+loop each a in zoo do:
+    print(a.speak(), a isa Animal, a isa Dog, a isa Puppy, a isa Bird)
+end
+
+note: object accepts any object
+func name_of(object o) do:
+    return o.name
+end
+print(name_of(pup))
+
+note: a child without init inherits the parent's
+class Cat extends Animal do:
+    func speak() do:
+        return "Meow"
+    end
+end
+print(Cat("Tom").intro())

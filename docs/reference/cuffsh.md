@@ -7,7 +7,7 @@ next. Build it with `cli/build.sh` (Linux and macOS) or `cli\build.bat` (Windows
 ```text
 >> print(1 + 1)
 2
->> set returnable func sq(n) do:
+>> func sq(n) do:
 ..     return n * n
 .. end
 >> print(sq(6))
@@ -18,13 +18,15 @@ next. Build it with `cli/build.sh` (Linux and macOS) or `cli\build.bat` (Windows
 guess that something "looks unfinished": whatever you submit is parsed and run exactly once, and any error is
 the engine's own report, in the same form `cuffc` prints.
 
+A class declared in the shell stays for the rest of the session, like a function, and so do the objects made from it. Declaring a class again replaces it for the objects made after that; objects made before keep the class they were made from.
+
 ## Options
 
 <!-- BEGIN GENERATED: help-cuffsh -->
 ```text
 CuffScript Interactive Shell <version>
 Enter runs what you've typed; Shift+Enter (or Alt+Enter) inserts a newline
-(for if/loop/func and other multi-line code) instead of running it yet.
+(for if/loop/func/class/with and other multi-line code) instead of running it yet.
 
 Usage: cuffsh [options] [file.cuff]
   file.cuff              run this script in the session before the prompt

@@ -1,0 +1,33 @@
+note: the seven text functions take the text first and a pattern second.
+set str text to "alpha 123 beta 45.6 gamma-789 delta@example.com"
+
+print(find(text, p"[num]+"))
+print(find(text, p"[num]+\.[num]+"))
+print(find(text, p"zzz"))
+print(find_all(text, p"[num]+"))
+print(find_all(text, p"[word]+")[1])
+print(count(text, p"[num]+"), count(text, p"a"), count(text, p"A"i), count(text, p"zzz"))
+print(replace(text, p"[num]+", "#"))
+print(replace_all(text, p"[num]+", "#"))
+print(replace_all(text, p"[low]+@[low]+\.com", "<mail>"))
+print(split("a, b,c ,d", p"[sp]*,[sp]*"))
+print(split("one", p","))
+print(split(",a,", p","))
+
+set match m to match("2024-05-17", p"(<year:[num]4>)-(<month:[num]2>)-([num]2)")
+print(m, m[1], m[3])
+print(m["year"], m["month"])
+print(match("none", p"[num]+"))
+print(match("abc", p"abc"), type_of(match("abc", p"abc")))
+
+note: a replacement is plain text
+print(replace_all("a.b.c", p"\.", "$1"))
+print(replace_all("path", p"path", "\n"))
+
+note: the pattern can be built while the program runs
+set str unit to "[num]+"
+print(find(text, pattern(unit)))
+print(count(text, pattern("[sp]")))
+
+note: method form
+print(text.find(p"[num]+"), text.count(p"[num]+"), text.split(p"[sp]+")[2])

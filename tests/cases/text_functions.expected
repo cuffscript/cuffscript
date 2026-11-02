@@ -1,0 +1,22 @@
+123
+45.6
+empty
+["123", "45", "6", "789"]
+alpha
+4 7 7 0
+alpha # beta 45.6 gamma-789 delta@example.com
+alpha # beta #.# gamma-# delta@example.com
+alpha 123 beta 45.6 gamma-789 <mail>
+["a", "b", "c", "d"]
+["one"]
+["", "a", ""]
+<match "2024-05-17"> 2024 17
+2024 05
+empty
+<match "abc"> match
+a$1b$1c
+
+
+123
+5
+123 4 123

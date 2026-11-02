@@ -1,34 +1,34 @@
 note: typed parameters -- written as `type name`; the type may be omitted (mixing is fine).
-set returnable func add_num(number n1, number n2) do:
+func add_num(number n1, number n2) do:
     return n1 + n2
 end
 print(add_num(1, 2))
 
 use DLC:list
-set func greet(str name, count, list items) do:
+func greet(str name, count, list items) do:
     print(f"{name} {count} {length(items)}")
 end
 greet("kim", 3, [1, 2])
 
-set returnable func mixed(a, number b) do:
+func mixed(a, number b) do:
     return a + b
 end
 print(mixed(5, 6))
 
 note: a typed parameter still accepts `empty` (same rule as set)
-set returnable func maybe(str s) do:
+func maybe(str s) do:
     return s is empty
 end
 print(maybe(empty))
 
 note: map / boolean / match types
-set func show(map m, boolean flag) do:
+func show(map m, boolean flag) do:
     print(f"{length(m)} {flag}")
 end
 show({"a": 1}, true)
 
 note: async functions are also type-checked at call time
-set async func later(number n) do:
+async func later(number n) do:
     print(f"later {n}")
 end
 later(7)

@@ -1,0 +1,7 @@
+Rover at (0, 5) facing west
+7 7
+Wall-E
+1000
+Wall-E Wall-E at (0, 7) facing north
+Rover ["moved 3", "turned left", "moved 2"]
+Wall-E

@@ -36,7 +36,7 @@ namespace
     {
         std::cout << "CuffScript Interactive Shell " << cuff::cli::kVersion << "\n"
                   << "Enter runs what you've typed; Shift+Enter (or Alt+Enter) inserts a newline\n"
-                  << "(for if/loop/func and other multi-line code) instead of running it yet.\n\n"
+                  << "(for if/loop/func/class/with and other multi-line code) instead of running it yet.\n\n"
                   << "Usage: " << prog << " [options] [file.cuff]\n"
                   << "  file.cuff              run this script in the session before the prompt\n"
                   << "                         appears\n"

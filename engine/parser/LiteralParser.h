@@ -87,7 +87,7 @@ namespace cuff
                         throw SyntaxError("unterminated '{' in f-string", originAt(i).map(SourceLocation()));
 
                     std::string exprSource = raw.substr(i + 1, j - i - 1);
-                    auto innerExpr = parseEmbeddedExpression(exprSource, originAt(i + 1));
+                    auto innerExpr = parseEmbeddedExpression(exprSource, originAt(i + 1), p.ctx);
 
                     FStringExpr::Segment seg;
                     seg.isExpression = true;
@@ -174,7 +174,8 @@ namespace cuff
             return rebuilt == value;
         }
 
-        static std::unique_ptr<Expr> parseEmbeddedExpression(const std::string &exprSource, const FragmentOrigin &origin);
+        static std::unique_ptr<Expr> parseEmbeddedExpression(const std::string &exprSource, const FragmentOrigin &origin,
+                                                             const ParseContext &ctx);
     };
 
 }

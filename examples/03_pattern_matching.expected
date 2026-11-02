@@ -5,5 +5,5 @@ msg=DB Connection Lost
 call me at 010-****-**** today
 ["apple", "banana", "cherry"]
 3
-IS is case-insensitive
+the i flag ignores case
 Image filename pattern matched

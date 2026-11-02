@@ -1,0 +1,8 @@
+note: a function declared by the program takes over the call form of a built-in with the same name.
+set str text to "banana"
+func count(text, rule) do:
+    return -1
+end
+print(count(text, p"a"))
+print(text.count(p"a"))
+print(find(text, p"an"))

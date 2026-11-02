@@ -2,8 +2,9 @@
 //
 // The engine's contract for an embedder is "one Session per thread, no sharing". Two things are shared by every
 // thread and have to be synchronised: the table that turns identifier names into numbers (common/NameInterner.h) and
-// the generator behind DLC:random (dlc/RandomDLC.h). Every thread here introduces names of its own and draws random
-// numbers, so an unsynchronised table or generator corrupts, hangs or crashes; build this test with
+// the generator behind DLC:random (dlc/RandomDLC.h). Every thread here introduces names of its own, declares classes
+// and makes objects (every session has its own class table, including the built-in Error), uses patterns and draws
+// random numbers, so an unsynchronised table or generator corrupts, hangs or crashes; build this test with
 // -fsanitize=thread to see a data race itself.
 #include "engine/CuffEngine.h"
 #include <atomic>
@@ -41,8 +42,20 @@ int main()
                 // Fresh names every round, so every round adds to the shared table.
                 const std::string a = "t" + std::to_string(t) + "_a" + std::to_string(round);
                 const std::string f = "t" + std::to_string(t) + "_f" + std::to_string(round);
-                const std::string source = "set number " + a + " to " + std::to_string(round) + "\n"
-                                           "set returnable func " + f + "(n) do:\n    return n + " + std::to_string(t) + "\nend\n"
+                const std::string base = "T" + std::to_string(t) + "Base" + std::to_string(round);
+                const std::string child = "T" + std::to_string(t) + "Child" + std::to_string(round);
+                const std::string classes =
+                    "class " + base + " do:\n    set number v to " + std::to_string(round) + "\n    set list log to []\n"
+                    "    func init(number extra to 0) do:\n        change self.v to self.v + extra\n    end\n"
+                    "    func get() do:\n        return self.v\n    end\nend\n"
+                    "class " + child + " extends " + base + " do:\n    func get() do:\n        return super.get() * 2\n    end\nend\n"
+                    "set " + child + " obj to " + child + "(" + std::to_string(t) + ")\n"
+                    "set number got to 0\n"
+                    "with obj do:\n    change got to get()\nend\n"
+                    "if got is not " + std::to_string((round + t) * 2) + " or !(\"x" + std::to_string(round) + "\" matches p\"x[num]+\") do:\n    set number z to 1 / 0\nend\n"
+                    "fail \"t" + std::to_string(t) + "\" or_else as err do:\n    if err.message is not \"t" + std::to_string(t) + "\" do:\n        set number z to 1 / 0\n    end\nend\n";
+                const std::string source = classes + "set number " + a + " to " + std::to_string(round) + "\n"
+                                           "func " + f + "(n) do:\n    return n + " + std::to_string(t) + "\nend\n"
                                            "if " + f + "(" + a + ") is not " + std::to_string(round + t) + " do:\n    set number z to 1 / 0\nend\n"
                                            "use DLC:random\n"
                                            "set number d to random_int(1, 6)\n"

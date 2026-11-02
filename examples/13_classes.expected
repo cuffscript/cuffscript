@@ -1,0 +1,10 @@
+Hello, I am Ann
+Ann is at 3 after 2 step(s), carrying ["lamp"]
+["lamp"] ["map"]
+5 true false
+5 105
+Player(Ann)
+Player(Bob) is a Player
+Bob at 10
+E4-033
+class 'Player' has no field 'nickname'

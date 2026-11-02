@@ -23,6 +23,9 @@ _This table is generated from `engine/common/Limits.h` by `tools/docs.py`. Chang
 | Value nesting in output | 1,000 |  | How deeply nested lists and maps are written out when printed or converted to text; anything deeper is shown as `[...]` or `{...}`. |
 | JSON nesting | 200 | [`E4-025`](errors.md#e4-025) | How deeply nested the text `from_json` reads, or the value `to_json` writes, may be. |
 | Queued async calls | 1,000,000 | [`E4-026`](errors.md#e4-026) | How many `async` calls may wait to run at once. |
+| Class inheritance depth | 64 | [`E4-026`](errors.md#e4-026) | How many parent classes one class may have in a chain (`extends` of `extends` of ...). |
+| Members per class | 1,024 | [`E4-026`](errors.md#e4-026) | The most fields and methods one class can have, counting the ones it inherits. It also bounds the size of every object of that class. |
+| Classes | 4,096 | [`E4-026`](errors.md#e4-026) | The most classes a program can declare, modules included. The built-in `Error` class does not count. |
 | Module nesting | 64 | [`E5-007`](errors.md#e5-007) | How many levels of modules may import other modules. |
 | HTTP connect timeout (ms) | 5,000 ms | [`E4-028`](errors.md#e4-028) | How long `DLC:network` waits to connect. |
 | HTTP total timeout (ms) | 15,000 ms | [`E4-028`](errors.md#e4-028) | How long one `DLC:network` request may take in all. |

@@ -1,4 +1,4 @@
 note: E3-001
-if "x" is "(abc" do:
+if "x" matches p"(abc" do:
     print("unreachable")
 end

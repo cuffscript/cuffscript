@@ -22,6 +22,9 @@ namespace cuff
                 {
                     os << " \"" << t.value << "\"";
                 }
+                if (t.type == TokenType::PATTERN && t.patternFlags)
+                    os << " flags=" << ((t.patternFlags & kPatternFlagIgnoreCase) ? "i" : "")
+                       << ((t.patternFlags & kPatternFlagMultiline) ? "m" : "");
                 os << "  @" << t.location.toString();
                 if (t.hasSpaceBefore)
                     os << " <sp>";
@@ -49,6 +52,82 @@ namespace cuff
                 os << "  ";
         }
 
+        static void printTypeSpec(std::ostringstream &os, const TypeSpec &t)
+        {
+            os << t.name();
+        }
+
+        static void printPlace(std::ostringstream &os, const Place &place, int depth)
+        {
+            switch (place.root)
+            {
+            case Place::Root::Self:
+                os << "self";
+                break;
+            case Place::Root::With:
+                os << "." << place.name;
+                break;
+            case Place::Root::Name:
+                os << place.name;
+                break;
+            }
+            for (const auto &step : place.steps)
+            {
+                if (step.isIndex)
+                    os << "[...]";
+                else
+                    os << "." << step.name;
+            }
+            os << "\n";
+            for (const auto &step : place.steps)
+            {
+                if (!step.isIndex)
+                    continue;
+                indent(os, depth + 1);
+                os << "index:\n";
+                printExpr(os, *step.index, depth + 2);
+            }
+        }
+
+        static void printBody(std::ostringstream &os, const std::vector<std::unique_ptr<Stmt>> &body, int depth)
+        {
+            for (const auto &s : body)
+                printStmt(os, *s, depth);
+        }
+
+        static void printFunction(std::ostringstream &os, const FunctionDecl &f, int depth)
+        {
+            std::string mods;
+            if (f.isPrivate)
+                mods += "private ";
+            if (f.isAsync)
+                mods += "async ";
+            if (f.isPure)
+                mods += "pure ";
+            os << (f.isMethod ? "Method [" : "FunctionDecl [") << (mods.empty() ? "normal" : mods.substr(0, mods.size() - 1))
+               << "] " << f.name << "(";
+            for (size_t i = 0; i < f.params.size(); ++i)
+            {
+                if (i > 0)
+                    os << ", ";
+                if (i < f.paramTypes.size() && f.paramTypes[i].kind != TypeKind::Any)
+                    os << f.paramTypes[i].name() << " ";
+                os << f.params[i];
+                if (i < f.paramDefaults.size() && f.paramDefaults[i])
+                    os << " to ...";
+            }
+            os << ")\n";
+            for (size_t i = 0; i < f.paramDefaults.size(); ++i)
+            {
+                if (!f.paramDefaults[i])
+                    continue;
+                indent(os, depth + 1);
+                os << "default of " << f.params[i] << ":\n";
+                printExpr(os, *f.paramDefaults[i], depth + 2);
+            }
+            printBody(os, f.body, depth + 1);
+        }
+
         static void printStmt(std::ostringstream &os, const Stmt &stmt, int depth)
         {
             indent(os, depth);
@@ -57,7 +136,9 @@ namespace cuff
             case StmtKind::Declaration:
             {
                 const auto &d = std::get<DeclarationStmt>(stmt.data);
-                os << "Declaration [" << d.varType << "]";
+                os << "Declaration [";
+                printTypeSpec(os, d.type);
+                os << "]";
                 if (d.isConstant)
                     os << " (const)";
                 os << " " << d.name << " to\n";
@@ -67,48 +148,43 @@ namespace cuff
             case StmtKind::Change:
             {
                 const auto &c = std::get<ChangeStmt>(stmt.data);
-                os << "Change " << c.name;
-                for (size_t i = 0; i < c.indices.size(); ++i)
-                    os << "[...]";
-                if (c.toGlobal)
-                {
-                    os << " to global\n";
-                }
-                else
-                {
-                    os << " to\n";
-                    for (const auto &idxExpr : c.indices)
-                    {
-                        indent(os, depth + 1);
-                        os << "index:\n";
-                        printExpr(os, *idxExpr, depth + 2);
-                    }
-                    printExpr(os, *c.value, depth + 1);
-                }
+                os << "Change ";
+                printPlace(os, c.target, depth);
+                indent(os, depth + 1);
+                os << "to:\n";
+                printExpr(os, *c.value, depth + 2);
+                break;
+            }
+            case StmtKind::Global:
+            {
+                const auto &g = std::get<GlobalStmt>(stmt.data);
+                os << "Global";
+                for (size_t i = 0; i < g.names.size(); ++i)
+                    os << (i ? ", " : " ") << g.names[i].name;
+                os << "\n";
                 break;
             }
             case StmtKind::FunctionDecl:
+                printFunction(os, std::get<FunctionDecl>(stmt.data), depth);
+                break;
+            case StmtKind::ClassDecl:
             {
-                const auto &f = std::get<FunctionDecl>(stmt.data);
-                std::string kindStr = "normal";
-                if (f.isAsync && f.isReturnable)
-                    kindStr = "async returnable";
-                else if (f.isAsync)
-                    kindStr = "async";
-                else if (f.isReturnable)
-                    kindStr = "returnable";
-                os << "FunctionDecl [" << kindStr << "] " << f.name << "(";
-                for (size_t i = 0; i < f.params.size(); ++i)
+                const auto &c = std::get<ClassDecl>(stmt.data);
+                os << "Class " << c.name;
+                if (!c.parentName.empty())
+                    os << " extends " << c.parentName;
+                os << "\n";
+                for (const auto &f : c.fields)
                 {
-                    if (i > 0)
-                        os << ", ";
-                    if (i < f.paramTypes.size() && f.paramTypes[i] != ParamType::Any)
-                        os << paramTypeName(f.paramTypes[i]) << " ";
-                    os << f.params[i];
+                    indent(os, depth + 1);
+                    os << "Field [";
+                    printTypeSpec(os, f.type);
+                    os << "]" << (f.isPrivate ? " (private)" : "") << (f.isConstant ? " (const)" : "") << " " << f.name
+                       << " to\n";
+                    printExpr(os, *f.defaultValue, depth + 2);
                 }
-                os << ")\n";
-                for (const auto &s : f.body)
-                    printStmt(os, *s, depth + 1);
+                for (const auto &m : c.methods)
+                    printStmt(os, *m, depth + 1);
                 break;
             }
             case StmtKind::IfStmt:
@@ -136,15 +212,16 @@ namespace cuff
                     {
                         os << " body:\n";
                     }
-                    for (const auto &s : br.body)
-                        printStmt(os, *s, depth + 2);
+                    printBody(os, br.body, depth + 2);
                 }
                 break;
             }
             case StmtKind::LoopStmt:
             {
                 const auto &loop = std::get<LoopStmt>(stmt.data);
-                const char *kindStr = loop.kind == LoopStmt::LoopKind::While ? "while" : "repeat";
+                const char *kindStr = loop.kind == LoopStmt::LoopKind::While  ? "while"
+                                      : loop.kind == LoopStmt::LoopKind::Each ? "each"
+                                                                              : "repeat";
                 os << "Loop [" << kindStr << "]\n";
                 if (loop.kind == LoopStmt::LoopKind::Repeat)
                 {
@@ -157,6 +234,14 @@ namespace cuff
                     os << "end:\n";
                     printExpr(os, *loop.repeatEnd, depth + 2);
                 }
+                else if (loop.kind == LoopStmt::LoopKind::Each)
+                {
+                    indent(os, depth + 1);
+                    os << "var: " << loop.repeatVar << "\n";
+                    indent(os, depth + 1);
+                    os << "in:\n";
+                    printExpr(os, *loop.collection, depth + 2);
+                }
                 else
                 {
                     indent(os, depth + 1);
@@ -165,12 +250,26 @@ namespace cuff
                 }
                 indent(os, depth + 1);
                 os << "body:\n";
-                for (const auto &s : loop.body)
-                    printStmt(os, *s, depth + 2);
+                printBody(os, loop.body, depth + 2);
+                break;
+            }
+            case StmtKind::WithStmt:
+            {
+                const auto &w = std::get<WithStmt>(stmt.data);
+                os << "With\n";
+                indent(os, depth + 1);
+                os << "object:\n";
+                printExpr(os, *w.object, depth + 2);
+                indent(os, depth + 1);
+                os << "body:\n";
+                printBody(os, w.body, depth + 2);
                 break;
             }
             case StmtKind::StopStmt:
                 os << "Stop\n";
+                break;
+            case StmtKind::SkipStmt:
+                os << "Skip\n";
                 break;
             case StmtKind::ReturnStmt:
             {
@@ -180,12 +279,18 @@ namespace cuff
                     printExpr(os, *ret.value, depth + 1);
                 break;
             }
+            case StmtKind::FailStmt:
+            {
+                const auto &f = std::get<FailStmt>(stmt.data);
+                os << "Fail\n";
+                printExpr(os, *f.value, depth + 1);
+                break;
+            }
             case StmtKind::AwaitStmt:
             {
                 const auto &aw = std::get<AwaitStmt>(stmt.data);
-                os << "Await " << aw.expr->call->functionName << "(...)\n";
-                for (const auto &arg : aw.expr->call->args)
-                    printExpr(os, *arg, depth + 1);
+                os << "Await\n";
+                printExpr(os, *aw.expr->call, depth + 1);
                 break;
             }
             case StmtKind::UseStmt:
@@ -212,45 +317,25 @@ namespace cuff
             case StmtKind::CollectionOp:
             {
                 const auto &co = std::get<CollectionOpStmt>(stmt.data);
-                const char *opStr = "Add";
-                if (co.opKind == CollectionOpStmt::OpKind::Remove)
-                    opStr = "Remove";
-                else if (co.opKind == CollectionOpStmt::OpKind::Replace)
-                    opStr = "Replace";
-                os << "CollectionOp [" << opStr << "] " << co.collectionName << "\n";
-                if (co.opKind == CollectionOpStmt::OpKind::Add && co.addValue)
-                    printExpr(os, *co.addValue, depth + 1);
-                if (co.opKind == CollectionOpStmt::OpKind::Replace)
-                {
-                    if (co.indexOrKey)
-                    {
-                        indent(os, depth + 1);
-                        os << "index/key:\n";
-                        printExpr(os, *co.indexOrKey, depth + 2);
-                    }
-                    if (co.newValue)
-                    {
-                        indent(os, depth + 1);
-                        os << "new value:\n";
-                        printExpr(os, *co.newValue, depth + 2);
-                    }
-                }
-                if (co.opKind == CollectionOpStmt::OpKind::Remove && co.removeValue)
-                    printExpr(os, *co.removeValue, depth + 1);
+                os << "CollectionOp [" << (co.opKind == CollectionOpStmt::OpKind::Add ? "Add" : "Remove") << "] ";
+                printPlace(os, co.target, depth);
+                printExpr(os, *co.value, depth + 1);
                 break;
             }
             case StmtKind::OrElse:
             {
                 const auto &oe = std::get<OrElseStmt>(stmt.data);
-                os << "OrElse\n";
+                os << "OrElse";
+                if (!oe.errorName.empty())
+                    os << " as " << oe.errorName;
+                os << "\n";
                 indent(os, depth + 1);
                 os << "primary:\n";
                 if (oe.primaryStmt)
                     printStmt(os, *oe.primaryStmt, depth + 2);
                 indent(os, depth + 1);
                 os << "fallback:\n";
-                for (const auto &s : oe.fallbackBody)
-                    printStmt(os, *s, depth + 2);
+                printBody(os, oe.fallbackBody, depth + 2);
                 break;
             }
             }
@@ -281,6 +366,15 @@ namespace cuff
             }
             case ExprKind::Empty:
                 os << "Empty\n";
+                break;
+            case ExprKind::Pattern:
+            {
+                const auto &pat = std::get<PatternLiteral>(expr.data);
+                os << "Pattern(" << pat.value->display() << ")\n";
+                break;
+            }
+            case ExprKind::Self:
+                os << "Self\n";
                 break;
             case ExprKind::Identifier:
             {
@@ -380,96 +474,60 @@ namespace cuff
                     printExpr(os, *arg, depth + 1);
                 break;
             }
-            case ExprKind::Await:
+            case ExprKind::Member:
             {
-                const auto &aw = std::get<AwaitExpr>(expr.data);
-                os << "Await(" << aw.call->functionName << ")\n";
-                for (const auto &arg : aw.call->args)
+                const auto &m = std::get<MemberAccess>(expr.data);
+                os << "Member(" << m.name << ")\n";
+                if (m.target)
+                    printExpr(os, *m.target, depth + 1);
+                else
+                {
+                    indent(os, depth + 1);
+                    os << "(with object)\n";
+                }
+                break;
+            }
+            case ExprKind::MethodCall:
+            {
+                const auto &m = std::get<MethodCall>(expr.data);
+                os << "MethodCall(" << m.name << ")\n";
+                if (m.target)
+                {
+                    indent(os, depth + 1);
+                    os << "target:\n";
+                    printExpr(os, *m.target, depth + 2);
+                }
+                else
+                {
+                    indent(os, depth + 1);
+                    os << "target: (with object)\n";
+                }
+                for (const auto &arg : m.args)
                     printExpr(os, *arg, depth + 1);
                 break;
             }
-            case ExprKind::RegexMatch:
+            case ExprKind::SuperCall:
             {
-                const auto &rm = std::get<RegexMatchExpr>(expr.data);
-                os << "RegexMatch(" << (rm.caseInsensitive ? "IS" : "is") << ")\n";
-                indent(os, depth + 1);
-                os << "target:\n";
-                printExpr(os, *rm.target, depth + 2);
-                indent(os, depth + 1);
-                os << "pattern: \"" << rm.pattern << "\"\n";
+                const auto &sc = std::get<SuperCall>(expr.data);
+                os << "SuperCall(" << sc.name << ")\n";
+                for (const auto &arg : sc.args)
+                    printExpr(os, *arg, depth + 1);
                 break;
             }
-            case ExprKind::MatchFrom:
+            case ExprKind::Isa:
             {
-                const auto &m = std::get<MatchFromExpr>(expr.data);
-                os << "MatchFrom [flags=" << m.flags << "]\n";
-                indent(os, depth + 1);
-                os << "target:\n";
-                printExpr(os, *m.target, depth + 2);
-                indent(os, depth + 1);
-                printPatternArg(os, m.pattern, depth + 1);
+                const auto &isa = std::get<IsaExpr>(expr.data);
+                os << "Isa(" << isa.className << ")\n";
+                printExpr(os, *isa.target, depth + 1);
                 break;
             }
-            case ExprKind::Find:
+            case ExprKind::Await:
             {
-                const auto &f = std::get<FindExpr>(expr.data);
-                os << "Find [flags=" << f.flags << "]\n";
-                indent(os, depth + 1);
-                printPatternArg(os, f.pattern, depth + 1);
-                indent(os, depth + 1);
-                os << "target:\n";
-                printExpr(os, *f.target, depth + 2);
+                const auto &aw = std::get<AwaitExpr>(expr.data);
+                os << "Await\n";
+                printExpr(os, *aw.call, depth + 1);
                 break;
             }
-            case ExprKind::PatternReplace:
-            {
-                const auto &r = std::get<PatternReplaceExpr>(expr.data);
-                os << "PatternReplace [flags=" << r.flags << "]\n";
-                indent(os, depth + 1);
-                printPatternArg(os, r.pattern, depth + 1);
-                indent(os, depth + 1);
-                os << "target:\n";
-                printExpr(os, *r.target, depth + 2);
-                indent(os, depth + 1);
-                os << "replacement:\n";
-                printExpr(os, *r.replacement, depth + 2);
-                break;
-            }
-            case ExprKind::Split:
-            {
-                const auto &s = std::get<SplitExpr>(expr.data);
-                os << "Split\n";
-                indent(os, depth + 1);
-                os << "target:\n";
-                printExpr(os, *s.target, depth + 2);
-                indent(os, depth + 1);
-                printPatternArg(os, s.pattern, depth + 1);
-                break;
-            }
-            case ExprKind::Count:
-            {
-                const auto &c = std::get<CountExpr>(expr.data);
-                os << "Count [flags=" << c.flags << "]\n";
-                indent(os, depth + 1);
-                printPatternArg(os, c.pattern, depth + 1);
-                indent(os, depth + 1);
-                os << "target:\n";
-                printExpr(os, *c.target, depth + 2);
-                break;
-            }
-            }
-        }
-
-        static void printPatternArg(std::ostringstream &os, const PatternArg &pat, int depth)
-        {
-            if (pat.isLiteral)
-            {
-                os << "pattern: \"" << pat.literalPattern << "\"\n";
-            }
-            else
-            {
-                os << "pattern (dynamic):\n";
-                printExpr(os, *pat.dynamicExpr, depth + 1);
             }
         }
     };

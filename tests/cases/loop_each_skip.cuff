@@ -1,0 +1,72 @@
+note: loop each walks a list, a map's keys or a str's characters; skip goes to the next round.
+loop each n in [10, 20, 30] do:
+    print(n)
+end
+
+set map ages to {"Ann": 31, "Bob": 25, "Cy": 40}
+loop each name in ages do:
+    print(name, ages[name])
+end
+
+loop each ch in "héllo" do:
+    print(ch)
+end
+
+loop each x in [] do:
+    print("never")
+end
+loop each x in {} do:
+    print("never")
+end
+loop each x in "" do:
+    print("never")
+end
+
+loop each n in [1, 2, 3, 4, 5, 6] do:
+    if n % 2 is 0 do:
+        skip
+    end
+    if n > 4 do:
+        stop
+    end
+    print("odd", n)
+end
+
+note: skip and stop belong to the nearest loop
+loop each row in [[1, 2, 3], [4, 5, 6]] do:
+    loop each v in row do:
+        if v is 2 do:
+            skip
+        end
+        if v is 5 do:
+            stop
+        end
+        print(v)
+    end
+end
+
+note: the loop sees the collection as it was when it started
+set list items to [1, 2, 3]
+loop each i in items do:
+    add i * 10 to items
+end
+print(items)
+
+set number round to 0
+loop while round < 5 do:
+    change round to round + 1
+    if round is 2 do:
+        skip
+    end
+    print("round", round)
+end
+
+loop repeat i to 1 ~ 6 do:
+    if i % 3 is 0 do:
+        skip
+    end
+    print("i", i)
+end
+loop repeat i to 3 ~ 1 do:
+    print("down", i)
+end

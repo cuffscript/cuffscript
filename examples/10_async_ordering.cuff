@@ -2,15 +2,15 @@ note: an async function called without await is queued instead of running immedi
 note: and runs in FIFO order after all the synchronous top-level code has finished.
 note: with await it runs immediately, as usual, and returns its value.
 
-set async func notify_a() do:
+async func notify_a() do:
     print("[async] A done")
 end
 
-set async func notify_b() do:
+async func notify_b() do:
     print("[async] B done")
 end
 
-set async returnable func fetch_score() do:
+async func fetch_score() do:
     print("[async] looking up the score...")
     return 87
 end

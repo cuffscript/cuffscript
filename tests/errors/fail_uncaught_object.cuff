@@ -1,0 +1,3 @@
+class ValidationError extends Error do:
+end
+fail ValidationError("bad input")

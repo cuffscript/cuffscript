@@ -1,0 +1,2 @@
+set str text to "a,b"
+set list r to split text by ","

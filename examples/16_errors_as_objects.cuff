@@ -1,0 +1,67 @@
+note: Errors as objects: fail raises one, or_else as catches it, and classes tell kinds apart.
+
+class ValidationError extends Error do:
+    set str field to ""
+
+    func init(str field, str message) do:
+        super.init(message)
+        change self.field to field
+    end
+end
+
+class OutOfStock extends Error do:
+end
+
+set map stock to {"apple": 3, "pear": 0}
+
+func order(str item, number count) do:
+    global stock
+    if count < 1 do:
+        fail ValidationError("count", "an order needs at least one item")
+    end
+    if !(item matches p"[low]+") do:
+        fail ValidationError("item", f"'{item}' is not a valid item name")
+    end
+    if stock[item] < count do:
+        fail OutOfStock(f"only {stock[item]} {item}(s) left")
+    end
+    change stock[item] to stock[item] - count
+    return f"ordered {count} {item}"
+end
+
+func try_order(str item, number count) do:
+    print(order(item, count)) or_else as err do:
+        if err isa ValidationError do:
+            print(f"invalid {err.field}: {err.message}")
+        else if err isa OutOfStock do:
+            print(f"sorry, {err.message}")
+        else do:
+            print(f"{err.code} {err.message}")
+        end
+    end
+end
+
+try_order("apple", 2)
+try_order("apple", 0)
+try_order("Apple!", 1)
+try_order("pear", 1)
+try_order("plum", 1)
+
+note: errors raised by the engine arrive as the same Error object
+print(10 / 0) or_else as err do:
+    print(err.code, err.message)
+    print(f"at line {err.line}, column {err.column}")
+end
+
+note: fail err raises a caught error again, for a caller further out
+func checked(str item) do:
+    order(item, 1) or_else as err do:
+        print("logging:", err.message)
+        fail err
+    end
+end
+checked("pear") or_else as err do:
+    print("caller got", type_of(err))
+end
+
+print(stock)

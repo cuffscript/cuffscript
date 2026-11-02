@@ -1,4 +1,4 @@
 note: E3-004
-if "x" is "[num]5~2" do:
+if "x" matches p"[num]5~2" do:
     print("unreachable")
 end

@@ -1,0 +1,10 @@
+ordered 2 apple
+invalid count: an order needs at least one item
+invalid item: 'Apple!' is not a valid item name
+sorry, only 0 pear(s) left
+E4-009 key "plum" does not exist in this map
+E4-006 division by zero
+at line 51, column 10
+logging: only 0 pear(s) left
+caller got OutOfStock
+{"apple": 1, "pear": 0}

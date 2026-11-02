@@ -10,6 +10,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | [Installation](guide/installation.md) | Building `cuffc` and `cuffsh` on Linux, macOS and Windows |
 | [Getting started](guide/getting-started.md) | Running a script, your first program, the shell |
 | [A tour of the language](guide/language-tour.md) | Every part of the language, with examples that run |
+| [Classes and objects](guide/classes-and-objects.md) | Your own kinds of thing: fields, methods, inheritance, `with`, error objects |
 | [Cookbook](guide/cookbook.md) | Short recipes for common jobs |
 | [Text and patterns](guide/text-and-patterns.md) | Finding and changing text by shape |
 | [Errors and debugging](guide/errors-and-debugging.md) | Reading an error report, `or_else`, the common errors, finding a bug |
@@ -22,6 +23,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | Page | Covers |
 | :--- | :--- |
 | [Language reference](reference/language.md) | The language, defined |
+| [Classes and objects](reference/classes.md) | Classes, objects, inheritance, `with` and error objects, defined |
 | [Grammar](reference/grammar.md) | What the parser accepts: statements, expressions, tokens and patterns |
 | [Pattern syntax](reference/patterns.md) | The pattern language |
 | [Libraries](reference/dlc/README.md) | One page per `use DLC:...` library |

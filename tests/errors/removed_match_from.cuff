@@ -1,0 +1,2 @@
+set str text to "a1"
+set match r to match text from "(a)"

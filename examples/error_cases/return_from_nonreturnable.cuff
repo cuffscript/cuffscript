@@ -1,5 +1,0 @@
-note: returning a value from a non-returnable function -> UnsupportedOperation
-set func greet() do:
-    return 5
-end
-greet()

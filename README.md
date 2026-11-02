@@ -16,7 +16,7 @@ The engine can be used through the command-line interpreter, embedded in a C++ a
 ```cuff
 set str name to "World"
 
-set returnable func greet(person) do:
+func greet(person) do:
     return f"Hello, {person}!"
 end
 
@@ -76,8 +76,8 @@ use DLC:list
 set list scores to [72, 95, 88, 61]
 set number total to 0
 
-loop repeat i to 1 ~ length(scores) do:
-    if scores[i] >= 70 do:
+loop each score in scores do:
+    if score >= 70 do:
         change total to total + 1
     end
 end
@@ -85,22 +85,41 @@ end
 print(f"{total} of {length(scores)} passed")
 
 set str code to "AB-1234"
-if code is "[up]2-[num]4" do:
+if code matches p"[up]2-[num]4" do:
     print("the code has the right shape")
 end
+
+class Player do:
+    set str name to "unknown"
+    set number points to 0
+
+    func init(str name) do:
+        change self.name to name
+    end
+
+    func score(number n) do:
+        change self.points to self.points + n
+    end
+end
+
+set Player ann to Player("Ann")
+ann.score(30)
+print(f"{ann.name} has {ann.points} points")
 ```
 
 ```output
 3 of 4 passed
 the code has the right shape
+Ann has 30 points
 ```
 
 ## What It Includes
 
 - Variables, constants, functions, conditionals, and loops
 - Lists, ordered maps, indexing, and slicing
-- A built-in pattern-matching language with word-style tokens (`[num]`, `[email]`) instead of cryptic symbols
-- Async functions, modules, and recoverable runtime errors (`or_else`)
+- Classes with fields, methods, inheritance and private members, and a `with` block
+- A built-in pattern-matching language with word-style tokens (`[num]`, `[email]`) instead of cryptic symbols, and patterns as values (`p"..."`)
+- Async functions, modules, and recoverable errors that are objects (`or_else as`, `fail`)
 - Ten built-in libraries: math, strings, lists, maps, conversion, time, random numbers, JSON, files and a small HTTP client
 - Error reports with the source line, a caret under the position, and a hint, and a [catalogue](docs/reference/errors.md) of every error code
 - Limits on nesting, recursion, size and matching work, so a script can fail without crashing its host
@@ -113,8 +132,8 @@ Everything is under [`docs/`](docs/README.md), organised by what you are trying 
 | If you want to... | Read |
 | :--- | :--- |
 | Build it and run your first script | [Installation](docs/guide/installation.md), [Getting started](docs/guide/getting-started.md) |
-| Learn the language | [A tour of the language](docs/guide/language-tour.md), [the cookbook](docs/guide/cookbook.md), [the FAQ](docs/guide/faq.md) |
-| Look something up | [Language reference](docs/reference/language.md), [grammar](docs/reference/grammar.md), [libraries](docs/reference/dlc/README.md), [patterns](docs/reference/patterns.md), [errors](docs/reference/errors.md), [limits](docs/reference/limits.md) |
+| Learn the language | [A tour of the language](docs/guide/language-tour.md), [classes and objects](docs/guide/classes-and-objects.md), [the cookbook](docs/guide/cookbook.md), [the FAQ](docs/guide/faq.md) |
+| Look something up | [Language reference](docs/reference/language.md), [classes](docs/reference/classes.md), [grammar](docs/reference/grammar.md), [libraries](docs/reference/dlc/README.md), [patterns](docs/reference/patterns.md), [errors](docs/reference/errors.md), [limits](docs/reference/limits.md) |
 | Use the shell or the runner | [`cuffsh`](docs/reference/cuffsh.md), [`cuffc`](docs/reference/cuffc.md) |
 | Embed the engine in a C++ program | [Embedding the engine](docs/guide/embedding.md), [C++ API](docs/reference/cpp-api.md), [security policy](SECURITY.md) |
 | Understand how it works | [Architecture](docs/internals/architecture.md), [source map](docs/internals/source-map.md) |

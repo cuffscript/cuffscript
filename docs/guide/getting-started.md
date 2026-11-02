@@ -45,7 +45,7 @@ Save this as `greet.cuff`:
 ```cuff
 set str name to "World"
 
-set returnable func greet(person) do:
+func greet(person) do:
     return f"Hello, {person}!"
 end
 
@@ -60,7 +60,7 @@ Line by line:
 
 - `set str name to "World"` declares a variable. `set` is followed by a type (`number`, `str`, `boolean`, `list`,
   `map`), the name, the word `to`, and the value. The type is required, and the word is `to`, never `=`.
-- `set returnable func greet(person) do:` starts a function that gives a value back. A block ends with `end`, and
+- `func greet(person) do:` starts a function. `return` gives a value back. A block ends with `end`, and
   the body is indented.
 - `f"Hello, {person}!"` is an f-string: whatever is inside the braces is evaluated and inserted.
 - `print(...)` writes its arguments to the screen.
@@ -91,7 +91,7 @@ ERROR: [E4-006] Runtime Error at line 2, column 9: division by zero
 
 ## Where to go next
 
-- [A tour of the language](language-tour.md) covers everything in the language, with examples you can run.
+- [A tour of the language](language-tour.md) covers everything in the language, with examples you can run, and [Classes and objects](classes-and-objects.md) shows how to group values and functions into your own kinds of thing.
 - [The cookbook](cookbook.md) has short recipes for common jobs, and the [FAQ](faq.md) answers the questions beginners ask first.
 - [The language reference](../reference/language.md) is the complete definition.
 - [`examples/`](../../examples/README.md) holds runnable programs, each with its expected output.

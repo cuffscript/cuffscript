@@ -89,7 +89,7 @@ int main()
 
     // ---- runtime stack safety ----
     {
-        std::string body = "set returnable func down(n) do:\n    if n is 0 do:\n        return 0\n    end\n";
+        std::string body = "func down(n) do:\n    if n is 0 do:\n        return 0\n    end\n";
         int depth = 60;
         for (int i = 0; i < depth; ++i)
             body += rep("    ", 1 + static_cast<size_t>(i)) + "if true do:\n";
@@ -101,9 +101,9 @@ int main()
         expectOk("nested blocks x shallow recursion", body + "print(down(5))\n");
     }
     expectOk("plain recursion at depth 900",
-             "set returnable func down(n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + down(n - 1)\nend\nprint(down(900))\n");
+             "func down(n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + down(n - 1)\nend\nprint(down(900))\n");
     expectError("infinite recursion",
-                "set returnable func boom(n) do:\n    return boom(n + 1)\nend\nprint(boom(1))\n", "E4-017");
+                "func boom(n) do:\n    return boom(n + 1)\nend\nprint(boom(1))\n", "E4-017");
 
     // ---- value structure safety ----
     expectOk("print a cyclic list", "set list a to []\nadd a to a\nprint(a)\n");
@@ -127,13 +127,61 @@ int main()
 
     // ---- legitimate large inputs must keep working ----
     expectOk("1.3M regex matches",
-             "set str s to \"ab \"\nloop repeat i to 1 ~ 19 do:\n    change s to s + s\nend\nset list w to find \"[let]+\" from s g\nprint(w[1])\n");
+             "set str s to \"ab \"\nloop repeat i to 1 ~ 19 do:\n    change s to s + s\nend\nset list w to find_all(s, p\"[let]+\")\nprint(w[1])\n");
     expectOk("linked list of 2000 maps",
              "set map node to {\"next\": empty}\nloop repeat i to 1 ~ 2000 do:\n    set map n2 to {\"next\": node}\n    change node to n2\nend\nprint(1)\n");
 
+    // ---- classes ----
+    {
+        auto chain = [](int n)
+        {
+            std::string src = "class C0 do:\nend\n";
+            for (int i = 1; i < n; ++i)
+                src += "class C" + std::to_string(i) + " extends C" + std::to_string(i - 1) + " do:\nend\n";
+            return src + "print(1)\n";
+        };
+        expectOk("a chain of 64 ancestors", chain(65));
+        expectError("a chain of 65 ancestors", chain(66), "E4-026");
+
+        auto members = [](int n)
+        {
+            std::string src = "class M do:\n";
+            for (int i = 0; i < n; ++i)
+                src += "    set number f" + std::to_string(i) + " to " + std::to_string(i) + "\n";
+            return src + "end\nprint(M().f0)\n";
+        };
+        expectOk("1024 members", members(1024));
+        expectError("1025 members", members(1025), "E4-026");
+        expectError("members counted with the inherited ones",
+                    members(1000) + "class N extends M do:\n" + "    set number a0 to 0\n    set number a1 to 0\n    set number a2 to 0\n    set number a3 to 0\n"
+                                    "    set number a4 to 0\n    set number a5 to 0\n    set number a6 to 0\n    set number a7 to 0\n"
+                                    "    set number a8 to 0\n    set number a9 to 0\n    set number b0 to 0\n    set number b1 to 0\n"
+                                    "    set number b2 to 0\n    set number b3 to 0\n    set number b4 to 0\n    set number b5 to 0\n"
+                                    "    set number b6 to 0\n    set number b7 to 0\n    set number b8 to 0\n    set number b9 to 0\n"
+                                    "    set number c0 to 0\n    set number c1 to 0\n    set number c2 to 0\n    set number c3 to 0\n"
+                                    "    set number c4 to 0\nend\n",
+                    "E4-026");
+
+        auto classes = [](size_t n)
+        {
+            std::string src;
+            for (size_t i = 0; i < n; ++i)
+                src += "class K" + std::to_string(i) + " do:\nend\n";
+            return src + "print(1)\n";
+        };
+        expectOk("4096 classes", classes(4096));
+        expectError("4097 classes", classes(4097), "E4-026");
+
+        // objects that point at each other are fine to build and to throw away
+        expectOk("a long chain of objects",
+                 "class Node do:\n    set Node next to empty\nend\nset Node head to Node()\n"
+                 "loop repeat i to 1 ~ 20000 do:\n    set Node n to Node()\n    change n.next to head\n    change head to n\nend\nprint(1)\n");
+        expectError("a method that never returns", "class R do:\n    func go(number n) do:\n        return self.go(n + 1)\n    end\nend\nR().go(1)\n", "E4-017");
+    }
+
     // ---- regex limits ----
-    expectError("regex group nesting", "print(\"a\" is \"" + rep("(", N) + "a" + rep(")", N) + "\")\n", "E3-011");
-    expectError("regex quantifier overflow", "print(\"a\" is \"[num]99999999999\")\n", "E3-004");
+    expectError("regex group nesting", "print(\"a\" matches p\"" + rep("(", N) + "a" + rep(")", N) + "\")\n", "E3-011");
+    expectError("regex quantifier overflow", "print(\"a\" matches p\"[num]99999999999\")\n", "E3-004");
 
     // ---- execution budget ----
     {
@@ -166,8 +214,8 @@ int main()
         fs::create_directories(base / "proj" / "lib");
         fs::create_directories(base / "shared");
         {
-            std::ofstream(base / "proj" / "lib" / "helper.cuff") << "set returnable func seven() do:\n    return 7\nend\n";
-            std::ofstream(base / "shared" / "outside.cuff") << "set returnable func eight() do:\n    return 8\nend\n";
+            std::ofstream(base / "proj" / "lib" / "helper.cuff") << "func seven() do:\n    return 7\nend\n";
+            std::ofstream(base / "shared" / "outside.cuff") << "func eight() do:\n    return 8\nend\n";
         }
         const std::string dir = (base / "proj").string();
 
@@ -345,7 +393,7 @@ int main()
         for (int i = 19; i >= 0; --i)
             body += std::string(4 + 4 * i, ' ') + "end\n";
         Job deep;
-        deep.source = "set returnable func f(n) do:\n    set number r to 0\n    if n is 0 do:\n        return 0\n    end\n" + body +
+        deep.source = "func f(n) do:\n    set number r to 0\n    if n is 0 do:\n        return 0\n    end\n" + body +
                       "    return r\nend\nprint(f(900))\n";
         deep.options.stackBudgetBytes = 64 * 1024 * 1024;
         runOnSmallStack(deep, 1024 * 1024);
@@ -371,11 +419,11 @@ int main()
         CuffEngine::Options minimal;
         minimal.stackBudgetBytes = cuff::limits::kDefaultStackBudget;
         const int depth = cuff::limits::kMaxCallDepth - 1;
-        auto r = CuffEngine::execute("set returnable func f(n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + f(n - 1)\nend\n"
+        auto r = CuffEngine::execute("func f(n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + f(n - 1)\nend\n"
                                      "set number d to f(" + std::to_string(depth) + ")\n",
                                      ".", minimal);
         check(r.success, "plain recursion reaches the call depth limit under the default stack budget: " + r.error.substr(0, 160));
-        r = CuffEngine::execute("set returnable func f(n) do:\n    return f(n + 1)\nend\nset number d to f(1)\n", ".", minimal);
+        r = CuffEngine::execute("func f(n) do:\n    return f(n + 1)\nend\nset number d to f(1)\n", ".", minimal);
         check(!r.success && r.error.find("[E4-017]") != std::string::npos, "unbounded recursion ends in E4-017: " + r.error.substr(0, 120));
     }
 #endif

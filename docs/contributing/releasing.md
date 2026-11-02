@@ -11,6 +11,15 @@
    - `npm/package.json` (`version`).
 4. Regenerate the docs if anything they are generated from changed: `python3 tools/docs.py generate`.
 
+### A release that breaks programs
+
+When a change makes programs that worked stop working or behave differently, say so where an upgrader will look:
+
+- Label it **Behavior change** in the release notes, and list every removed or changed form with what to write instead (the 4.0.0 entry's migration table is the model).
+- Where the old form can be recognised, make the engine report it with an error that names the new form (a syntax error with a hint), and give that hint a case in `tests/errors/` and in `tests/unit/syntax_test.cpp`, so that an old program never quietly means something else.
+- Where a program can be converted mechanically, provide a tool and its tests (`tools/migrate_3_to_4.py` and `tools/migrate_3_to_4_test.py` are the model). It must leave a program that is already in the new syntax alone, and it must report what it could not decide.
+- Check the examples, the tests and the documentation against the new syntax: the documentation check runs every example in the docs.
+
 ## Versioning
 
 A version is `MAJOR.MINOR.PATCH`, written with a leading `v` in tags and in the changelog (`v1.2.3`). The [changelog](../CHANGELOG.md) shows how the numbers are used:

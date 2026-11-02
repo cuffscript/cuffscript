@@ -1,0 +1,9 @@
+Account(Ann, 15)
+Account(Ann, 15) / Account(Ann, 15) / Account(Ann, 15)
+true false
+{"owner":"Ann","balance":15,"history":["deposit 5"]}
+1.25 true
+{"owner":"Bob","balance":250,"history":["deposit 50"],"rate":0.5}
+[{"owner":"Ann","balance":15,"history":["deposit 5"]},{"owner":{"owner":"Bob","balance":250,"history":["deposit 50"],"rate":0.5}}]
+true Account(Bob, 250)
+Ann 15 map

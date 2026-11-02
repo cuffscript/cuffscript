@@ -5,18 +5,22 @@ Read the numbered programs in order to pick up the language one feature at a tim
 | File | What it shows |
 | :--- | :--- |
 | `01_hello.cuff` | The simplest `print` |
-| `02_comprehensive_demo.cuff` | A program that uses most of the language: constants, `returnable` functions, `is` combined with `!`, `async` with `await` and `or_else`, 1-based lists, `loop repeat` with `stop`, `use DLC:` and `use ... from ...` |
-| `03_pattern_matching.cuff` | `match`, `find`, `replace`, `split` and `count`, named captures (`<name:...>`), numbered captures, `[one:...]`, case-insensitive `IS`, escapes (`\.`) |
+| `02_comprehensive_demo.cuff` | A program that uses most of the language: constants, functions, `matches` combined with `!`, `async` with `await` and `or_else`, 1-based lists, `loop repeat` with `stop`, `use DLC:` and `use ... from ...` |
+| `03_pattern_matching.cuff` | Pattern literals (`p"..."`), `matches`, and the text functions `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count`; named captures (`<name:...>`), numbered captures, `[one:...]`, the `i` flag, escapes (`\.`) |
 | `04_collections.cuff` | List and map `add`, `change` and `remove`, slicing (`[2~4]`, negative positions), recovering from an out-of-range position with `or_else` |
-| `05_scoping_and_globals.cuff` | Function scope and `change x to global` |
+| `05_scoping_and_globals.cuff` | Function scope and `global x` |
 | `06_error_recovery.cuff` | How `or_else` recovers a failed declaration |
-| `07_functions_async.cuff` | Recursive `returnable` functions, and `async` combined with `returnable` |
+| `07_functions_async.cuff` | Recursive functions, and `async` functions that return values |
 | `08_dlc_libraries.cuff` | `DLC:math`, `DLC:string`, `DLC:random`, `DLC:list`, `DLC:convert` and `DLC:json`. Library functions are named `library_verb` (`math_sqrt`, `str_upper`, `list_sort`), and `use DLC:a, DLC:b` loads several on one line |
 | `09_modules_demo.cuff`, `lib/greetings.cuff` | Loading another `.cuff` file with `use <name> from <path>` |
 | `10_async_ordering.cuff` | An `async` function called without `await` runs after the code around it finishes, in the order it was called: cooperative scheduling, not concurrency |
 | `11_utf8_strings.cuff` | Indexing, slicing and `length()` of multi-byte text such as Hangul, counted in characters |
 | `12_filesystem.cuff` | `DLC:filesystem`: `file_write`, `file_add`, `file_readlines`, `file_size` and `file_remove`, only inside the script's folder; the temporary file removes itself |
 | `maps/core_engine/stage_data.cuff` | A second module, loaded by `02_comprehensive_demo.cuff` |
+| `13_classes.cuff` | A class with fields, a constructor (`init`), methods, `private` and `to_str`, and objects that are shared rather than copied |
+| `14_inheritance.cuff` | `extends`, replacing a method, `super`, `init` in a child class, and `isa` |
+| `15_with_block.cuff` | `with`: members by their plain names, `.name`, the lookup order, nested blocks |
+| `16_errors_as_objects.cuff` | `fail`, `or_else as`, the built-in `Error` class and a class that extends it |
 | [`embedding/`](embedding/README.md) | A complete C++ program that hosts the engine |
 
 Run one from the repository root:
@@ -39,7 +43,7 @@ Programs that are built to fail, one for each kind of error, so that you can see
 | `constant_reassignment.cuff` | `E4-003` | Changing a constant |
 | `bad_constant_name.cuff` | `E4-004` | A constant whose name is not in capitals |
 | `declaration_type_mismatch.cuff` | `E4-020` | A value that is not the declared type |
-| `return_from_nonreturnable.cuff` | `E4-016` | `return` with a value in a function that is not `returnable` |
+| `return_value_outside_function.cuff` | `E4-016` | `return` with a value outside any function |
 | `nested_function.cuff` | `E4-018` | A function declared inside a function |
 | `await_on_nonasync.cuff` | `E4-019` | `await` on a function that is not `async` |
 | `stack_overflow.cuff` | `E4-017` | Recursion that never ends |

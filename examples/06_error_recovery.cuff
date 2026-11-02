@@ -10,7 +10,7 @@ print(f"result = {result}")
 
 note: when find fails to match it simply returns empty, without an exception -- or_else
 note: only reacts when an exception is thrown, so or_else does not run in that case.
-set str config to find "[num]+" from "no digits here"
+set str config to find("no digits here", p"[num]+")
 if config is empty do:
     change config to "default_mode"
 end

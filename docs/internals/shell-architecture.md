@@ -32,7 +32,7 @@ An entry is **exactly what was typed**. The shell does not decide that something
 engine, which reports its own error if the text is incomplete. That is why Shift+Enter exists, and why there is no
 continuation-prompt logic to keep in step with the grammar.
 
-Because the shell holds one `Session` for its whole life, a function declared in one entry can be called by the next, and an
+Because the shell holds one `Session` for its whole life, a function or a class declared in one entry can be used by the next, and an
 error inside it is drawn from the entry that declared it ([source locations](source-locations.md#sourceref-which-text)).
 `:reset` calls `Session::reset`. `:load` reads a file and runs it as one entry. Startup `file.cuff` is run the same way.
 

@@ -1,0 +1,49 @@
+note: change, add and remove take a place: a name, then [index] and .field steps.
+class Team do:
+    set list members to []
+    set map scores to {}
+    set list grid to [[1], [2, 3]]
+end
+
+set list grid to [[1], [2, 3], []]
+add 9 to grid[1]
+add 7 to grid[3]
+remove 2 from grid[2]
+print(grid)
+change grid[2][1] to 20
+change grid[1] to [0]
+print(grid)
+
+set map data to {"nums": [1, 2], "inner": {"k": 1}}
+add 3 to data["nums"]
+change data["inner"]["k"] to 5
+change data["inner"]["new"] to "x"
+remove "new" from data["inner"]
+print(data)
+
+set Team team to Team()
+add "Ann" to team.members
+add "Bob" to team.members
+change team.scores["Ann"] to 10
+change team.scores["Bob"] to 7
+add 4 to team.grid[2]
+change team.grid[1][1] to 100
+remove "Ann" from team.members
+print(team.members, team.scores, team.grid)
+
+set number total to 0
+set list log to []
+func bump(number by) do:
+    global total, log
+    change total to total + by
+    add by to log
+end
+bump(2)
+bump(5)
+print(total, log)
+
+func read_total() do:
+    global total
+    return total
+end
+print(read_total())

@@ -21,17 +21,32 @@ code's category; they add no fields.
 ## Codes
 
 A code is a number, and its thousands digit is its kind: 1 lexical, 2 syntax, 3 regex (3000s syntax, 3100s matching),
-4 runtime, 5 module, 6 resource limit, 9 internal. `errorCodeTag` writes it as `E4-006`; `errorCodeRecoverable` is the one
-place that decides which kinds `or_else` can catch (regex matching, runtime and module errors). The catalogue in
+4 runtime, 5 module, 6 resource limit, 7 program, 9 internal. `errorCodeTag` writes it as `E4-006`; `errorCodeRecoverable` is the one
+place that decides which kinds `or_else` can catch (regex matching, runtime, module and program errors). The catalogue in
 [errors](../reference/errors.md) is generated from `ErrorCodes.h`, including a one-line description written next to each
 enumerator and a note on which codes nothing raises.
 
 Syntax problems are all reported as `E2-001`; the other lexical and syntax numbers are reserved and kept so that the code
 space does not have to be renumbered.
 
+## Errors as objects
+
+A program sees an error as an object of the built-in class `Error` (`message`, `code`, `line`, `column`, `hint`).
+Two kinds of error become one:
+
+- An error the program raises with `fail` is a `ProgramError` (`interpreter/ProgramError.h`, code `E7-001`). It carries the
+  `Error` object that was raised, which may be of a class the program wrote, and a handler written `or_else as e` receives that
+  very object. `fail e` inside a handler raises it again with its class intact.
+- An error the engine raises (a recoverable `CuffError`) is turned into a new `Error` object at the handler, from its code,
+  message, location and hint, so a handler can read the same fields whichever kind it caught. `fail e` of such an object raises
+  the original error again, so its report is unchanged.
+
+A `ProgramError` that nothing catches is reported like any error, as `[E7-001] Program Error at line N, column M: message`, with the
+class name before the message when the object is not a plain `Error`.
+
 ## Who catches what
 
-- `or_else` (the interpreter) catches errors whose code is recoverable, and runs its block.
+- `or_else` (the interpreter) catches errors whose code is recoverable, and runs its block. With `as NAME` the block's scope gets the error object first.
 - Everything else propagates out of `Interpreter::run`. Before it leaves, `run` empties the queue of `async` calls that
   have not started, so a failed run leaves nothing half done.
 - `Session::run` and `CuffEngine::execute` catch what escapes, through `renderCurrentException`. It renders a `CuffError`

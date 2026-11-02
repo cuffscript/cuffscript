@@ -1,4 +1,4 @@
 note: E3-006
-if "x" is "[]" do:
+if "x" matches p"[]" do:
     print("unreachable")
 end

@@ -1,18 +1,18 @@
 # Text and patterns
 
-CuffScript has a small language for describing text by its shape: a pattern. This page builds up the idea with examples, from a first test to capturing parts of a text. The complete
+CuffScript has a small language for describing text by its shape: a pattern. A pattern is written `p"..."` and is a value of its own (the type `pattern`). This page builds up the idea with examples, from a first test to capturing parts of a text. The complete
 definition, with every token and flag, is the [pattern reference](../reference/patterns.md).
 
 ## Does the whole text fit a shape?
 
-When the right-hand side of `is` is a string literal, it is read as a pattern, and the test is true if the **whole** text fits it:
+`text matches pattern` is true if the **whole** text fits the pattern:
 
 ```cuff
 set str code to "AB-1234"
-if code is "[up]2-[num]4" do:
+if code matches p"[up]2-[num]4" do:
     print("looks like a code")
 end
-if "hello" is "hel" do:
+if "hello" matches p"hel" do:
     print("never printed: the pattern must fit the whole text")
 end
 ```
@@ -21,7 +21,7 @@ end
 looks like a code
 ```
 
-`[up]` is an uppercase letter and `[num]` a digit; a number after a token says how many. A literal without any special characters means exactly that text, so ordinary comparisons keep working.
+`[up]` is an uppercase letter and `[num]` a digit; a number after a token says how many. A pattern without any special characters means exactly that text. A pattern literal is checked when the program is read, so a mistake in it is reported before anything runs. `is` never reads a pattern: it compares values, so use `matches` for a shape.
 
 ## The building blocks
 
@@ -47,10 +47,10 @@ A token can be followed by how many times it repeats:
 | `[any]+?` | Add `?` after a repeat to make it take as little as it can |
 
 ```cuff
-print("2026-10-24" is "[num]4-[num]2-[num]2")
-print("cat" is "[one:cat|dog]", "bird" is "[one:cat|dog]")
-print("ab12" is "[low]+[num]+", "AB12" is "[low]+[num]+")
-print("a@b.com" is "[email]", "010-1234-5678" is "[phone]")
+print("2026-10-24" matches p"[num]4-[num]2-[num]2")
+print("cat" matches p"[one:cat|dog]", "bird" matches p"[one:cat|dog]")
+print("ab12" matches p"[low]+[num]+", "AB12" matches p"[low]+[num]+")
+print("a@b.com" matches p"[email]", "010-1234-5678" matches p"[phone]")
 ```
 
 ```output
@@ -64,10 +64,10 @@ true true
 
 ```cuff
 set str log to "user=ann id=1042 user=ben id=2077"
-print(find "[num]4" from log)
-print(find "[num]4" from log g)
-print(count "user" in log)
-print(find "[num]9" from log)
+print(find(log, p"[num]4"))
+print(find_all(log, p"[num]4"))
+print(count(log, p"user"))
+print(find(log, p"[num]9"))
 ```
 
 ```output
@@ -77,15 +77,15 @@ print(find "[num]9" from log)
 empty
 ```
 
-`find` gives the first match, or `empty` if there is none. Adding the flag `g` gives all of them, as a list (an empty list when nothing matches). `count` gives how many. A match is
+`find` gives the first match, or `empty` if there is none. `find_all` gives all of them, as a list (an empty list when nothing matches). `count` gives how many. A match is
 text you can use like any other: `find` gives a `str`, so declare its result with `set str`.
 
 `[edge]` stops a word from matching inside a longer one:
 
 ```cuff
 set str sentence to "The category of catalog is a cat"
-print(find "cat" from sentence g)
-print(find "[edge]cat[edge]" from sentence g)
+print(find_all(sentence, p"cat"))
+print(find_all(sentence, p"[edge]cat[edge]"))
 ```
 
 ```output
@@ -99,13 +99,13 @@ Parentheses make a group whose text can be read afterwards. `match` searches for
 A group can also be named with `<name:...>`, and then it is read by name:
 
 ```cuff
-set match order to match "order SN-2024-0042 shipped" from "SN-([num]4)-([num]+)"
+set match order to match("order SN-2024-0042 shipped", p"SN-([num]4)-([num]+)")
 print(order[1], order[2], order[-1])
 
-set match when to match "on 2026-12-25" from "<year:[num]4>-<month:[num]2>-<day:[num]2>"
+set match when to match("on 2026-12-25", p"<year:[num]4>-<month:[num]2>-<day:[num]2>")
 print(when["day"] + "/" + when["month"] + "/" + when["year"])
 
-set match none to match "no digits" from "([num]+)"
+set match none to match("no digits", p"([num]+)")
 if none is empty do:
     print("no match is empty, not an error")
 end
@@ -123,10 +123,10 @@ A `match` that found nothing is `empty`; ask with `is empty`. It is not an error
 
 ```cuff
 set str text to "call 010-1234-5678 now"
-print(replace "[num]4-[num]4" in text to "****-****")
-print(replace "[sp]+" in "a   b    c" to " " g)
-print(split "a, b;c" by "[,;][sp]*")
-print(split "2026-10-24" by "-")
+print(replace(text, p"[num]4-[num]4", "****-****"))
+print(replace_all("a   b    c", p"[sp]+", " "))
+print(split("a, b;c", p"[,;][sp]*"))
+print(split("2026-10-24", p"-"))
 ```
 
 ```output
@@ -136,19 +136,18 @@ a b c
 ["2026", "10", "24"]
 ```
 
-Without `g`, `replace` changes only the first match. The replacement is plain text; it is never read as a pattern. `split` keeps empty pieces, so `split ",a," by ","` is `["", "a", ""]`.
+`replace` changes only the first match and `replace_all` changes every one. The replacement is plain text; it is never read as a pattern. `split` keeps empty pieces, so `split(",a,", p",")` is `["", "a", ""]`.
 
 ## Case and other flags
 
-`IS` is `is` with English letters compared without regard to case. The flags `i` (ignore case), `g` (every match) and `m` (`[start]` and `[end]` work on each line) follow `find`, `match`, `count` and
-`replace`; `split` takes none.
+Two flags can follow the closing quote of a pattern: `i` (ignore case, for English letters) and `m` (`[start]` and `[end]` work on each line). They belong to the pattern, so they work with every function that takes it. There is no flag for "every match": that is what `find_all` and `replace_all` are for.
 
 ```cuff
-print("Yes" IS "yes", "Yes" is "yes")
-print(count "apple" in "Apple, apple, APPLE" i)
+print("Yes" matches p"yes"i, "Yes" matches p"yes")
+print(count("Apple, apple, APPLE", p"apple"i))
 set str lines to "first\nsecond"
-print(find "[start]second" from lines)
-print(find "[start]second" from lines m)
+print(find(lines, p"[start]second"))
+print(find(lines, p"[start]second"m))
 ```
 
 ```output
@@ -158,7 +157,16 @@ empty
 second
 ```
 
-A pattern held in a variable is not read as a pattern by `is`: only a string literal on the right is. `find`, `match`, `replace`, `split` and `count` accept a pattern from a variable.
+A pattern can be kept in a variable of the type `pattern`, and built while the program runs with `pattern(text)`. A plain string is never read as a pattern, so `find(log, "user")` is an error with a hint to write `p"user"`.
+
+```cuff
+set pattern id_shape to pattern("[num]4")
+print(find("id 1042", id_shape))
+```
+
+```output
+1042
+```
 
 ## Characters that mean something
 
@@ -170,14 +178,14 @@ Some characters have a meaning inside a pattern. To match one of them as itself,
 | `(` `)` | They make a group | `\(` and `\)` |
 | `[` `]` | They make a token or a set | `\[` and `\]` |
 | `~` | It makes a range | `\~` |
-| `\` | It is the escape character | `\\\\` (four, because a string literal also reads backslashes) |
+| `\` | It is the escape character | `\\` (two; a pattern literal is raw, so what you write is what the pattern reads) |
 | `.` `\|` `:` `-` `{` `}` | Nothing: they match themselves | as they are |
 
 ```cuff
 set str html to "<b>one</b> and <b>two</b>"
-print(find "\<b\>[any]+?\</b\>" from html)
-print("a.b" is "a.b", "axb" is "a.b")
-print("(1)" is "\([num]\)")
+print(find(html, p"\<b\>[any]+?\</b\>"))
+print("a.b" matches p"a.b", "axb" matches p"a.b")
+print("(1)" matches p"\([num]\)")
 ```
 
 ```output
@@ -191,10 +199,10 @@ The dot is an ordinary character, and `|` is too: there is no way to write "this
 ## Mistakes to watch for
 
 - **A misspelled token is a set of letters.** `[nun]` is not an error: it matches one of `n`, `u`, `n`. Compare with a known good example when a pattern matches strangely.
-- **`is` needs the whole text.** To find a shape *inside* text, use `find`, `match` or `count`.
+- **`matches` needs the whole text.** To find a shape *inside* text, use `find`, `match` or `count`.
 - **`find` gives text, not a `match`.** Use `set str` for `find` and `set match` for `match`.
 - **Digits after a token are a count.** `[num]4` is four digits. A digit after a plain character is just that digit (`"v2"` matches `v2`).
-- **A pattern with a syntax error stops the program** with an `E3-` code before it runs, when the pattern is written as a string literal.
+- **A pattern with a syntax error stops the program** with an `E3-` code before it runs, when the pattern is written as a `p"..."` literal. One made with `pattern(text)` stops the program when that call runs.
 
 ## Keeping patterns safe
 

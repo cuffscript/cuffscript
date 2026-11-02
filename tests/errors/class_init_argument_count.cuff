@@ -1,0 +1,6 @@
+class Box do:
+    func init(number size) do:
+        print(size)
+    end
+end
+set Box b to Box()

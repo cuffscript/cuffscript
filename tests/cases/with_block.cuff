@@ -1,0 +1,91 @@
+note: with: lookup order, scope, nesting and the leading dot.
+class Player do:
+    set str name to "?"
+    set number speed to 1
+    set list tags to []
+
+    func init(str name) do:
+        change self.name to name
+    end
+
+    func sayhello() do:
+        print(f"Hello, I am {self.name}")
+    end
+
+    func turnleft() do:
+        print(f"{self.name} turns left")
+    end
+
+    func boost() do:
+        with self do:
+            change speed to speed * 2
+        end
+    end
+end
+
+set Player player1 to Player("Ann")
+set Player player2 to Player("Bob")
+set number speed to 100
+
+with player1 do:
+    sayhello()
+    turnleft()
+    note: the field comes before the outer variable
+    change speed to speed + 4
+    print(speed, name)
+    add "fast" to tags
+    set number local to 7
+    print(local)
+end
+print(player1.speed, speed, player1.tags)
+
+note: variables created inside the block are gone after it
+with player2 do:
+    set number inner to 1
+end
+set number inner to 2
+print(inner)
+
+note: nested with: the innermost object first, .name picks the innermost explicitly
+with player1 do:
+    with player2 do:
+        print(name, .name)
+        sayhello()
+    end
+    print(name)
+end
+
+note: a local variable made in the block hides a field of the same name
+with player1 do:
+    set str name to "local"
+    print(name, .name)
+end
+
+note: return, stop and skip pass through with
+func first_fast(list players) do:
+    loop each p in players do:
+        with p do:
+            if speed > 1 do:
+                return name
+            end
+        end
+    end
+    return "nobody"
+end
+print(first_fast([player2, player1]))
+
+loop each p in [player1, player2] do:
+    with p do:
+        if name is "Ann" do:
+            skip
+        end
+        print("not skipped:", name)
+    end
+end
+
+note: inside a method, self stays the receiver
+player2.boost()
+print(player2.speed)
+
+note: the same call without with
+player1.sayhello()

@@ -1,7 +1,7 @@
 # Pattern syntax
 
 The full definition of CuffScript's pattern language: the tokens, quantifiers, groups, anchors and flags
-that `is`, `IS`, `match`, `find`, `replace`, `split` and `count` understand. [Text and
+that pattern literals (`p"..."`), `matches` and the text functions `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count` understand. [Text and
 patterns](../guide/text-and-patterns.md) is a gentler introduction; the [quick
 reference](#39-token-quick-reference) at the end of this page lists every token on one screen.
 
@@ -20,77 +20,102 @@ collection and data cleanup.
 
 ---
 
-## 2. Basic usage and combining with conditions (`is`, `IS`)
+## 2. Using patterns: pattern literals and `matches`
 
-In CuffScript, pattern validation needs no separate function call: it is done
-directly with the comparison operator `is` or `IS`.
+A pattern is a value of its own, of the type `pattern`. A **pattern literal** is written `p"..."`, and a
+pattern can be tested against a whole text with the comparison operator `matches`:
 
 ```cuff
 set str user_code to "AB-1234"
 
-if user_code is "[up]2-[num]4" do:
+if user_code matches p"[up]2-[num]4" do:
     print("The code matches the format.")
 end
 ```
 
-Whenever the right-hand side of `is` or `IS` is a string literal, it is read as a pattern. A
-literal with no special characters, such as `"AB-1234"`, is a pattern that matches exactly that
-text. A string that is held in a variable and written on the right of `is` is compared as plain
-text instead; a pattern held in a variable works with `match`, `find`, `replace`, `split` and
-`count`.
+```output
+The code matches the format.
+```
+
+A literal is checked for syntax when the program is read, before anything runs, so a mistake in a pattern is found even in code that never executes. The text of a literal is
+raw: a backslash is not the escape of an ordinary string, so the `\.` of the pattern language is written just so (section 20). The only thing
+the literal itself reads is `\"`, which stands for a quote.
+
+A pattern that is built while the program runs comes from the function `pattern(text)` (or `pattern(text, flags)`); it can be kept in a variable of the type `pattern`, passed to a function and used wherever a literal can be:
+
+```cuff
+set str shape to "[num]3"
+set pattern three_digits to pattern(shape)
+print("123" matches three_digits, "12a" matches three_digits)
+```
+
+```output
+true false
+```
+
+A string is never read as a pattern by itself. `"abc" matches "abc"` is an error (`E4-005`), with a hint to write `p"abc"` or `pattern("abc")`. In the same way `is` always compares values, and `"abc" is p"abc"` is false because a `str` and a `pattern` are different types.
 
 Every form that takes a pattern uses the same syntax:
 
 | Form | What it does | Result |
 | :--- | :--- | :--- |
-| `text is "pattern"` | The whole text matches the pattern | `boolean` |
-| `match pattern from text` | Finds the first place the pattern matches and keeps its captures | a `match`, or `empty` when nothing matches |
-| `find pattern from text` | Finds the first match, or every match with the `g` flag | a `str` or `empty`; with `g`, a `list` of `str` |
-| `replace pattern in text to replacement` | Replaces the first match, or every match with `g` | a `str` |
-| `split text by pattern` | Cuts the text at every match | a `list` of `str` |
-| `count pattern in text` | Counts the non-overlapping matches | a `number` |
+| `text matches pattern` | The whole text fits the pattern | `boolean` |
+| `match(text, pattern)` | Finds the first place the pattern fits and keeps its captures | a `match`, or `empty` when nothing fits |
+| `find(text, pattern)` | Finds the first fit | a `str`, or `empty` |
+| `find_all(text, pattern)` | Finds every fit | a `list` of `str` |
+| `replace(text, pattern, replacement)` | Replaces the first fit | a `str` |
+| `replace_all(text, pattern, replacement)` | Replaces every fit | a `str` |
+| `split(text, pattern)` | Cuts the text at every fit | a `list` of `str` |
+| `count(text, pattern)` | Counts the non-overlapping fits | a `number` |
 
-A pattern that is not a `str` is a `TypeError` (`E4-005`), and so is a text that is not a `str`.
+The seven functions are always available and take the text first. A text that is not a `str`, or a pattern that is not a `pattern`, is `E4-005`. They can also be written as methods of the text: `text.find(p"[num]+")`.
 
 ---
 
-## 3. Case-sensitivity engine (`is` vs `IS`)
+## 3. Case sensitivity (the `i` flag)
 
-- **`is`**: compares strictly, distinguishing upper and lower case English letters.
-- **`IS`**: removes the distinction entirely and performs a case-insensitive pattern
-  match.
+A pattern distinguishes upper and lower case English letters unless it is given the `i` flag, written right after the closing quote of the literal.
 
 ```cuff
 set str answer to "Yes"
 
 note: only lowercase yes is expected, so this is false
-if answer is "yes" do:
+if answer matches p"yes" do:
     print("lowercase match")
 end
 
-note: IS ignores case, so this is true
-if answer IS "yes" do:
+note: with the i flag, upper and lower case are the same
+if answer matches p"yes"i do:
     print("passes regardless of case")
 end
 ```
+
+```output
+passes regardless of case
+```
+
+The flags are listed in section 28. To compare two strings for equality ignoring case, compare them after changing the case (`str_lower` in `DLC:string`).
 
 ---
 
 ## 4. Full match is the default
 
-A condition in CuffScript checks, by default, whether the **entire target string
-matches from start to end**.
+`matches` checks whether the **entire target string fits from start to end**.
 
 So, unlike regex in other languages, you do not need a start anchor (`^`) or an end
-anchor (`$`).
+anchor (`$`). The functions that look *inside* a text (`find`, `match`, `replace`, `count`, ...) do not need the whole text to fit.
 
 ```cuff
 set str pin to "1234"
 
-note: it is true only when exactly 4 digits match the whole string.
-if pin is "[num]4" do:
+note: it is true only when exactly 4 digits fit the whole string.
+if pin matches p"[num]4" do:
     print("Valid PIN")
 end
+```
+
+```output
+Valid PIN
 ```
 
 - `"1234"` → true (`true`)
@@ -121,7 +146,7 @@ brackets are provided.
 > inside a pattern (`"안녕"`, `[one:사과|배]`) is compared one character at a time.
 > Negated sets such as `[!num]` also match Hangul. On the other hand, the tokens in
 > the table above and `[str]`/`[word]` below are **English-only**, exactly as
-> defined, so `"안녕" is "[let]+"` is false — use `[any]` to accept every character,
+> defined, so `"안녕" matches p"[let]+"` is false — use `[any]` to accept every character,
 > Hangul included. For the exact boundaries see item 17 in
 > `docs/internals/design-notes.md`.
 
@@ -138,7 +163,7 @@ an **English letter or a digit**.
 ```cuff
 set str id to "user2026"
 
-if id is "[str]8" do:
+if id matches p"[str]8" do:
     print("8 English letters/digits matched")
 end
 ```
@@ -156,7 +181,7 @@ end
 ```cuff
 set str account to "admin_cuff_01"
 
-if account is "[word]+" do:
+if account matches p"[word]+" do:
     print("Valid account identifier format.")
 end
 ```
@@ -212,12 +237,12 @@ note: no digits at all, or any number of consecutive digits
 
 ```cuff
 note: allow both http and https
-if protocol is "https?" do:
+if protocol matches p"https?" do:
     print("Web protocol confirmed")
 end
 
 note: matches both color (American) and colour (British)
-if text is "colou?r" do:
+if text matches p"colou?r" do:
     print("Word matched")
 end
 ```
@@ -235,12 +260,12 @@ intuitively.
 
 ```cuff
 note: a password of 8 to 16 English letters/digits
-if password is "[str]8~16" do:
+if password matches p"[str]8~16" do:
     print("Password of a suitable length")
 end
 
 note: 2 or more English letters, no upper limit
-if code is "[let]2~" do:
+if code matches p"[let]2~" do:
     print("Passed")
 end
 ```
@@ -259,10 +284,10 @@ as short a string as possible.
 set str html to "<b>one</b> and <b>two</b>"
 
 note: Greedy: swallows everything from the first <b> to the very last </b>
-print(find "\<b\>[any]+\</b\>" from html)
+print(find(html, p"\<b\>[any]+\</b\>"))
 
 note: Lazy: the match completes as soon as the nearest </b> is found
-print(find "\<b\>[any]+?\</b\>" from html)
+print(find(html, p"\<b\>[any]+?\</b\>"))
 ```
 
 ```output
@@ -282,12 +307,12 @@ quantifier to the bundle or to make a unit of operation.
 
 ```cuff
 note: the word set "AB" repeated 3 times ("ABABAB")
-if code is "(AB)3" do:
+if code matches p"(AB)3" do:
     print("Repeated code passed")
 end
 
 note: one or more linked "2 digits-2 letters" bundles
-if token is "([num]2-[let]2)+" do:
+if token matches p"([num]2-[let]2)+" do:
     print("Composite token matched")
 end
 ```
@@ -303,12 +328,12 @@ The rule that forbids a space before the colon applies.
 
 ```cuff
 note: file extension check
-if ext is "[one:jpg|png|gif|webp]" do:
+if ext matches p"[one:jpg|png|gif|webp]" do:
     print("A supported image format.")
 end
 
 note: payment method check
-if payment is "[one:card|cash|point]" do:
+if payment matches p"[one:card|cash|point]" do:
     print("Valid payment method")
 end
 ```
@@ -327,7 +352,7 @@ inside brackets.
 
 ```cuff
 note: the digit that identifies gender in a resident registration number (one of 1, 2, 3, 4)
-if gender_code is "[1234]" do:
+if gender_code matches p"[1234]" do:
     print("Valid gender identification digit")
 end
 ```
@@ -351,7 +376,7 @@ set, it matches **every character except those**.
 
 ```cuff
 note: one or more characters with no whitespace at all
-if input_data is "[!sp]+" do:
+if input_data matches p"[!sp]+" do:
     print("A valid word with no whitespace")
 end
 ```
@@ -370,7 +395,7 @@ longer word.
 set str sentence to "The category of catalog is books"
 
 note: search only for the standalone word 'cat' (category and catalog are excluded)
-set list result to find "[edge]cat[edge]" from sentence g
+set list result to find_all(sentence, p"[edge]cat[edge]")
 
 print(result) note: an empty result (there is no standalone word cat)
 ```
@@ -388,12 +413,12 @@ right away, without assembling them from regex symbols each time.
 | `[float]`    | An optional `+` or `-`, one or more digits, a `.`, then one or more digits | `3.14`, `-0.05`, `10.0` |
 | `[hex]`      | One hexadecimal character (`0-9`, `a-f`, `A-F`) | `A`, `f`, `9`    |
 
-`[float]` needs digits on both sides of the point and has no exponent, so `10`, `.5`, `5.` and `1e5` are not floats. To accept both whole and decimal numbers, test twice: `value is "[int]" or value is "[float]"`. A bare sign is never an `[int]`.
+`[float]` needs digits on both sides of the point and has no exponent, so `10`, `.5`, `5.` and `1e5` are not floats. To accept both whole and decimal numbers, test twice: `value matches p"[int]" or value matches p"[float]"`. A bare sign is never an `[int]`.
 
 ```cuff
 set str coordinate to "-12.54"
 
-if coordinate is "[float]" do:
+if coordinate matches p"[float]" do:
     print("A valid coordinate value.")
 end
 ```
@@ -420,7 +445,7 @@ The exact shapes are:
 ```cuff
 set str user_contact to "010-8888-9999"
 
-if user_contact is "[phone]" do:
+if user_contact matches p"[phone]" do:
     print("A valid South Korean phone number format.")
 end
 ```
@@ -437,14 +462,27 @@ character itself, put a backslash (`\`) in front of it.
 
 ```cuff
 note: escaping is recommended when checking for a literal dot (.) character.
-if filename is "[str]+\.png" do:
+if filename matches p"[str]+\.png" do:
     print("A PNG file extension.")
 end
 
 note: when checking for the parenthesis characters themselves
-if math_exp is "\([num]+\)" do:
+if math_exp matches p"\([num]+\)" do:
     print("A number wrapped in parentheses.")
 end
+```
+
+**Backslashes in source.** A pattern literal is raw, so what you write between the quotes is what the pattern parser reads: `p"\."` is the pattern `\.`, and a single backslash is matched by `p"\\"`. The only thing the literal itself reads is `\"`, a quote inside the pattern. A backslash always takes the character after it, so `p"a\\"` is the pattern `a\\` and the literal ends at the next quote. When a pattern is built from an ordinary string with `pattern(text)`, the string's own escapes apply first, so the same single-backslash pattern is written `pattern("\\\\")`.
+
+```cuff
+set str path to "C:\\temp"
+print(path matches p"C:\\temp", path matches pattern("C:\\\\temp"))
+print(find("say \"hi\"", p"\"[let]+\""))
+```
+
+```output
+true true
+"hi"
 ```
 
 Which symbols have to be escaped to mean themselves:
@@ -481,7 +519,7 @@ parse time, before the script runs.
 ## 22. Extracting 1-based indexed captures (`match`)
 
 To extract the actual value of a part wrapped in parentheses `()`, use the `match`
-statement.
+function.
 
 `match` searches the text for the first place the pattern matches, the way `find` does; it does not
 require the whole text to match (pin the pattern with `[start]` and `[end]` for that). Following the
@@ -493,7 +531,7 @@ run; test for it with `is empty`.
 
 ```cuff
 set str serial to "SN-2026-998"
-set match result to match serial from "SN-([num]4)-([num]+)"
+set match result to match(serial, p"SN-([num]4)-([num]+)")
 
 if result is not empty do:
     print(f"Year made: {result[1]}") note: "2026"
@@ -518,7 +556,7 @@ data by it. The extracted result is looked up by key, map-style.
 
 ```cuff
 set str date_text to "2026-12-25"
-set match res to match date_text from "<year:[num]4>-<month:[num]2>-<day:[num]2>"
+set match res to match(date_text, p"<year:[num]4>-<month:[num]2>-<day:[num]2>")
 
 if res is not empty do:
     print(f"Year: {res['year']}")  note: "2026"
@@ -531,35 +569,35 @@ A name is whatever stands between `<` and `:`; letters, digits and underscores a
 
 ---
 
-## 24. Searching the body and collecting everything (`find` & `g`)
+## 24. Searching the body and collecting everything (`find` and `find_all`)
 
 To find the pieces of a long body of text that fit a pattern, rather than matching
-the whole string, use the `find` command.
+the whole string, use the `find` and `find_all` functions.
 
-- On its own: **returns the first text found, as a string**.
-- Combined with the `g` flag: **returns every matching text as a 1-based list**.
-- No match: **returns `empty`** (with the `g` flag, an empty list `[]`)
+- `find(text, pattern)`: **returns the first text found, as a string**.
+- `find_all(text, pattern)`: **returns every matching text as a 1-based list**.
+- No match: **`find` returns `empty`**, and `find_all` returns an empty list `[]`.
 
-Matches are found from left to right and never overlap. Because the single-match form returns the
-matched text itself (a `str`), declare its result as `str`; a `match` result comes only from the
-`match` statement.
+Matches are found from left to right and never overlap. Because `find` returns the
+matched text itself (a `str`), declare its result as `str`; a `match` value comes only from the
+`match` function.
 
 ```cuff
 set str article to "Ticket number: T-101, next ticket: T-205, spare ticket: T-309"
 
 note: extract only the first match (returns a string)
-set str first_ticket to find "T-[num]3" from article
+set str first_ticket to find(article, p"T-[num]3")
 print(first_ticket) note: "T-101"
 
-note: collect every match (g flag, returns a 1-based list)
-set list tickets to find "T-[num]3" from article g
+note: collect every match (returns a 1-based list)
+set list tickets to find_all(article, p"T-[num]3")
 
 print(tickets[1]) note: "T-101"
 print(tickets[2]) note: "T-205"
 print(tickets[3]) note: "T-309"
 
 note: returns empty when nothing matches
-set str result to find "T-[num]5" from article
+set str result to find(article, p"T-[num]5")
 if result is empty do:
     print("No matching pattern.")
 end
@@ -567,54 +605,53 @@ end
 
 ---
 
-## 25. Pattern-based string replacement (`replace pattern in text to`)
+## 25. Pattern-based string replacement (`replace` and `replace_all`)
 
-To swap the part that matches a regex pattern for another string, use the
-natural-language syntax `replace in to`.
+To swap the part that matches a pattern for another string, use `replace(text, pattern, replacement)`.
 
 ```cuff
 set str raw_log to "Phone: 010-1234-5678 (personal data)"
 
 note: mask the 4 middle digits (****)
-set str masked_log to replace "010-[num]4-" in raw_log to "010-****-"
+set str masked_log to replace(raw_log, p"010-[num]4-", "010-****-")
 
 print(masked_log) note: "Phone: 010-****-5678 (personal data)"
 ```
 
-Without a flag only the first match is replaced, and a text with no match comes back unchanged. The
+`replace` changes only the first match, and a text with no match comes back unchanged. The
 replacement is plain text: `[num]`, `\1` or `$1` in it stand for themselves, because there are no
 back-references.
 
-To replace every occurrence, add the `g` flag at the end of the statement.
+To replace every occurrence, use `replace_all`.
 
 ```cuff
-set str clean_text to replace "[sp]+" in "Hello   Cuff    World" to " " g
+set str clean_text to replace_all("Hello   Cuff    World", p"[sp]+", " ")
 print(clean_text) note: "Hello Cuff World"
 ```
 
 ---
 
-## 26. Pattern-based string splitting (`split text by`)
+## 26. Pattern-based string splitting (`split`)
 
 To cut a string into several pieces using a particular symbol or pattern as the
-dividing line, use the `split by` syntax.
+dividing line, use `split(text, pattern)`.
 
 ```cuff
 set str tag_data to "apple, pear; grape: tangerine"
 
 note: split on a composite separator: a comma, semicolon or colon followed by optional whitespace
-set list fruit_list to split tag_data by "[,;:][sp]*"
+set list fruit_list to split(tag_data, p"[,;:][sp]*")
 
 loop repeat i to 1 ~ 4 do:
     print(f"Fruit {i}: {fruit_list[i]}")
 end
 ```
 
-Empty pieces are kept: splitting `",a,,b,"` by `","` gives `["", "a", "", "b", ""]`. A text with no match comes back as a list of one piece, and so does a split by the empty pattern. `split` takes no flags.
+Empty pieces are kept: splitting `",a,,b,"` by `p","` gives `["", "a", "", "b", ""]`. A text with no match comes back as a list of one piece, and so does a split by the empty pattern.
 
 ---
 
-## 27. Counting pattern occurrences (`count pattern in text`)
+## 27. Counting pattern occurrences (`count`)
 
 You can instantly count, as an integer, how many times a particular pattern appears
 in a body of text.
@@ -625,54 +662,49 @@ When there is no match: **returns `0`**
 set str document to "apple, banana, Apple, orange, APPLE"
 
 note: count the occurrences with case ignored (i)
-set number apple_count to count "apple" in document i
+set number apple_count to count(document, p"apple"i)
 
 print(f"Occurrences of the word apple: {apple_count}") note: 3
 
 note: returns 0 when there is no match
-set number grape_count to count "grape" in document
+set number grape_count to count(document, p"grape")
 print(f"Occurrences of the word grape: {grape_count}") note: 0
 ```
 
-Matches do not overlap (`count "aa" in "aaaa"` is `2`). `count` always counts every match, so it needs no `g`. An empty pattern matches between every pair of characters, so `count "" in "abc"` is `4`.
+Matches do not overlap (`count("aaaa", p"aa")` is `2`). `count` always counts every match. An empty pattern matches between every pair of characters, so `count("abc", p"")` is `4`.
 
 ---
 
 ## 28. The flags system
 
-Flags that tune how the search works can be added at the very end of the search
-statements (`find`, `match`, `count`, `replace`).
+A pattern literal can end with flags that tune how it matches, written directly after the closing quote with no space: `p"error:[num]+"i`.
 
 | Flag | Name        | What it does                                                          |
 | :--- | :---------- | :-------------------------------------------------------------------- |
-| `i`  | Ignore Case | Searches without distinguishing upper and lower case English letters. |
-| `g`  | Global      | Walks the whole text instead of stopping at the first match.          |
+| `i`  | Ignore Case | Matches without distinguishing upper and lower case English letters.  |
 | `m`  | Multiline   | Applies start and end to each line, using line-break characters.      |
 
-Several flags can be written back to back with no spaces: `gim`
+The two can be combined as `im`, and each may appear once. A flag belongs to the pattern, so it applies wherever the pattern is used: with `matches`, `find`, `replace`, and the rest. For a pattern built with `pattern(text, flags)`, `flags` is a string such as `"i"` or `"im"`.
 
-Which statements take which flags:
+There is no flag for "every match": the functions `find_all` and `replace_all` do that. A letter that is not a flag is a syntax error (`E2-001`) with a hint, and so is a repeated flag.
 
-| Statement | Flags it accepts | Notes |
-| :--- | :--- | :--- |
-| `find` | `i`, `g`, `m` | `g` turns the single result into a list of every match |
-| `replace` | `i`, `g`, `m` | `g` replaces every match instead of the first |
-| `count` | `i`, `g`, `m` | Every match is always counted, so `g` changes nothing |
-| `match` | `i`, `g`, `m` | The result is always the first match, so `g` changes nothing |
-| `split` | none | |
-| `is` | none | `IS` is the case-insensitive form |
-
-`i` folds only the English letters `A`-`Z` and `a`-`z`. `m` changes only `[start]` and `[end]`: they then match at the start and the end of every line (a line feed ends a line), not just of the whole text. A letter that is not a flag is a syntax error (`E2-001`).
+`i` folds only the English letters `A`-`Z` and `a`-`z`. `m` changes only `[start]` and `[end]`: they then match at the start and the end of every line (a line feed ends a line), not just of the whole text. Two patterns are equal (`is`) only when their text and flags are both the same.
 
 ```cuff
-set list matches to find "error:[num]+" from server_logs gi
+set str server_logs to "Error:12 ok ERROR:7"
+set list matches_ to find_all(server_logs, p"error:[num]+"i)
+print(matches_)
+```
+
+```output
+["Error:12", "ERROR:7"]
 ```
 
 ---
 
 ## 29. Anchor tokens for partial matching (`[start]`, `[end]`)
 
-When you use the in-text partial search statements such as `find` and `replace`, use
+When you use the in-text partial search functions such as `find` and `replace`, use
 the anchor tokens to pin a position to the very start or very end of the text. (They
 correspond to `^` and `$` in traditional regex.)
 
@@ -683,7 +715,7 @@ correspond to `^` and `$` in traditional regex.)
 set str message to "NOTICE: maintenance is starting."
 
 note: search only for the notice header at the very start
-set str header to find "[start]NOTICE:" from message
+set str header to find(message, p"[start]NOTICE:")
 print(header)
 ```
 
@@ -697,14 +729,14 @@ Both anchors are zero-width: they match a position and consume nothing. With the
 
 ## 30. Empty patterns and blank checks
 
-- With `is`, `""` (the empty pattern) matches only an empty string of length 0. In `find`, `count` and `replace` it matches the empty string between characters (`replace "" in "abc" to "-"` is `-abc`).
+- With `matches`, `p""` (the empty pattern) fits only an empty string of length 0. In `find`, `count` and `replace` it matches the empty string between characters (`replace("abc", p"", "-")` is `-abc`).
 - Forms with a missing space or empty syntax, such as `[one:]`, are blocked at
   compile time.
 
 ```cuff
 set str empty_box to ""
 
-if empty_box is "" do:
+if empty_box matches p"" do:
     print("Confirmed empty text")
 end
 ```
@@ -713,11 +745,11 @@ end
 
 ## 31. Combining with the `or_else` safety net
 
-A pattern that does not match is a normal outcome, not an error: `match` and `find` give `empty`, `find ... g` gives `[]` and `count` gives `0`, so the way to handle it is an `is empty` check.
+A pattern that does not match is a normal outcome, not an error: `match` and `find` give `empty`, `find_all` gives `[]` and `count` gives `0`, so the way to handle it is an `is empty` check.
 
 ```cuff
 set str text to "no digits here"
-set match found to match text from "([num]+)"
+set match found to match(text, p"([num]+)")
 
 if found is empty do:
     print("no number in the text")
@@ -733,7 +765,7 @@ no number in the text
 ```cuff
 set str text to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
 
-set boolean ok to text is "([any]*)*x" or_else do:
+set boolean ok to text matches p"([any]*)*x" or_else do:
     print("the pattern is too complex for this text")
     change ok to false
 end
@@ -751,21 +783,21 @@ A pattern with a syntax error is different: it is never caught (see the next sec
 
 ## 32. Regex syntax errors (Regex Syntax Error)
 
-If the syntax inside a pattern string is wrong, the engine does not quietly return
-`false`; it raises a `Regex Syntax Error`. A pattern written as a string literal is checked
-when the script is parsed, before anything runs. A pattern held in a variable can only be checked when it is
-used, so its syntax error appears at run time. Either way `or_else` cannot catch it: a broken pattern is a bug to fix, not a condition to recover from.
+If the syntax inside a pattern is wrong, the engine does not quietly return
+`false`; it raises a `Regex Syntax Error`. A pattern literal (`p"..."`) is checked
+when the script is parsed, before anything runs. A pattern made with `pattern(text)` can only be checked when the call runs,
+so its syntax error appears at run time. Either way `or_else` cannot catch it: a broken pattern is a bug to fix, not a condition to recover from.
 
 **Cases that raise a syntax error:**
 
-- An unclosed parenthesis: `"(abc"`
-- An unclosed bracket: `"[num"`
-- A wrong space before a colon: `"[one :a|b]"`
-- A reversed repeat range: `"[num]5~2"` (the start is greater than the end)
-- Pointless stacked quantifiers: `"[num]++"`
-- A `<` that does not begin a named capture, such as the `<b>` of `"<b>"`: write `"\<b\>"`
-- A `~` that is not part of a range, such as `"a~b"`: write `"a\~b"`
-- A closing `)`, `]` or `>` with nothing to close, or an unknown escape such as `"\d"`
+- An unclosed parenthesis: `p"(abc"`
+- An unclosed bracket: `p"[num"`
+- A wrong space before a colon: `p"[one :a|b]"`
+- A reversed repeat range: `p"[num]5~2"` (the start is greater than the end)
+- Pointless stacked quantifiers: `p"[num]++"`
+- A `<` that does not begin a named capture, such as the `<b>` of `p"<b>"`: write `p"\<b\>"`
+- A `~` that is not part of a range, such as `p"a~b"`: write `p"a\~b"`
+- A closing `)`, `]` or `>` with nothing to close, or an unknown escape such as `p"\d"`
 
 The [error catalogue](errors.md) lists every code with an example.
 
@@ -791,12 +823,12 @@ set str user_pw to "pass1234!"
 set str user_name to "Alice"
 
 note: ID: 6 to 12 characters made of English letters/digits/_
-if !(user_id is "[word]6~12") do:
+if !(user_id matches p"[word]6~12") do:
     print("Invalid ID format")
 end
 
 note: password: at least 8 characters with no whitespace (special characters allowed)
-if user_pw is "[!sp]8~" do:
+if user_pw matches p"[!sp]8~" do:
     print("Valid password format")
 end
 ```
@@ -810,12 +842,12 @@ set str mobile to "010-7777-8888"
 set str biz_no to "123-45-67890"
 
 note: mobile phone number check
-if mobile is "010-[num]4-[num]4" do:
+if mobile matches p"010-[num]4-[num]4" do:
     print("Valid mobile number")
 end
 
 note: business registration number check: 3 digits-2 digits-5 digits
-if biz_no is "[num]3-[num]2-[num]5" do:
+if biz_no matches p"[num]3-[num]2-[num]5" do:
     print("Valid business registration number structure")
 end
 ```
@@ -827,7 +859,7 @@ end
 ```cuff
 set str log_line to "2026-03-31 [ERROR] 192.168.0.1 - DB Connection Lost"
 
-set match parsed to match log_line from "<date:[num]4-[num]2-[num]2> \[[one:INFO|WARN|ERROR]\] <ip:[num]1~3\.[num]1~3\.[num]1~3\.[num]1~3> - <msg:[any]+>"
+set match parsed to match(log_line, p"<date:[num]4-[num]2-[num]2> \[[one:INFO|WARN|ERROR]\] <ip:[num]1~3\.[num]1~3\.[num]1~3\.[num]1~3> - <msg:[any]+>")
 
 if parsed is not empty do:
     print(f"Date: {parsed['date']}")
@@ -844,7 +876,7 @@ end
 set str doc to "The caller's phone number is 010-1111-2222."
 
 note: find the whole mobile number and replace it with a privacy label in one go
-set str secured_doc to replace "010-[num]4-[num]4" in doc to "[phone number withheld]"
+set str secured_doc to replace(doc, p"010-[num]4-[num]4", "[phone number withheld]")
 
 print(secured_doc) note: "The caller's phone number is [phone number withheld]."
 ```
@@ -857,7 +889,7 @@ print(secured_doc) note: "The caller's phone number is [phone number withheld]."
 set str raw_tags to "python, cuff; javascript / kotlin"
 
 note: use commas, semicolons, slashes and the surrounding whitespace together as the split rule
-set list tags to split raw_tags by "[sp]*[,;/][sp]*"
+set list tags to split(raw_tags, p"[sp]*[,;/][sp]*")
 
 loop repeat idx to 1 ~ 4 do:
     print(f"Registered tag #{idx}: {tags[idx]}")
@@ -914,16 +946,19 @@ end
   \ + one of  [ ] ( ) { } < > + * ? ~ | . \ : !   : that character itself
   elsewhere    : < > ] ) and ~ outside a range must be escaped to mean themselves
 
-[Command API]
-  is / IS     : whole-string match test (IS ignores case)
+[Using a pattern]
+  p"..."      : pattern literal (checked when the program is read; raw text)
+  pattern(t)  : a pattern made from text while the program runs
+  matches     : whole-text test (text matches pattern)
   match       : extract pattern captures (first match, empty on failure)
-  find        : search the body for a part (supports the g flag, empty on failure)
-  replace     : pattern-based text replacement
-  split       : split text on a pattern (keeps empty pieces, no flags)
+  find        : first part that fits (empty on failure)
+  find_all    : every part that fits, as a list
+  replace     : replace the first fit
+  replace_all : replace every fit
+  split       : split text on a pattern (keeps empty pieces)
   count       : count pattern occurrences (0 when none)
 
-[Flags, at the end of find / match / count / replace]
+[Flags, directly after the closing quote of a literal]
   i           : ignore English letter case
-  g           : every match
   m           : [start] and [end] match at every line
 ```

@@ -1,5 +1,5 @@
 note: catastrophic backtracking pattern -> stopped safely by the step/time limit as RegexRuntimeError (never hangs)
 set str target to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaX"
-if target is "([any]+)+end" do:
+if target matches p"([any]+)+end" do:
     print("matched")
 end

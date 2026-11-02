@@ -1,0 +1,3 @@
+class Cat do:
+end
+set Cat c to 5

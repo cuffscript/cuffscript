@@ -61,9 +61,9 @@ repository).
 
 ## Where state lives
 
-- The interpreter holds the global scope, the table of user functions, the queue of `async` calls, the loaded modules and
-  the module sources. A `Session` keeps one interpreter for as long as it lasts.
-- Values are small tagged unions. Strings are shared and immutable; lists and maps are shared and mutable, which is why
+- The interpreter holds the global scope, the table of user functions, the table of classes, the queue of `async` calls, the loaded modules and
+  the module sources. A `Session` keeps one interpreter for as long as it lasts. The class table belongs to the interpreter, not to the process, so two `Session`s can declare different classes of the same name.
+- Values are small tagged unions. Strings are shared and immutable; lists, maps and objects are shared and mutable, which is why
   assigning one to a second name shares it.
 - Two pieces of state are process-wide, and both are locked: the table that turns identifier names into numbers
   (`NameInterner`), and the random generator behind [`DLC:random`](../reference/dlc/random.md), which is one generator per
@@ -71,6 +71,26 @@ repository).
   needs no further care. The rest is per `Session`, or per-thread bookkeeping of how much stack is left.
 - A `Session` keeps every program it has run alive for as long as it lasts, because the interpreter holds pointers to the functions
   inside them. A long-lived `Session` therefore grows with the amount of code it has run, until `reset()` starts it again.
+
+## The object model
+
+A class declaration is parsed into a `ClassDecl` (fields and methods) and registered with the interpreter before the program
+runs, so classes, like functions, are known to the whole program. Registering builds a `ClassInfo` (`interpreter/ClassModel.h`):
+the fields in layout order with the parent's first, and the methods with the inherited ones already merged in, so that a lookup
+is one hash probe whatever the depth of inheritance. Names are the numbers from the `NameInterner`.
+
+An object is a `shared_ptr` to its class and a vector of field values, so it is shared the way a list is. Making one allocates it,
+works out the default of every field from the oldest ancestor down, and runs the nearest `init`. A method call runs the method's
+function with `self` bound to the object and with the class that *wrote* the method remembered, because `private` and `super`
+start from that class and not from the class of the object. `with` is a scope that looks a name up in the innermost object's
+members before looking outward.
+
+The built-in `Error` class is written in the language itself and registered like any other class when an interpreter starts.
+`fail` raises a `ProgramError` carrying the object, and the handlers of `or_else as` receive an `Error` object: the very
+one that was raised for `fail`, and one built from the report for an error the engine raised.
+
+Built-in values have methods through a table instead: `dlc/MethodTable.h` lists, for each method name, the library function that
+runs with the value as its first argument. A user function or class method with the same name is looked up first.
 
 ## Related reading
 

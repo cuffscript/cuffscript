@@ -1,0 +1,6 @@
+func Box() do:
+    print(1)
+end
+class Box do:
+end
+print(1)

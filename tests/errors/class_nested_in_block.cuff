@@ -1,0 +1,4 @@
+if true do:
+    class Inner do:
+    end
+end

@@ -1,6 +1,6 @@
 note: defining a function inside a function is not supported -> NestedFunctionNotSupported
-set func outer() do:
-    set func inner() do:
+func outer() do:
+    func inner() do:
         print("hi")
     end
     inner()

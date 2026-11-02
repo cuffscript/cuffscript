@@ -216,16 +216,31 @@ def functions_by_library(records):
     return libs
 
 
+def methods_of(records):
+    """{ (library, function): sorted method names } for the functions that can also be called on a value."""
+    found = {}
+    for r in records:
+        if r[0] == "method":
+            found.setdefault((r[4], r[2]), set()).add(r[1])
+    return {key: sorted(names) for key, names in found.items()}
+
+
 def block_function_index(records):
     libs = functions_by_library(records)
     builtins = [r[1] for r in records if r[0] == "builtin"]
-    rows = ["| Function | Library |", "| :--- | :--- |"]
-    entries = [(n, "always available", "builtins.md") for n in builtins]
+    methods = methods_of(records)
+
+    def method_cell(lib, name):
+        names = methods.get((lib, name))
+        return ", ".join("`%s`" % n for n in names) if names else ""
+
+    rows = ["| Function | Library | Method |", "| :--- | :--- | :--- |"]
+    entries = [(n, "always available", "builtins.md", method_cell("", n)) for n in builtins]
     for lib in LIBRARIES:
         for n in libs.get(lib, []):
-            entries.append((n, "`DLC:%s`" % lib, "dlc/%s.md" % lib))
-    for n, where, page in sorted(entries):
-        rows.append("| [`%s`](%s) | %s |" % (n, page, where))
+            entries.append((n, "`DLC:%s`" % lib, "dlc/%s.md" % lib, method_cell(lib, n)))
+    for n, where, page, method in sorted(entries):
+        rows.append("| [`%s`](%s) | %s | %s |" % (n, page, where, method))
     return BANNER.format(src="the engine's library tables") + "\n\n" + "\n".join(rows)
 
 

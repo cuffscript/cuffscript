@@ -22,11 +22,10 @@ print(math_min(scores), math_max(scores))
 **The same sum with a loop**, when you need to do something to each element on the way:
 
 ```cuff
-use DLC:list
 set list prices to [3.5, 2, 10]
 set number total to 0
-loop repeat i to 1 ~ length(prices) do:
-    change total to total + prices[i]
+loop each price in prices do:
+    change total to total + price
 end
 print(total)
 ```
@@ -86,12 +85,11 @@ print(squares)
 **Keep only the elements that match a test**
 
 ```cuff
-use DLC:list
 set list numbers to [4, 9, 16, 25, 36]
 set list evens to []
-loop repeat i to 1 ~ length(numbers) do:
-    if numbers[i] % 2 is 0 do:
-        add numbers[i] to evens
+loop each n in numbers do:
+    if n % 2 is 0 do:
+        add n to evens
     end
 end
 print(evens)
@@ -152,7 +150,7 @@ desserts
 
 ```cuff
 use DLC:string
-set returnable func is_palindrome(text) do:
+func is_palindrome(text) do:
     set str clean to str_lower(text)
     set str back to ""
     loop repeat i to length(clean) ~ 1 do:
@@ -172,7 +170,7 @@ true false
 ```cuff
 use DLC:list
 set str sentence to "the quick  brown fox"
-set list words to split sentence by "[sp]+"
+set list words to split(sentence, p"[sp]+")
 print(length(words), words)
 ```
 
@@ -183,12 +181,10 @@ print(length(words), words)
 **Word frequencies**, with a map as the counter:
 
 ```cuff
-use DLC:list
 use DLC:map
-set list words to split "to be or not to be" by "[sp]+"
+set list words to split("to be or not to be", p"[sp]+")
 set map seen to {}
-loop repeat i to 1 ~ length(words) do:
-    set str w to words[i]
+loop each w in words do:
     if map_has_key(seen, w) do:
         change seen[w] to seen[w] + 1
     else do:
@@ -225,11 +221,10 @@ bread...    4
 
 ```cuff
 set list inputs to ["ann@example.com", "not an email", "010-1234-5678"]
-loop repeat i to 1 ~ 3 do:
-    set str text to inputs[i]
-    if text is "[email]" do:
+loop each text in inputs do:
+    if text matches p"[email]" do:
         print(text, "is an email")
-    else if text is "[phone]" do:
+    else if text matches p"[phone]" do:
         print(text, "is a phone number")
     else do:
         print(text, "is neither")
@@ -246,7 +241,7 @@ not an email is neither
 **Pull every number out of a text**
 
 ```cuff
-set list found to find "[int]" from "3 apples, -2 pears and 10 plums" g
+set list found to find_all("3 apples, -2 pears and 10 plums", p"[int]")
 print(found)
 ```
 
@@ -257,11 +252,10 @@ print(found)
 `find` gives text, so convert before adding up:
 
 ```cuff
-use DLC:list
-set list found to find "[num]+" from "3 apples, 2 pears and 10 plums" g
+set list found to find_all("3 apples, 2 pears and 10 plums", p"[num]+")
 set number total to 0
-loop repeat i to 1 ~ length(found) do:
-    change total to total + to_number(found[i])
+loop each digits in found do:
+    change total to total + to_number(digits)
 end
 print(total)
 ```
@@ -273,12 +267,11 @@ print(total)
 **Parse `key=value` lines into a map**
 
 ```cuff
-use DLC:list
 set str config to "host=localhost\nport=8080\nmode=fast"
-set list lines to split config by "[nl]"
+set list lines to split(config, p"[nl]")
 set map settings to {}
-loop repeat i to 1 ~ length(lines) do:
-    set match pair to match lines[i] from "<key:[word]+>=<value:[any]+>"
+loop each line in lines do:
+    set match pair to match(line, p"<key:[word]+>=<value:[any]+>")
     if pair is not empty do:
         change settings[pair["key"]] to pair["value"]
     end
@@ -294,7 +287,7 @@ print(settings)
 
 ```cuff
 set str card to "card 1234-5678-9012-3456"
-print(replace "[num]4-[num]4-[num]4" in card to "****-****-****")
+print(replace(card, p"[num]4-[num]4-[num]4", "****-****-****"))
 ```
 
 ```output
@@ -307,7 +300,7 @@ card ****-****-****-3456
 
 ```cuff
 use DLC:list
-set returnable func min_max(numbers) do:
+func min_max(numbers) do:
     set number low to numbers[1]
     set number high to numbers[1]
     loop repeat i to 2 ~ length(numbers) do:
@@ -331,7 +324,7 @@ print(result[1], result[2])
 **Recursion**
 
 ```cuff
-set returnable func factorial(n) do:
+func factorial(n) do:
     if n <= 1 do:
         return 1
     end
@@ -349,8 +342,8 @@ print(factorial(10))
 ```cuff
 use DLC:map
 set map memo to {}
-set returnable func fib(n) do:
-    change memo to global
+func fib(n) do:
+    global memo
     if n <= 2 do:
         return 1
     end
@@ -422,6 +415,131 @@ print(user["name"], city)
 
 ```output
 Ann unknown
+```
+
+**Raise an error of your own**, and look at it in the handler:
+
+```cuff
+func parse_age(text) do:
+    set number age to to_number(text)
+    if age < 0 do:
+        fail f"age cannot be negative: {age}"
+    end
+    return age
+end
+
+print(parse_age("-4")) or_else as err do:
+    print(err.message)
+end
+```
+
+```output
+age cannot be negative: -4
+```
+
+## Objects
+
+**Keep values and the functions that use them together**, with a class:
+
+```cuff
+class Account do:
+    private set number balance to 0
+
+    func deposit(number amount) do:
+        if amount <= 0 do:
+            fail "deposit must be positive"
+        end
+        change self.balance to self.balance + amount
+    end
+
+    func report() do:
+        return f"balance: {self.balance}"
+    end
+end
+
+set Account savings to Account()
+savings.deposit(40)
+savings.deposit(2.5)
+print(savings.report())
+savings.deposit(-1) or_else as err do:
+    print(err.message)
+end
+```
+
+```output
+balance: 42.5
+deposit must be positive
+```
+
+**Give an object a readable form** with `to_str`; `print` and f-strings use it:
+
+```cuff
+class Point do:
+    set number x to 0
+    set number y to 0
+
+    func init(number x, number y) do:
+        change self.x to x
+        change self.y to y
+    end
+
+    func to_str() do:
+        return f"({self.x}, {self.y})"
+    end
+end
+
+set list path to [Point(0, 0), Point(2, 1)]
+loop each p in path do:
+    print(p)
+end
+```
+
+```output
+(0, 0)
+(2, 1)
+```
+
+**Make a separate copy of an object or a list** with `copy`; assigning shares it:
+
+```cuff
+class Bag do:
+    set list items to []
+end
+
+set Bag a to Bag()
+set Bag b to a.copy()
+add "pen" to a.items
+add "cup" to b.items
+print(a.items, b.items)
+```
+
+```output
+["pen", "cup"] ["pen", "cup"]
+```
+
+(The copy is shallow: both bags still share the one list in `items`, as the output shows.) Copy the list as well when the two should be independent: `change b.items to copy(a.items)`.
+
+**Call several methods on one object** without repeating its name, with `with`:
+
+```cuff
+class Robot do:
+    set number x to 0
+
+    func right(number n) do:
+        change self.x to self.x + n
+    end
+end
+
+set Robot r to Robot()
+with r do:
+    right(2)
+    right(5)
+    print(x)
+end
+```
+
+```output
+7
 ```
 
 ## Files, JSON and time

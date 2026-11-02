@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Value.h"
+#include "../common/Attributes.h"
 #include "../common/NameInterner.h"
 #include <memory>
 #include <string>
@@ -36,8 +37,9 @@ namespace cuff
         Environment &operator=(const Environment &) = delete;
         Environment(Environment &&) = delete;
         Environment &operator=(Environment &&) = delete;
+        CUFF_ALWAYS_INLINE ~Environment() {}
 
-        void declare(uint32_t nameId, Value value, bool isConstant)
+        CUFF_ALWAYS_INLINE void declare(uint32_t nameId, Value value, bool isConstant)
         {
             if (Value *existing = findLocal(nameId))
             {
@@ -99,7 +101,7 @@ namespace cuff
             Environment *owner = nullptr;
         };
 
-        // Local bindings win over a `change x to global` bridge. A function scope sees nothing outside itself
+        // Local bindings win over a `global x` bridge. A function scope sees nothing outside itself
         // except the names it has bridged, so an unbridged global is unresolved here.
         Lookup resolve(uint32_t nameId)
         {
@@ -131,6 +133,15 @@ namespace cuff
 
         Environment *globalEnv() { return global_; }
 
+        // A `with` block is a block scope that also names an object, whose members its body sees.
+        void setWithObject(Value object) { with_ = std::make_unique<Value>(std::move(object)); }
+        bool hasWithObject() const { return with_ != nullptr; }
+        const Value &withObject() const { return *with_; }
+
+        Environment *parentScope() const { return parent_; }
+        bool isFunctionScope() const { return isFunctionScope_; }
+        Value *localValue(uint32_t nameId) { return findLocal(nameId); }
+
         const std::vector<std::pair<uint32_t, Value>> &localVars() const { return vars_; }
         bool isConstantHere(uint32_t nameId) const
         {
@@ -141,6 +152,7 @@ namespace cuff
         Environment *parent_;
         Environment *global_;
         bool isFunctionScope_;
+        std::unique_ptr<Value> with_; // set only for a `with` block, so an ordinary scope pays nothing for it
         std::vector<std::pair<uint32_t, Value>> vars_;
         std::vector<uint32_t> constants_;
         std::vector<uint32_t> globalDeclared_;

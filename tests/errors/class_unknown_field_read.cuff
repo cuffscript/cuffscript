@@ -1,0 +1,5 @@
+class Box do:
+    set number size to 1
+end
+set Box b to Box()
+print(b.sise)

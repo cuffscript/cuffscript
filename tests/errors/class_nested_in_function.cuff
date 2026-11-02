@@ -1,0 +1,5 @@
+func make() do:
+    class Inner do:
+    end
+end
+make()

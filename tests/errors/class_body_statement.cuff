@@ -1,0 +1,3 @@
+class Box do:
+    print("no")
+end

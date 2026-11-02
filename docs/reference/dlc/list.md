@@ -5,7 +5,7 @@ use DLC:list
 ```
 
 List functions. They return new lists and never change the list you pass in. To change a list in place use the `add`,
-`change` and `remove` statements ([language reference](../language.md#51-collections-add-change-remove)). The new list is
+`change` and `remove` statements ([language reference](../language.md#51-changing-places-change-add-remove)). The new list is
 a shallow copy: lists and maps stored inside it are the same values as in the original, not copies. An argument of the
 wrong type is `E4-005` and the wrong number of arguments is `E4-010`.
 

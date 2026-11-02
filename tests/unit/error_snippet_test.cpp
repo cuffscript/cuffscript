@@ -152,7 +152,7 @@ int main()
 
     // The case that was reported: a call inside an f-string that fails when its argument is checked.
     {
-        auto r = runSource("set returnable func fib(str n) do:\n    return n\nend\nprint(f\"fib(10) = {fib(10)}\")\n");
+        auto r = runSource("func fib(str n) do:\n    return n\nend\nprint(f\"fib(10) = {fib(10)}\")\n");
         check(!r.success && contains(r.error, "[E4-030] Runtime Error at line 4, column 23") &&
                   contains(r.error, "    print(f\"fib(10) = {fib(10)}\")\n                          ^\n"),
               "a failing call inside an f-string is reported at the call:\n" + r.error);
@@ -271,7 +271,7 @@ int main()
 
     {
         TempDir dir;
-        dir.write("lib/boom.cuff", "set returnable func boom(n) do:\n    set number pad to 1\n    return n / 0\nend\n");
+        dir.write("lib/boom.cuff", "func boom(n) do:\n    set number pad to 1\n    return n / 0\nend\n");
         const std::string main = "set number a to 1\nset number b to 2\nuse boom from ./lib\nprint(boom(5))\n";
         auto r = CuffEngine::execute(main, dir.path.string());
         check(!r.success && contains(r.error, "Runtime Error in './lib/boom.cuff' at line 3, column 14") &&
@@ -296,7 +296,7 @@ int main()
     // piece that declared it, which is what the interactive shell relies on.
     {
         cuff::Session session;
-        auto first = session.run("set returnable func half(n) do:\n    set number pad to 1\n    return n / 0\nend\n");
+        auto first = session.run("func half(n) do:\n    set number pad to 1\n    return n / 0\nend\n");
         check(first.success, "declaring the function works:\n" + first.error);
         auto second = session.run("print(half(2))\n");
         check(!second.success && contains(second.error, "at line 3, column 14") &&
@@ -310,9 +310,9 @@ int main()
 
     {
         cuff::Session session;
-        auto first = session.run("set async func a() do:\n    print(\"A\")\nend\n"
-                                 "set async func b() do:\n    set number z to 1 / 0\nend\n"
-                                 "set async func c() do:\n    print(\"C ran\")\nend\n"
+        auto first = session.run("async func a() do:\n    print(\"A\")\nend\n"
+                                 "async func b() do:\n    set number z to 1 / 0\nend\n"
+                                 "async func c() do:\n    print(\"C ran\")\nend\n"
                                  "a()\nb()\nc()\n");
         check(!first.success, "the failing job reports its error");
         auto second = session.run("print(\"next\")\n");
@@ -328,7 +328,7 @@ int main()
         "set list a to [1, 2, 3]\nloop repeat i to 1 ~ 3 do:\n    print(a[10])\nend\n",
         "note: a comment\nnote: another\nprint(undefined_name)\n",
         "set number n to 3\nprint(f\"v {n} and {n / 0}\")\n",
-        "set returnable func f(a, b) do:\n    return a + b\nend\nprint(f(1))\n",
+        "func f(a, b) do:\n    return a + b\nend\nprint(f(1))\n",
         "set map m to {\"a\": 1}\nprint(m[\"b\"])\n",
         "print(\"line one\nline two\" + 1)\n",
         ("\xEF\xBB\xBF" "set number x to 2\r\nprint(x / 0)\r\n"),

@@ -1,0 +1,2 @@
+set str text to "a1"
+set list r to find "[num]" from text g

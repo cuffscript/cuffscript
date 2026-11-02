@@ -7,7 +7,7 @@ use it (`main.cpp`, `cli/`, `wasm/`) are thin.
 | :--- | :--- |
 | `common/` | Shared vocabulary: tokens, locations, errors and codes, limits, UTF-8 and width helpers, the path sandbox |
 | `tokenizer/`, `lexer/`, `parser/` | Source text to syntax tree |
-| `interpreter/` | The evaluator, values, scopes, native function table, module loader |
+| `interpreter/` | The evaluator, values, classes and objects, scopes, native function table, module loader |
 | `regex/` | The pattern language |
 | `dlc/` | The libraries behind `use DLC:...` |
 | `net/` | The HTTP client for `DLC:network` |

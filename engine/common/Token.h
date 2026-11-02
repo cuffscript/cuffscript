@@ -2,10 +2,15 @@
 
 #include "TokenTypes.h"
 #include "SourceLocation.h"
+#include <cstdint>
 #include <string>
 
 namespace cuff
 {
+
+    // Flag bits of a PATTERN token (the letters written after the closing quote of p"...").
+    constexpr uint8_t kPatternFlagIgnoreCase = 1;
+    constexpr uint8_t kPatternFlagMultiline = 2;
 
     struct Token
     {
@@ -13,6 +18,7 @@ namespace cuff
         std::string value;
         SourceLocation location;
         bool hasSpaceBefore = false;
+        uint8_t patternFlags = 0;
         int indentLevel = 0;
 
         Token() = default;

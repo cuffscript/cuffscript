@@ -1,6 +1,6 @@
 set constant str DEFAULT_GREETING to "Hello"
 
-set returnable func greet(name) do:
-    change DEFAULT_GREETING to global
+func greet(name) do:
+    global DEFAULT_GREETING
     return DEFAULT_GREETING + ", " + name + "!"
 end

@@ -1,5 +1,5 @@
 note: E4-030 -- an async function is checked at the call site, before it is queued
-set async func later(str s) do:
+async func later(str s) do:
     print(s)
 end
 later(5)

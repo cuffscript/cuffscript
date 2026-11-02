@@ -1,0 +1,3 @@
+async async func f() do:
+    print(1)
+end

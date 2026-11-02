@@ -7,7 +7,7 @@ namespace cuff
 {
 
     // Error code ranges: 1000 Lexical, 2000 Syntax, 3000 Regex,
-    // 4000 Runtime, 5000 Module, 6000 Resource, 9000 Internal.
+    // 4000 Runtime, 5000 Module, 6000 Resource, 7000 Program, 9000 Internal.
     //
     // Each enumerator is followed by a one-line description. docs/reference/errors.md is generated from this
     // enum, those descriptions and errorCodeRecoverable() below (tools/docs.py), so the catalogue cannot drift
@@ -59,21 +59,32 @@ namespace cuff
         LocalVariableOutOfScope = 4013, // A local variable used outside the function that declared it.
         InvalidCollectionOperation = 4014, // An operation a list or map does not support.
         ElementNotFound = 4015, // A value to remove that is not in the list.
-        UnsupportedOperation = 4016, // An operation not supported here, such as `return value` in a function that is not `returnable`.
+        UnsupportedOperation = 4016, // An operation not supported here, such as `return value` outside a function.
         StackOverflow = 4017, // Recursion deeper than the call depth limit, or deeper than the native stack budget allows.
         NestedFunctionNotSupported = 4018, // A function declared inside another function.
         AwaitOnNonAsync = 4019, // `await` applied to a function that is not `async`.
         DeclarationTypeMismatch = 4020, // A declared type that does not match the value.
-        InvalidGlobalDeclaration = 4021, // `change ... to global` outside a function body.
+        InvalidGlobalDeclaration = 4021, // `global` outside a function body.
         ReturnOutsideFunction = 4022, // `return` outside any function.
-        StopOutsideLoop = 4023, // `stop` outside any loop.
+        StopOutsideLoop = 4023, // `stop` or `skip` outside any loop.
         FractionalIndex = 4024, // A position or range bound that is not a whole number.
         InvalidArgumentValue = 4025, // An argument of the right type but a value the function or operator does not accept.
-        SizeLimitExceeded = 4026, // A string, list, map or `async` queue larger than its limit.
+        SizeLimitExceeded = 4026, // A string, list, map, `async` queue or class declaration larger than its limit.
         PureFunctionGlobalAccess = 4027, // A `pure` function that reaches a global variable.
         NetworkRequestFailed = 4028, // A network request that failed, timed out, or targeted a blocked address.
         PureFunctionImpureCall = 4029, // A `pure` function that calls a function that is not `pure`.
         ParameterTypeMismatch = 4030, // An argument that does not match the parameter's declared type.
+        UnknownClass = 4031, // A class name that is not declared, used as a type, in `extends`, in `isa` or as a constructor.
+        InvalidInheritance = 4032, // A class that inherits from itself, through its ancestors, or from something that is not a class.
+        UnknownMember = 4033, // A field or method that the object's class does not have.
+        PrivateMemberAccess = 4034, // A `private` field or method used outside the class that declares it.
+        NotAnObject = 4035, // A `.name` access or a `with` block applied to a value that is not an object.
+        ClassNotTopLevel = 4036, // A class declared inside a block or a function; classes belong at the top level of a file.
+        DuplicateMember = 4037, // Two fields or methods of one class with the same name.
+        ClassNameConflict = 4038, // A class named like a function, another class, or a built-in.
+        InvalidClassName = 4039, // A class whose name does not start with an uppercase letter.
+        MethodNotCalled = 4040, // A method used as a value, or a field called as a method.
+        PureFunctionFieldWrite = 4041, // A `pure` function or method that changes a field.
         ModuleNotFound = 5001, // A module file that does not exist or cannot be read.
         ModuleParseFailed = 5002, // A module file that does not parse.
         CircularImport = 5003, // Modules that import each other in a cycle.
@@ -85,6 +96,7 @@ namespace cuff
         ExecutionStepLimit = 6001, // The run exceeded `--max-steps`.
         ExecutionTimeout = 6002, // The run exceeded `--timeout`.
         OutOfMemory = 6003, // The host ran out of memory.
+        ProgramError = 7001, // An error raised by the program itself with `fail`.
         InternalError = 9001, // A bug in the engine: please report it.
     };
 
@@ -105,6 +117,8 @@ namespace cuff
             return "Module Error";
         if (n >= 6000 && n < 7000)
             return "Resource Limit Error";
+        if (n >= 7000 && n < 8000)
+            return "Program Error";
         return "Internal Error";
     }
 
@@ -121,7 +135,7 @@ namespace cuff
     inline bool errorCodeRecoverable(ErrorCode code)
     {
         int n = static_cast<int>(code);
-        return (n >= 3100 && n < 4000) || (n >= 4000 && n < 6000);
+        return (n >= 3100 && n < 6000) || (n >= 7000 && n < 8000);
     }
 
 }

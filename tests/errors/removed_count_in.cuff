@@ -1,0 +1,2 @@
+set str text to "aa"
+set number r to count "a" in text

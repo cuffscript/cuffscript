@@ -1,0 +1,106 @@
+note: classes are hoisted; defaults run for every new object; chaining; objects in collections.
+set number made to 0
+func next_label() do:
+    global made
+    change made to made + 1
+    return f"obj-{made}"
+end
+
+set Point origin to Point(0, 0)
+print(origin.dist2(Point(3, 4)))
+
+class Point do:
+    set number x to 0
+    set number y to 0
+    set str label to next_label()
+
+    func init(number x, number y) do:
+        change self.x to x
+        change self.y to y
+    end
+
+    func dist2(Point other) do:
+        return (self.x - other.x) ** 2 + (self.y - other.y) ** 2
+    end
+
+    func plus(Point other) do:
+        return Point(self.x + other.x, self.y + other.y)
+    end
+
+    func to_str() do:
+        return f"({self.x}, {self.y})"
+    end
+end
+
+set Point a to Point(1, 2)
+set Point b to Point(10, 20)
+print(a.label, b.label, origin.label)
+print(a.plus(b).plus(a))
+print(a.plus(b).x)
+print(f"sum is {a.plus(b)}")
+
+note: identity in collections
+set list points to [a, b]
+use DLC:list
+print(contains(points, a), contains(points, Point(1, 2)), index_of(points, b))
+set map by_name to {"a": a}
+print(by_name["a"] is a, by_name["a"] is b)
+
+note: reference semantics through functions
+func nudge(Point p) do:
+    change p.x to p.x + 100
+end
+nudge(a)
+print(a)
+
+note: objects are truthy, empty is not
+set Point none to empty
+if a do:
+    print("an object is true")
+end
+if !none do:
+    print("empty is false")
+end
+print(none is empty, a is empty)
+
+note: recursion through methods
+class Tree do:
+    set number value to 0
+    set list kids to []
+
+    func init(number value) do:
+        change self.value to value
+    end
+
+    func add_kid(Tree kid) do:
+        add kid to self.kids
+        return kid
+    end
+
+    func total() do:
+        set number sum to self.value
+        loop each kid in self.kids do:
+            change sum to sum + kid.total()
+        end
+        return sum
+    end
+
+    func depth() do:
+        set number best to 0
+        loop each kid in self.kids do:
+            set number d to kid.depth()
+            if d > best do:
+                change best to d
+            end
+        end
+        return best + 1
+    end
+end
+set Tree root to Tree(1)
+set Tree child to root.add_kid(Tree(2))
+child.add_kid(Tree(3))
+root.add_kid(Tree(4))
+print(root.total(), root.depth(), child.depth())
+
+set constant Point FIXED to Point(5, 5)
+print(FIXED)

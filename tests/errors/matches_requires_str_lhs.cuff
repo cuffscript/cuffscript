@@ -1,0 +1,2 @@
+note: E4-005 -- `matches` tests a str against a pattern, so a non-str left-hand side is a type error.
+print(5 matches p"5")

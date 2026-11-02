@@ -1,0 +1,5 @@
+class Box do:
+    func hi() do:
+        super.hi()
+    end
+end

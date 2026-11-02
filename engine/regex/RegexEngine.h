@@ -23,6 +23,25 @@ namespace cuff::regex
         std::string source;
     };
 
+    // Parses `pattern` into a CompiledPattern, applying the pattern size limit. Pattern literals are compiled with
+    // this when the program is parsed; RegexEngine::compile adds a cache for patterns built at run time.
+    inline std::shared_ptr<CompiledPattern> compilePattern(const std::string &pattern, const cuff::SourceLocation &loc)
+    {
+        if (pattern.size() > limits::kMaxRegexPatternBytes)
+            throw cuff::RegexSyntaxError(cuff::ErrorCode::RegexPatternTooComplex,
+                                         "pattern is longer than the " + std::to_string(limits::kMaxRegexPatternBytes / 1024) + " KiB limit", loc);
+
+        RegexParser parser(pattern, loc);
+        int groupCount = 0;
+        RNodePtr root = parser.parse(groupCount);
+
+        auto compiled = std::make_shared<CompiledPattern>();
+        compiled->root = root;
+        compiled->groupCount = groupCount;
+        compiled->source = pattern;
+        return compiled;
+    }
+
     struct Flags
     {
         bool global = false;
@@ -54,18 +73,7 @@ namespace cuff::regex
             if (it != cache_.end())
                 return it->second;
 
-            if (pattern.size() > limits::kMaxRegexPatternBytes)
-                throw cuff::RegexSyntaxError(cuff::ErrorCode::RegexPatternTooComplex,
-                                             "pattern is longer than the " + std::to_string(limits::kMaxRegexPatternBytes / 1024) + " KiB limit", loc);
-
-            RegexParser parser(pattern, loc);
-            int groupCount = 0;
-            RNodePtr root = parser.parse(groupCount);
-
-            auto compiled = std::make_shared<CompiledPattern>();
-            compiled->root = root;
-            compiled->groupCount = groupCount;
-            compiled->source = pattern;
+            auto compiled = compilePattern(pattern, loc);
 
             if (cache_.size() >= limits::kMaxRegexCacheEntries)
                 cache_.clear();
@@ -73,20 +81,29 @@ namespace cuff::regex
             return compiled;
         }
 
-        bool fullMatch(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
-                        bool caseInsensitive, const cuff::SourceLocation &loc, MatchOutcome &out)
+        static bool fullMatch(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+                              const Flags &flags, const cuff::SourceLocation &loc, MatchOutcome &out)
         {
-            RegexMatcher matcher(pat->root, pat->groupCount, caseInsensitive, false, loc, limitsUntil(deadlineFor(text)));
+            RegexMatcher matcher(pat->root, pat->groupCount, flags.caseInsensitive, flags.multiline, loc,
+                                 limitsUntil(deadlineFor(text)));
             return matcher.fullMatch(text, out);
         }
 
-        bool search(const std::shared_ptr<CompiledPattern> &pat, const std::string &text, size_t fromPos,
+        static bool fullMatch(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+                              bool caseInsensitive, const cuff::SourceLocation &loc, MatchOutcome &out)
+        {
+            Flags flags;
+            flags.caseInsensitive = caseInsensitive;
+            return fullMatch(pat, text, flags, loc, out);
+        }
+
+        static bool search(const std::shared_ptr<CompiledPattern> &pat, const std::string &text, size_t fromPos,
                     const Flags &flags, const cuff::SourceLocation &loc, MatchOutcome &out)
         {
             return searchUntil(pat, text, fromPos, flags, loc, out, deadlineFor(text));
         }
 
-        std::vector<std::pair<size_t, size_t>> searchAllSpans(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+        static std::vector<std::pair<size_t, size_t>> searchAllSpans(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                                                               const Flags &flags, const cuff::SourceLocation &loc)
         {
             std::vector<std::pair<size_t, size_t>> spans;
@@ -105,7 +122,7 @@ namespace cuff::regex
             return spans;
         }
 
-        std::vector<MatchOutcome> searchAll(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+        static std::vector<MatchOutcome> searchAll(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                                              const Flags &flags, const cuff::SourceLocation &loc)
         {
             std::vector<MatchOutcome> results;
@@ -124,7 +141,7 @@ namespace cuff::regex
             return results;
         }
 
-        std::string replace(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+        static std::string replace(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                              const std::string &replacement, const Flags &flags, const cuff::SourceLocation &loc)
         {
             std::string result;
@@ -159,7 +176,7 @@ namespace cuff::regex
             return result;
         }
 
-        std::vector<std::string> split(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+        static std::vector<std::string> split(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                                         const cuff::SourceLocation &loc)
         {
             Flags flags;
@@ -188,7 +205,7 @@ namespace cuff::regex
             return pieces;
         }
 
-        size_t count(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
+        static size_t count(const std::shared_ptr<CompiledPattern> &pat, const std::string &text,
                      const Flags &flags, const cuff::SourceLocation &loc)
         {
             Flags f = flags;
@@ -228,7 +245,7 @@ namespace cuff::regex
             return l;
         }
 
-        bool searchUntil(const std::shared_ptr<CompiledPattern> &pat, const std::string &text, size_t fromPos,
+        static bool searchUntil(const std::shared_ptr<CompiledPattern> &pat, const std::string &text, size_t fromPos,
                          const Flags &flags, const cuff::SourceLocation &loc, MatchOutcome &out, Clock::time_point deadline)
         {
             RegexMatcher matcher(pat->root, pat->groupCount, flags.caseInsensitive, flags.multiline, loc, limitsUntil(deadline));

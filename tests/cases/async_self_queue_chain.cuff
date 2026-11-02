@@ -1,14 +1,14 @@
 note: when a queued async job queues another async job from inside itself,
 note: that job must also run, in queue order, during the same drain.
 
-set async func level_c() do:
+async func level_c() do:
     print("C ran")
 end
-set async func level_b() do:
+async func level_b() do:
     print("B ran")
     level_c()
 end
-set async func level_a() do:
+async func level_a() do:
     print("A ran")
     level_b()
 end

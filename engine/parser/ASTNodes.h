@@ -7,6 +7,7 @@
 #include "../common/CuffError.h"
 #include "../common/Limits.h"
 #include "../common/StrData.h"
+#include "../regex/PatternData.h"
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -54,6 +55,7 @@ namespace cuff
         std::string name;
         uint32_t nameId;
         SourceLocation loc;
+        bool inWith = false; // written inside a `with` block of the same function: the object's members are looked at first
         IdentifierExpr(std::string n, SourceLocation l) : name(std::move(n)), nameId(internName(name)), loc(l) {}
     };
 
@@ -102,9 +104,8 @@ namespace cuff
         And,
         Or,
         Is,
-        IsCase,
         IsNot,
-        IsNotCase,
+        Matches,
         Greater,
         Less,
         GreaterEq,
@@ -130,9 +131,8 @@ namespace cuff
         case BinOp::And: return "and";
         case BinOp::Or: return "or";
         case BinOp::Is: return "is";
-        case BinOp::IsCase: return "IS";
         case BinOp::IsNot: return "is not";
-        case BinOp::IsNotCase: return "IS not";
+        case BinOp::Matches: return "matches";
         case BinOp::Greater: return ">";
         case BinOp::Less: return "<";
         case BinOp::GreaterEq: return ">=";
@@ -184,79 +184,80 @@ namespace cuff
             : target(std::move(t)), start(std::move(s)), end(std::move(e)), loc(l) {}
     };
 
+    struct PatternLiteral
+    {
+        std::shared_ptr<const PatternData> value;
+        SourceLocation loc;
+        PatternLiteral(std::shared_ptr<const PatternData> v, SourceLocation l) : value(std::move(v)), loc(l) {}
+    };
+
+    struct SelfExpr
+    {
+        SourceLocation loc;
+        explicit SelfExpr(SourceLocation l) : loc(l) {}
+    };
+
     struct FunctionCall
     {
         std::string functionName;
         uint32_t functionNameId;
         std::vector<std::unique_ptr<Expr>> args;
         SourceLocation loc;
+        bool inWith = false; // written inside a `with` block of the same function: the object's methods are looked at first
         FunctionCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
             : functionName(std::move(n)), functionNameId(internName(functionName)), args(std::move(a)), loc(l) {}
     };
 
+    // target.name. A null target is the leading-dot form `.name`, the member of the innermost `with` object.
+    struct MemberAccess
+    {
+        std::unique_ptr<Expr> target;
+        std::string name;
+        uint32_t nameId;
+        SourceLocation loc;
+        MemberAccess(std::unique_ptr<Expr> t, std::string n, SourceLocation l)
+            : target(std::move(t)), name(std::move(n)), nameId(internName(name)), loc(l) {}
+    };
+
+    // target.name(args), or `.name(args)` with a null target.
+    struct MethodCall
+    {
+        std::unique_ptr<Expr> target;
+        std::string name;
+        uint32_t nameId;
+        std::vector<std::unique_ptr<Expr>> args;
+        SourceLocation loc;
+        MethodCall(std::unique_ptr<Expr> t, std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
+            : target(std::move(t)), name(std::move(n)), nameId(internName(name)), args(std::move(a)), loc(l) {}
+    };
+
+    struct SuperCall
+    {
+        std::string name;
+        uint32_t nameId;
+        std::vector<std::unique_ptr<Expr>> args;
+        SourceLocation loc;
+        SuperCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
+            : name(std::move(n)), nameId(internName(name)), args(std::move(a)), loc(l) {}
+    };
+
+    struct IsaExpr
+    {
+        std::unique_ptr<Expr> target;
+        std::string className;
+        uint32_t classNameId;
+        SourceLocation loc;
+        IsaExpr(std::unique_ptr<Expr> t, std::string c, SourceLocation l)
+            : target(std::move(t)), className(std::move(c)), classNameId(internName(className)), loc(l) {}
+    };
+
+    // `await call`: the call is a FunctionCall, MethodCall or SuperCall expression.
     struct AwaitExpr
     {
-        std::unique_ptr<FunctionCall> call;
+        std::unique_ptr<Expr> call;
         SourceLocation loc;
-        AwaitExpr(std::unique_ptr<FunctionCall> c, SourceLocation l)
+        AwaitExpr(std::unique_ptr<Expr> c, SourceLocation l)
             : call(std::move(c)), loc(l) {}
-    };
-
-    struct RegexMatchExpr
-    {
-        std::unique_ptr<Expr> target;
-        bool caseInsensitive;
-        std::string pattern;
-        SourceLocation loc;
-        RegexMatchExpr(std::unique_ptr<Expr> t, bool ci, std::string p, SourceLocation l)
-            : target(std::move(t)), caseInsensitive(ci), pattern(std::move(p)), loc(l) {}
-    };
-
-    struct PatternArg
-    {
-        std::string literalPattern;
-        std::unique_ptr<Expr> dynamicExpr;
-        bool isLiteral = true;
-    };
-
-    struct MatchFromExpr
-    {
-        std::unique_ptr<Expr> target;
-        PatternArg pattern;
-        std::string flags;
-        SourceLocation loc;
-    };
-
-    struct FindExpr
-    {
-        PatternArg pattern;
-        std::unique_ptr<Expr> target;
-        std::string flags;
-        SourceLocation loc;
-    };
-
-    struct PatternReplaceExpr
-    {
-        PatternArg pattern;
-        std::unique_ptr<Expr> target;
-        std::unique_ptr<Expr> replacement;
-        std::string flags;
-        SourceLocation loc;
-    };
-
-    struct SplitExpr
-    {
-        std::unique_ptr<Expr> target;
-        PatternArg pattern;
-        SourceLocation loc;
-    };
-
-    struct CountExpr
-    {
-        PatternArg pattern;
-        std::unique_ptr<Expr> target;
-        std::string flags;
-        SourceLocation loc;
     };
 
     enum class ExprKind
@@ -265,7 +266,9 @@ namespace cuff
         String,
         Bool,
         Empty,
+        Pattern,
         Identifier,
+        Self,
         List,
         Map,
         FString,
@@ -274,13 +277,11 @@ namespace cuff
         IndexAccess,
         SliceAccess,
         FunctionCall,
-        Await,
-        RegexMatch,
-        MatchFrom,
-        Find,
-        PatternReplace,
-        Split,
-        Count
+        Member,
+        MethodCall,
+        SuperCall,
+        Isa,
+        Await
     };
 
     struct Expr
@@ -292,7 +293,9 @@ namespace cuff
             StringLiteral,
             BoolLiteral,
             EmptyLiteral,
+            PatternLiteral,
             IdentifierExpr,
+            SelfExpr,
             ListLiteral,
             MapLiteral,
             FStringExpr,
@@ -301,13 +304,11 @@ namespace cuff
             IndexAccess,
             SliceAccess,
             FunctionCall,
-            AwaitExpr,
-            RegexMatchExpr,
-            MatchFromExpr,
-            FindExpr,
-            PatternReplaceExpr,
-            SplitExpr,
-            CountExpr>
+            MemberAccess,
+            MethodCall,
+            SuperCall,
+            IsaExpr,
+            AwaitExpr>
             data;
 
         template <typename T>
@@ -406,38 +407,15 @@ namespace cuff
                 take(n.end);
             }
             void operator()(FunctionCall &n) { takeAll(n.args); }
-            void operator()(AwaitExpr &n)
-            {
-                if (n.call)
-                    takeAll(n.call->args);
-            }
-            void operator()(RegexMatchExpr &n) { take(n.target); }
-            void operator()(MatchFromExpr &n)
+            void operator()(MemberAccess &n) { take(n.target); }
+            void operator()(MethodCall &n)
             {
                 take(n.target);
-                take(n.pattern.dynamicExpr);
+                takeAll(n.args);
             }
-            void operator()(FindExpr &n)
-            {
-                take(n.target);
-                take(n.pattern.dynamicExpr);
-            }
-            void operator()(PatternReplaceExpr &n)
-            {
-                take(n.target);
-                take(n.replacement);
-                take(n.pattern.dynamicExpr);
-            }
-            void operator()(SplitExpr &n)
-            {
-                take(n.target);
-                take(n.pattern.dynamicExpr);
-            }
-            void operator()(CountExpr &n)
-            {
-                take(n.target);
-                take(n.pattern.dynamicExpr);
-            }
+            void operator()(SuperCall &n) { takeAll(n.args); }
+            void operator()(IsaExpr &n) { take(n.target); }
+            void operator()(AwaitExpr &n) { take(n.call); }
         };
 
         struct ChildHeight
@@ -477,28 +455,11 @@ namespace cuff
                 return std::max({h(n.target), h(n.start), h(n.end)});
             }
             uint32_t operator()(const FunctionCall &n) const { return args(n.args); }
-            uint32_t operator()(const AwaitExpr &n) const { return n.call ? args(n.call->args) : 0; }
-            uint32_t operator()(const RegexMatchExpr &n) const { return h(n.target); }
-            uint32_t operator()(const MatchFromExpr &n) const
-            {
-                return std::max(h(n.target), h(n.pattern.dynamicExpr));
-            }
-            uint32_t operator()(const FindExpr &n) const
-            {
-                return std::max(h(n.target), h(n.pattern.dynamicExpr));
-            }
-            uint32_t operator()(const PatternReplaceExpr &n) const
-            {
-                return std::max({h(n.target), h(n.replacement), h(n.pattern.dynamicExpr)});
-            }
-            uint32_t operator()(const SplitExpr &n) const
-            {
-                return std::max(h(n.target), h(n.pattern.dynamicExpr));
-            }
-            uint32_t operator()(const CountExpr &n) const
-            {
-                return std::max(h(n.target), h(n.pattern.dynamicExpr));
-            }
+            uint32_t operator()(const MemberAccess &n) const { return h(n.target); }
+            uint32_t operator()(const MethodCall &n) const { return std::max(h(n.target), args(n.args)); }
+            uint32_t operator()(const SuperCall &n) const { return args(n.args); }
+            uint32_t operator()(const IsaExpr &n) const { return h(n.target); }
+            uint32_t operator()(const AwaitExpr &n) const { return h(n.call); }
 
             static uint32_t args(const std::vector<std::unique_ptr<Expr>> &v)
             {
@@ -510,9 +471,73 @@ namespace cuff
         };
     };
 
+    enum class TypeKind : uint8_t
+    {
+        Any, // an untyped parameter
+        Empty,
+        Number,
+        Str,
+        Boolean,
+        List,
+        Map,
+        Match,
+        Pattern,
+        Object,
+        Class
+    };
+
+    // A type as written in a declaration or parameter: a built-in type, or the name of a class.
+    struct TypeSpec
+    {
+        TypeKind kind = TypeKind::Any;
+        std::string className; // kind == Class
+        uint32_t classNameId = 0;
+
+        const char *builtinName() const
+        {
+            switch (kind)
+            {
+            case TypeKind::Empty: return "empty";
+            case TypeKind::Number: return "number";
+            case TypeKind::Str: return "str";
+            case TypeKind::Boolean: return "boolean";
+            case TypeKind::List: return "list";
+            case TypeKind::Map: return "map";
+            case TypeKind::Match: return "match";
+            case TypeKind::Pattern: return "pattern";
+            case TypeKind::Object: return "object";
+            case TypeKind::Class:
+            case TypeKind::Any:
+                break;
+            }
+            return "";
+        }
+        std::string name() const { return kind == TypeKind::Class ? className : std::string(builtinName()); }
+    };
+
+    inline bool builtinTypeFromName(const std::string &word, TypeKind &out)
+    {
+        static const struct
+        {
+            const char *word;
+            TypeKind kind;
+        } table[] = {{"number", TypeKind::Number}, {"str", TypeKind::Str},     {"boolean", TypeKind::Boolean},
+                     {"list", TypeKind::List},     {"map", TypeKind::Map},     {"match", TypeKind::Match},
+                     {"pattern", TypeKind::Pattern}, {"object", TypeKind::Object}, {"empty", TypeKind::Empty}};
+        for (const auto &e : table)
+        {
+            if (word == e.word)
+            {
+                out = e.kind;
+                return true;
+            }
+        }
+        return false;
+    }
+
     struct DeclarationStmt
     {
-        std::string varType;
+        TypeSpec type;
         std::string name;
         uint32_t nameId = 0;
         bool isConstant = false;
@@ -520,59 +545,65 @@ namespace cuff
         SourceLocation loc;
     };
 
-    struct ChangeStmt
+    // Where a `change`, `add` or `remove` writes: a variable, `self`, or a member of the innermost `with` object,
+    // followed by any number of [index] and .field steps.
+    struct PlaceStep
     {
-        std::string name;
+        bool isIndex = false;
+        std::unique_ptr<Expr> index; // isIndex
+        std::string name;            // !isIndex
         uint32_t nameId = 0;
-        std::vector<std::unique_ptr<Expr>> indices;
-        std::unique_ptr<Expr> value;
-        bool toGlobal = false;
         SourceLocation loc;
     };
 
-    enum class ParamType : uint8_t
+    struct Place
     {
-        Any,
-        Number,
-        Str,
-        Boolean,
-        List,
-        Map,
-        Match
+        enum class Root
+        {
+            Name,
+            Self,
+            With
+        };
+        Root root = Root::Name;
+        std::string name; // Root::Name, and the first member of Root::With
+        uint32_t nameId = 0;
+        bool inWith = false; // Root::Name inside a `with` block
+        std::vector<PlaceStep> steps;
+        SourceLocation loc;
     };
 
-    inline const char *paramTypeName(ParamType t)
+    struct ChangeStmt
     {
-        switch (t)
+        Place target;
+        std::unique_ptr<Expr> value;
+        SourceLocation loc;
+    };
+
+    struct GlobalStmt
+    {
+        struct Name
         {
-        case ParamType::Number:
-            return "number";
-        case ParamType::Str:
-            return "str";
-        case ParamType::Boolean:
-            return "boolean";
-        case ParamType::List:
-            return "list";
-        case ParamType::Map:
-            return "map";
-        case ParamType::Match:
-            return "match";
-        case ParamType::Any:
-            break;
-        }
-        return "";
-    }
+            std::string name;
+            uint32_t nameId = 0;
+            SourceLocation loc;
+        };
+        std::vector<Name> names;
+        SourceLocation loc;
+    };
 
     struct FunctionDecl
     {
         bool isAsync = false;
-        bool isReturnable = false;
         bool isPure = false;
+        bool isPrivate = false; // methods only
+        bool isMethod = false;
         std::string name;
         uint32_t nameId = 0;
         std::vector<std::string> params;
         std::vector<uint32_t> paramIds;
-        std::vector<ParamType> paramTypes;
+        std::vector<TypeSpec> paramTypes;
+        std::vector<std::unique_ptr<Expr>> paramDefaults; // null where the parameter has no default
+        size_t requiredParams = 0;
         bool hasTypedParams = false;
         std::vector<std::unique_ptr<Stmt>> body;
         SourceLocation loc;
@@ -595,17 +626,27 @@ namespace cuff
         enum class LoopKind
         {
             Repeat,
-            While
+            While,
+            Each
         };
         LoopKind kind;
 
-        std::string repeatVar;
+        std::string repeatVar; // the loop variable of Repeat and Each
         uint32_t repeatVarId = 0;
         std::unique_ptr<Expr> repeatStart;
         std::unique_ptr<Expr> repeatEnd;
 
+        std::unique_ptr<Expr> collection; // Each
+
         std::unique_ptr<Expr> condition;
 
+        std::vector<std::unique_ptr<Stmt>> body;
+        SourceLocation loc;
+    };
+
+    struct WithStmt
+    {
+        std::unique_ptr<Expr> object;
         std::vector<std::unique_ptr<Stmt>> body;
         SourceLocation loc;
     };
@@ -616,11 +657,25 @@ namespace cuff
         explicit StopStmt(SourceLocation l) : loc(l) {}
     };
 
+    struct SkipStmt
+    {
+        SourceLocation loc;
+        explicit SkipStmt(SourceLocation l) : loc(l) {}
+    };
+
     struct ReturnStmt
     {
         std::unique_ptr<Expr> value;
         SourceLocation loc;
         ReturnStmt(std::unique_ptr<Expr> v, SourceLocation l)
+            : value(std::move(v)), loc(l) {}
+    };
+
+    struct FailStmt
+    {
+        std::unique_ptr<Expr> value;
+        SourceLocation loc;
+        FailStmt(std::unique_ptr<Expr> v, SourceLocation l)
             : value(std::move(v)), loc(l) {}
     };
 
@@ -659,20 +714,11 @@ namespace cuff
         enum class OpKind
         {
             Add,
-            Remove,
-            Replace
+            Remove
         };
         OpKind opKind;
-
-        std::unique_ptr<Expr> addValue;
-        std::string collectionName;
-        uint32_t collectionNameId = 0;
-
-        std::unique_ptr<Expr> indexOrKey;
-        std::unique_ptr<Expr> newValue;
-
-        std::unique_ptr<Expr> removeValue;
-
+        std::unique_ptr<Expr> value;
+        Place target;
         SourceLocation loc;
     };
 
@@ -680,18 +726,49 @@ namespace cuff
     {
         std::unique_ptr<Stmt> primaryStmt;
         std::vector<std::unique_ptr<Stmt>> fallbackBody;
+        std::string errorName; // `or_else as NAME`; empty when the handler takes no error
+        uint32_t errorNameId = 0;
         SourceLocation loc;
+    };
+
+    struct FieldDecl
+    {
+        TypeSpec type;
+        std::string name;
+        uint32_t nameId = 0;
+        bool isConstant = false;
+        bool isPrivate = false;
+        std::unique_ptr<Expr> defaultValue;
+        SourceLocation loc;
+    };
+
+    struct ClassDecl
+    {
+        std::string name;
+        uint32_t nameId = 0;
+        std::string parentName; // empty without `extends`
+        uint32_t parentNameId = 0;
+        SourceLocation parentLoc;
+        std::vector<FieldDecl> fields;
+        std::vector<std::unique_ptr<Stmt>> methods; // FunctionDecl statements
+        SourceLocation loc;
+        SourceRef source;
     };
 
     enum class StmtKind
     {
         Declaration,
         Change,
+        Global,
         FunctionDecl,
+        ClassDecl,
         IfStmt,
         LoopStmt,
+        WithStmt,
         StopStmt,
+        SkipStmt,
         ReturnStmt,
+        FailStmt,
         AwaitStmt,
         UseStmt,
         ExprStmt,
@@ -705,11 +782,16 @@ namespace cuff
         std::variant<
             DeclarationStmt,
             ChangeStmt,
+            GlobalStmt,
             FunctionDecl,
+            ClassDecl,
             IfStmt,
             LoopStmt,
+            WithStmt,
             StopStmt,
+            SkipStmt,
             ReturnStmt,
+            FailStmt,
             AwaitStmt,
             UseStmt,
             ExprStmt,

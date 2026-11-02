@@ -1,0 +1,18 @@
+Animal.init Rex
+Dog.init
+Animal.init Pip
+Dog.init
+Animal.init Tweety
+Rex says Woof
+Pip says Woof (squeaky) sit
+Tweety says Tweet 2
+4 4
+Dog: Rex says Woof
+Puppy: Pip says Woof (squeaky)
+Bird: Tweety says Tweet
+Woof true true false false
+Woof (squeaky) true true true false
+Tweet true false false true
+Pip
+Animal.init Tom
+Tom says Meow

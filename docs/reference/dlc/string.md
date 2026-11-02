@@ -67,7 +67,7 @@ HÉLLO Ñ Ж Α héllo ñ ж α
 STRAßE
 ```
 
-Compare text ignoring case with `IS` (`name IS "yes"`) rather than by converting, or [pattern flags](../patterns.md#28-the-flags-system) for searching.
+To compare text ignoring case, use the `i` flag of a pattern (`name matches p"yes"i`, see [pattern flags](../patterns.md#28-the-flags-system)) rather than converting both sides.
 
 ## Characters, not bytes
 

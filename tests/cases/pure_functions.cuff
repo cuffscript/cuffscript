@@ -1,12 +1,12 @@
 set number counter to 100
 
-set returnable pure func square(n) do:
+pure func square(n) do:
     return n * n
 end
 print(square(6))
 
-set func bump() do:
-    change counter to global
+func bump() do:
+    global counter
     change counter to counter + 1
 end
 
@@ -16,13 +16,13 @@ print(counter)
 note: a pure function may freely call other pure functions --
 note: the restriction propagates through the whole call graph, but a chain
 note: that stays within pure functions is fine.
-set returnable pure func square_twice(n) do:
+pure func square_twice(n) do:
     return square(square(n))
 end
 print(square_twice(3))
 
 use DLC:math
-set returnable pure func hypotenuse(a, b) do:
+pure func hypotenuse(a, b) do:
     return math_sqrt(math_pow(a, 2) + math_pow(b, 2))
 end
 print(hypotenuse(3, 4))

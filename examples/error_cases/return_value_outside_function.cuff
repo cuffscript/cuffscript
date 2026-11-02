@@ -1,0 +1,2 @@
+note: returning a value outside any function -> UnsupportedOperation
+return 5

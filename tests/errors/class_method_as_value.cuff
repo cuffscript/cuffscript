@@ -1,0 +1,7 @@
+class Box do:
+    func open() do:
+        print(1)
+    end
+end
+set Box b to Box()
+print(b.open)

@@ -42,14 +42,14 @@ namespace cuff
             return Token(TokenType::LT, "<", start, s.pendingSpaceBefore);
         }
 
-        // Operators spelled with a doubled character.
-        auto doubled = [&](char ch, TokenType tt, const char *label) -> Token
+        // `&`, `|`, `&&` and `||` are not operators: the words `and` and `or` are.
+        auto wordOperator = [&](char ch, const char *word) -> Token
         {
             s.advance();
-            if (s.peek() != ch)
-                throw SyntaxError(std::string("unexpected '") + ch + "' — CuffScript spells this operator '" + label + "'", start);
-            s.advance();
-            return Token(tt, label, start, s.pendingSpaceBefore);
+            const bool doubled = s.peek() == ch;
+            throw SyntaxError(ErrorCode::UnexpectedToken,
+                              std::string("'") + ch + (doubled ? std::string(1, ch) : std::string()) + "' is not an operator", start,
+                              std::string("write '") + word + "'");
         };
 
         switch (c)
@@ -69,9 +69,9 @@ namespace cuff
         case '%':
             return make(TokenType::PERCENT, "%");
         case '&':
-            return doubled('&', TokenType::AND, "&&");
+            return wordOperator('&', "and");
         case '|':
-            return doubled('|', TokenType::OR, "||");
+            return wordOperator('|', "or");
         case '/':
             return make(TokenType::SLASH, "/");
         case '!':

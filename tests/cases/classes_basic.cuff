@@ -1,0 +1,78 @@
+note: Declaring a class, making objects, fields, methods, display and identity.
+class Player do:
+    set str name to "unknown"
+    set number x to 0
+    set list items to []
+    set constant number MAX_STEPS to 3
+    private set number steps to 0
+
+    func init(str name, number x to 0) do:
+        change self.name to name
+        change self.x to x
+    end
+
+    func sayhello() do:
+        print(f"Hello, I am {self.name}")
+    end
+
+    func turnleft() do:
+        change self.steps to self.steps + 1
+        return self.steps
+    end
+
+    func pick(item) do:
+        add item to self.items
+    end
+
+    func describe() do:
+        return f"{self.name} at {self.x} with {length(self.items)} item(s)"
+    end
+end
+
+use DLC:list
+set Player player1 to Player("Ann")
+player1.sayhello()
+print(player1.turnleft(), player1.turnleft())
+print(player1.name, player1.x)
+
+note: every object gets its own default list
+set Player player2 to Player("Bob", 7)
+player1.pick("sword")
+player2.pick("shield")
+player2.pick("map")
+print(player1.describe())
+print(player2.describe())
+
+note: objects are references; is compares identity
+set Player alias to player1
+change alias.name to "Annie"
+print(player1.name)
+print(player1 is alias, player1 is player2, player1 is not player2)
+
+note: copy is shallow
+set Player twin to player1.copy()
+change twin.name to "Twin"
+add "gem" to twin.items
+print(player1.name, twin.name, twin.items is player1.items, length(player1.items))
+print(twin is player1)
+
+note: type and class tests
+print(type_of(player1), player1 isa Player, 5 isa Player, "x" isa Player)
+print(player1)
+print(f"{player2}")
+set map registry to {"first": player1}
+print(registry["first"].name)
+set list team to [player1, player2]
+print(team[2].describe())
+print(team[1].x + team[2].x)
+
+note: fields can be changed to any value, the field set is fixed
+change player1.x to "far"
+print(player1.x)
+
+note: a class without init
+class Marker do:
+    set number size to 1
+end
+set Marker m to Marker()
+print(m.size)

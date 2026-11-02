@@ -1,0 +1,3 @@
+set func hello() do:
+    print("hi")
+end

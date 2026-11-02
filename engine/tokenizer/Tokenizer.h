@@ -6,6 +6,7 @@
 #include "CharUtils.h"
 #include "CommentScanner.h"
 #include "StringScanner.h"
+#include "PatternScanner.h"
 #include "NumberScanner.h"
 #include "IdentifierScanner.h"
 #include "OperatorScanner.h"
@@ -142,6 +143,13 @@ namespace cuff
                     {
                         tokens.push_back(scanString(state_));
                     }
+                    state_.pendingSpaceBefore = false;
+                    continue;
+                }
+
+                if (c == 'p' && state_.peek(1) == '"')
+                {
+                    tokens.push_back(scanPattern(state_));
                     state_.pendingSpaceBefore = false;
                     continue;
                 }

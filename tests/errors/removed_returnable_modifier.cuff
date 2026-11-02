@@ -1,0 +1,3 @@
+func f() returnable do:
+    return 1
+end

@@ -13,6 +13,7 @@ common ones, is in the [guide to errors](../guide/errors-and-debugging.md).
 | Regex runtime | `E3-1xx` | Matching a pattern | yes |
 | Runtime | `E4-xxx` | Running the program | yes |
 | Module | `E5-xxx` | Modules and libraries | yes |
+| Program | `E7-xxx` | An error the program raises with `fail` | yes |
 | Resource limit | `E6-xxx` | Steps, time, memory | no |
 | Internal | `E9-xxx` | A bug in the engine | no |
 
@@ -47,7 +48,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e2-004"></a>`E2-004` | A malformed `if` or loop. _Reserved: never raised._ | no |
 | <a id="e2-005"></a>`E2-005` | A malformed `use` statement. _Reserved: never raised._ | no |
 | <a id="e2-006"></a>`E2-006` | A block opened without a matching `end`. _Reserved: never raised._ | no |
-| <a id="e2-007"></a>`E2-007` | Something that cannot be assigned to. _Reserved: never raised._ | no |
+| <a id="e2-007"></a>`E2-007` | Something that cannot be assigned to. | no |
 | <a id="e2-008"></a>`E2-008` | Code nested deeper than the nesting limit, or a single expression longer than the expression limit. | no |
 | <a id="e2-009"></a>`E2-009` | A program or shell entry larger than the source size limit. | no |
 
@@ -94,21 +95,32 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e4-013"></a>`E4-013` | A local variable used outside the function that declared it. _Reserved: never raised._ | yes |
 | <a id="e4-014"></a>`E4-014` | An operation a list or map does not support. _Reserved: never raised._ | yes |
 | <a id="e4-015"></a>`E4-015` | A value to remove that is not in the list. | yes |
-| <a id="e4-016"></a>`E4-016` | An operation not supported here, such as `return value` in a function that is not `returnable`. | yes |
+| <a id="e4-016"></a>`E4-016` | An operation not supported here, such as `return value` outside a function. | yes |
 | <a id="e4-017"></a>`E4-017` | Recursion deeper than the call depth limit, or deeper than the native stack budget allows. | yes |
 | <a id="e4-018"></a>`E4-018` | A function declared inside another function. | yes |
 | <a id="e4-019"></a>`E4-019` | `await` applied to a function that is not `async`. | yes |
 | <a id="e4-020"></a>`E4-020` | A declared type that does not match the value. | yes |
-| <a id="e4-021"></a>`E4-021` | `change ... to global` outside a function body. | yes |
+| <a id="e4-021"></a>`E4-021` | `global` outside a function body. | yes |
 | <a id="e4-022"></a>`E4-022` | `return` outside any function. | yes |
-| <a id="e4-023"></a>`E4-023` | `stop` outside any loop. | yes |
+| <a id="e4-023"></a>`E4-023` | `stop` or `skip` outside any loop. | yes |
 | <a id="e4-024"></a>`E4-024` | A position or range bound that is not a whole number. | yes |
 | <a id="e4-025"></a>`E4-025` | An argument of the right type but a value the function or operator does not accept. | yes |
-| <a id="e4-026"></a>`E4-026` | A string, list, map or `async` queue larger than its limit. | yes |
+| <a id="e4-026"></a>`E4-026` | A string, list, map, `async` queue or class declaration larger than its limit. | yes |
 | <a id="e4-027"></a>`E4-027` | A `pure` function that reaches a global variable. | yes |
 | <a id="e4-028"></a>`E4-028` | A network request that failed, timed out, or targeted a blocked address. | yes |
 | <a id="e4-029"></a>`E4-029` | A `pure` function that calls a function that is not `pure`. | yes |
 | <a id="e4-030"></a>`E4-030` | An argument that does not match the parameter's declared type. | yes |
+| <a id="e4-031"></a>`E4-031` | A class name that is not declared, used as a type, in `extends`, in `isa` or as a constructor. | yes |
+| <a id="e4-032"></a>`E4-032` | A class that inherits from itself, through its ancestors, or from something that is not a class. | yes |
+| <a id="e4-033"></a>`E4-033` | A field or method that the object's class does not have. | yes |
+| <a id="e4-034"></a>`E4-034` | A `private` field or method used outside the class that declares it. | yes |
+| <a id="e4-035"></a>`E4-035` | A `.name` access or a `with` block applied to a value that is not an object. | yes |
+| <a id="e4-036"></a>`E4-036` | A class declared inside a block or a function; classes belong at the top level of a file. | yes |
+| <a id="e4-037"></a>`E4-037` | Two fields or methods of one class with the same name. | yes |
+| <a id="e4-038"></a>`E4-038` | A class named like a function, another class, or a built-in. | yes |
+| <a id="e4-039"></a>`E4-039` | A class whose name does not start with an uppercase letter. | yes |
+| <a id="e4-040"></a>`E4-040` | A method used as a value, or a field called as a method. | yes |
+| <a id="e4-041"></a>`E4-041` | A `pure` function or method that changes a field. | yes |
 
 ### Module Errors
 
@@ -130,6 +142,12 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e6-001"></a>`E6-001` | The run exceeded `--max-steps`. | no |
 | <a id="e6-002"></a>`E6-002` | The run exceeded `--timeout`. | no |
 | <a id="e6-003"></a>`E6-003` | The host ran out of memory. | no |
+
+### Program Errors
+
+| Code | Meaning | `or_else` can catch it |
+| :--- | :--- | :---: |
+| <a id="e7-001"></a>`E7-001` | An error raised by the program itself with `fail`. | yes |
 
 ### Internal Errors
 
@@ -156,67 +174,67 @@ set number x = 5
 **E3-001.** A pattern has a `(` that is never closed, or a `<` that does not start a named capture such as `<year:[num]4>`. Close the group, or escape the character you meant literally: `\(` or `\<`.
 
 ```cuff error E3-001
-print("x" is "(a")
+print("x" matches p"(a")
 ```
 
 **E3-002.** A pattern has a `[` that is never closed. Close it, or write `\[` to match a bracket.
 
 ```cuff error E3-002
-print("x" is "[num")
+print("x" matches p"[num")
 ```
 
 **E3-003.** There is a space between a token's word and its colon. Write `[one:a|b]`, with the colon right after the word.
 
 ```cuff error E3-003
-print("x" is "[one :a|b]")
+print("x" matches p"[one :a|b]")
 ```
 
 **E3-004.** A repeat range must run from the smaller number to the larger. `5~2` cannot match anything. The same code is raised for a character range written backwards, such as `[z-a]`, and for a repeat count larger than the pattern repeat limit (see [limits](limits.md)).
 
 ```cuff error E3-004
-print("x" is "[num]5~2")
+print("x" matches p"[num]5~2")
 ```
 
 **E3-005.** A pattern item can have one quantifier. `[num]++` has two. Keep one of them.
 
 ```cuff error E3-005
-print("x" is "[num]++")
+print("x" matches p"[num]++")
 ```
 
 **E3-006.** A token with nothing in it, or an alternative with nothing between its bars. `[one:]` and `[one:a||b]` are both errors.
 
 ```cuff error E3-006
-print("x" is "[one:]")
+print("x" matches p"[one:]")
 ```
 
 **E3-008.** A backslash must be followed by one of the characters it can escape: `[ ] ( ) { } < > + * ? ~ | . \ : !`. Pattern escapes such as `\d` do not exist; use `[num]`. A backslash at the very end of a pattern is also this error.
 
 ```cuff error E3-008
-print("x" is "\d")
+print("x" matches p"\d")
 ```
 
 **E3-009.** A `~` that is not part of a repeat range. To match a tilde, write `\~`.
 
 ```cuff error E3-009
-print("x" is "a~b")
+print("x" matches p"a~b")
 ```
 
 **E3-010.** A closing `)`, `]` or `>` with nothing to close. Escape it (`\)`) to match the character itself.
 
 ```cuff error E3-010
-print("x" is "a)")
+print("x" matches p"a)")
 ```
 
 **E3-101.** A pattern ran past the budget of matching steps. Patterns that nest a repeat inside a repeat, like `([any]*)*`, can take an enormous number of steps on a text that almost matches. Simplify the pattern. This one can be caught with `or_else`; `E3-102` (time) and `E3-103` (recursion depth) are the same kind of error and are handled the same way.
 
 ```cuff error E3-101
 set str s to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
-print(s is "([any]*)*x")
+print(s matches p"([any]*)*x")
 ```
 
 ### Running the program
 
-**E4-001.** A name that was never declared with `set`, was declared later in the program, or lives in another scope. Check the spelling. Inside a function, a variable of the main program is only visible after `change name to global`.
+**E4-001.** A name that was never declared with `set`, was declared later in the program, or lives in another scope. Check the spelling. Inside a function, a variable of the main program is only visible after `global name`.
 
 ```cuff error E4-001
 print(missing)
@@ -285,19 +303,16 @@ set list a to [1]
 remove "x" from a
 ```
 
-**E4-016.** A `return` with a value in a function that is not `returnable`, or at the top level of a program. Declare the function with `set returnable func`.
+**E4-016.** A `return` with a value at the top level of a program, outside any function. Put the code in a function, or show the value with `print`.
 
 ```cuff error E4-016
-set func f() do:
-    return 1
-end
-f()
+return 1
 ```
 
 **E4-017.** Recursion went too deep: the call depth limit or the stack budget was reached. Make sure the recursion has a base case that is always reached (see [limits](limits.md)).
 
 ```cuff error E4-017
-set func f() do:
+func f() do:
     f()
 end
 f()
@@ -306,17 +321,17 @@ f()
 **E4-018.** A function was declared inside another function. Declare every function at the top level; functions are visible everywhere.
 
 ```cuff error E4-018
-set func outer() do:
-    set func inner() do:
+func outer() do:
+    func inner() do:
     end
 end
 outer()
 ```
 
-**E4-019.** `await` was applied to a call of a function that is not `async`. Declare the function `set async func`, or drop the `await`.
+**E4-019.** `await` was applied to a call of a function that is not `async`. Declare the function `async func`, or drop the `await`.
 
 ```cuff error E4-019
-set func f() do:
+func f() do:
 end
 await f()
 ```
@@ -327,10 +342,10 @@ await f()
 set number n to "x"
 ```
 
-**E4-021.** `change name to global` is only meaningful inside a function, where it makes a global variable visible. At the top level every variable is already in reach.
+**E4-021.** `global name` is only meaningful inside a function, where it makes a global variable visible. At the top level every variable is already in reach.
 
 ```cuff error E4-021
-change x to global
+global x
 ```
 
 **E4-022.** A bare `return` outside any function. (With a value, it is `E4-016`.)
@@ -339,7 +354,7 @@ change x to global
 return
 ```
 
-**E4-023.** `stop` ends the nearest loop and is an error anywhere else, including inside a function that is called from a loop.
+**E4-023.** `stop` ends the nearest loop and `skip` goes on with its next pass. Both are errors anywhere else, including inside a function that is called from a loop.
 
 ```cuff error E4-023
 stop
@@ -368,8 +383,8 @@ print(str_repeat("abcdefgh", 1000000000))
 
 ```cuff error E4-027
 set number g to 1
-set pure returnable func f() do:
-    change g to global
+pure func f() do:
+    global g
     return g
 end
 print(f())
@@ -385,9 +400,9 @@ print(network_get("ftp://example.com"))
 **E4-029.** A `pure` function called a function of the program that is not `pure`. Mark the called function `pure` too, or do not use `pure` here. Library functions may be called freely.
 
 ```cuff error E4-029
-set func helper() do:
+func helper() do:
 end
-set pure func f() do:
+pure func f() do:
     helper()
 end
 f()
@@ -396,9 +411,109 @@ f()
 **E4-030.** An argument does not match the type declared for the parameter (`number a`). Convert it before the call.
 
 ```cuff error E4-030
-set func f(number a) do:
+func f(number a) do:
 end
 f("x")
+```
+
+### Classes and objects
+
+**E4-031.** A class name that is not declared: as a type, after `extends`, after `isa`, or in a `with` or a declaration. Check the spelling, and remember that a class belongs at the top level of a file or of a module that was loaded with `use`.
+
+```cuff error E4-031
+print(1 isa Ghost)
+```
+
+**E4-032.** A class that extends itself, directly or through its ancestors, or extends something that is not a class.
+
+```cuff error E4-032
+class A extends A do:
+end
+```
+
+**E4-033.** The class has no such field or method. The report lists the fields the class has; the usual cause is a misspelt name.
+
+```cuff error E4-033
+class Dog do:
+    set str name to "Rex"
+end
+set Dog d to Dog()
+print(d.nmae)
+```
+
+**E4-034.** A `private` field or method was used outside the class that declares it. Child classes are outside too: only the methods of the declaring class can use it.
+
+```cuff error E4-034
+class Safe do:
+    private set number code to 1234
+end
+print(Safe().code)
+```
+
+**E4-035.** A `.name` was used on a value that is not an object, or `with` was given one. Only objects have fields and methods.
+
+```cuff error E4-035
+set number n to 5
+print(n.size)
+```
+
+**E4-036.** A class was declared inside a block or a function. Move it to the top level of the file.
+
+```cuff error E4-036
+if true do:
+    class Inner do:
+    end
+end
+```
+
+**E4-037.** A class declares two members with the same name, or a child declares a field its parent already has, or a method has the name of a field. Rename one of them.
+
+```cuff error E4-037
+class Box do:
+    set number size to 1
+    set number size to 2
+end
+```
+
+**E4-038.** A class has the name of a function, of another class or of the built-in `Error`. Classes and functions share one namespace.
+
+```cuff error E4-038
+func Report() do:
+    print("report")
+end
+class Report do:
+end
+```
+
+**E4-039.** A class name must start with a capital letter, so that a class stands out from a variable.
+
+```cuff error E4-039
+class point do:
+end
+```
+
+**E4-040.** A method was used without the parentheses that call it, or a field was called like a method. Write `object.method(...)` for a method and `object.field` for a field.
+
+```cuff error E4-040
+class Dog do:
+    func bark() do:
+        print("woof")
+    end
+end
+print(Dog().bark)
+```
+
+**E4-041.** A `pure` function or method changed a field. A pure method may read fields but not write them; remove `pure`, or return the new value instead.
+
+```cuff error E4-041
+class Counter do:
+    set number n to 0
+
+    pure func bump() do:
+        change self.n to self.n + 1
+    end
+end
+Counter().bump()
 ```
 
 ### Modules and libraries
@@ -434,6 +549,20 @@ use x from /etc
 ```cuff error E5-008
 use DLC:filesystem
 print(file_read("../x"))
+```
+
+### Errors raised by the program
+
+**E7-001.** The program raised an error with `fail`, and nothing caught it. The message is the program's own. An error object of a class that extends `Error` shows the class name before the message. Catch it with `or_else`, or make sure the condition that leads to `fail` cannot happen.
+
+```cuff error E7-001
+func withdraw(number balance, number amount) do:
+    if amount > balance do:
+        fail "not enough money"
+    end
+    return balance - amount
+end
+print(withdraw(10, 50))
 ```
 
 ### Codes without an example

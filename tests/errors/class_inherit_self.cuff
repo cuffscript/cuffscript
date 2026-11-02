@@ -1,0 +1,3 @@
+class Loop extends Loop do:
+end
+print(1)

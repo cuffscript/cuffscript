@@ -1,0 +1,10 @@
+class Base do:
+    private set number secret to 1
+end
+class Child extends Base do:
+    func peek() do:
+        return self.secret
+    end
+end
+set Child c to Child()
+print(c.peek())

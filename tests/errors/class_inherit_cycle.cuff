@@ -1,0 +1,5 @@
+class A extends B do:
+end
+class B extends A do:
+end
+print(1)

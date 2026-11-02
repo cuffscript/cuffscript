@@ -2,7 +2,9 @@
 
 #include "ParserCore.h"
 #include "ASTNodes.h"
+#include "BodyParser.h"
 #include "ExpressionParser.h"
+#include "DeclarationParser.h"
 #include "../common/TokenTypes.h"
 #include "../common/CuffError.h"
 #include <memory>
@@ -11,140 +13,127 @@
 namespace cuff
 {
 
+    // What a function declaration belongs to: nothing (a function of the program) or a class.
+    struct FunctionOwner
+    {
+        bool isMethod = false;
+        bool isPrivate = false;
+        bool classHasParent = false;
+    };
+
+    // `{ async | pure } func NAME ( parameters ) do: body end`, as a function of the program or a method of a class.
     class FunctionParser
     {
-    private:
-        static ParamType paramTypeFromToken(TokenType t)
+    public:
+        using Owner = FunctionOwner;
+
+        static bool atFunctionStart(const ParserCore &p)
         {
-            switch (t)
-            {
-            case TokenType::NUMBER_TYPE:
-                return ParamType::Number;
-            case TokenType::STR_TYPE:
-                return ParamType::Str;
-            case TokenType::BOOLEAN_TYPE:
-                return ParamType::Boolean;
-            case TokenType::LIST_TYPE:
-                return ParamType::List;
-            case TokenType::MAP_TYPE:
-                return ParamType::Map;
-            case TokenType::MATCH:
-                return ParamType::Match;
-            default:
-                return ParamType::Any;
-            }
+            return p.check(TokenType::FUNCTION) || p.check(TokenType::ASYNC) || p.check(TokenType::PURE);
         }
 
-    public:
-        static std::unique_ptr<Stmt> parse(ParserCore &p)
+        static std::unique_ptr<Stmt> parse(ParserCore &p, const FunctionOwner &owner = FunctionOwner())
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::SET, "expected 'set'");
 
             bool isAsync = false;
-            bool isReturnable = false;
             bool isPure = false;
             while (true)
             {
-                if (p.match(TokenType::RETURNABLE))
+                const Token &t = p.current();
+                if (t.is(TokenType::IDENTIFIER) && t.value == "returnable")
+                    throw SyntaxError(ErrorCode::UnexpectedToken, "'returnable' is not a modifier", t.location,
+                                      "write `func`; return works in every function");
+                if (t.is(TokenType::ASYNC) || t.is(TokenType::PURE))
                 {
-                    isReturnable = true;
+                    bool &flag = t.is(TokenType::ASYNC) ? isAsync : isPure;
+                    if (flag)
+                        throw SyntaxError(ErrorCode::UnexpectedToken, "duplicate '" + t.value + "' modifier", t.location);
+                    flag = true;
+                    p.advance();
+                    continue;
                 }
-                else if (p.match(TokenType::ASYNC))
-                {
-                    isAsync = true;
-                }
-                else if (p.match(TokenType::PURE))
-                {
-                    isPure = true;
-                }
-                else
-                {
-                    break;
-                }
+                break;
             }
 
             p.consume(TokenType::FUNCTION, "expected 'func' keyword");
 
-            std::string name;
-            if (isWordLikeToken(p.current()))
-            {
-                name = p.current().value;
-                p.advance();
-            }
-            else
-            {
-                throw SyntaxError("expected function name after 'func'", p.current().location);
-            }
+            const Token nameTok = p.consumeName("expected function name after 'func'");
+            if (owner.isMethod && nameTok.value == "init" && isAsync)
+                throw SyntaxError(ErrorCode::UnexpectedToken, "a constructor cannot be 'async'", nameTok.location,
+                                  "the object has to be complete when the call returns");
+
+            FunctionDecl decl;
+            decl.isAsync = isAsync;
+            decl.isPure = isPure;
+            decl.isPrivate = owner.isPrivate;
+            decl.isMethod = owner.isMethod;
+            decl.name = nameTok.value;
+            decl.nameId = internName(decl.name);
+            decl.loc = loc;
+            decl.source = p.source;
+
+            ContextGuard guard(p);
+            p.ctx.inMethod = owner.isMethod;
+            p.ctx.hasParent = owner.isMethod && owner.classHasParent;
+            p.ctx.withDepth = 0;
 
             p.consume(TokenType::LPAREN, "expected '(' for function parameters");
-
-            std::vector<std::string> params;
-            std::vector<ParamType> paramTypes;
-            bool anyTyped = false;
-            auto parseParam = [&](const char *missingNameMsg)
-            {
-                ParamType type = ParamType::Any;
-                ParamType fromKeyword = paramTypeFromToken(p.current().type);
-                if (fromKeyword != ParamType::Any && isWordLikeToken(p.peek(1)))
-                {
-                    type = fromKeyword;
-                    anyTyped = true;
-                    p.advance();
-                }
-                if (!isWordLikeToken(p.current()))
-                    throw SyntaxError(missingNameMsg, p.current().location);
-                params.push_back(p.current().value);
-                paramTypes.push_back(type);
-                p.advance();
-            };
             if (!p.check(TokenType::RPAREN))
             {
-                parseParam("expected parameter name");
+                parseParam(p, decl);
                 while (p.match(TokenType::COMMA))
-                    parseParam("expected parameter name after ','");
+                    parseParam(p, decl);
             }
             p.consume(TokenType::RPAREN, "expected ')' to close parameter list");
 
             p.consume(TokenType::DO, "expected 'do' keyword for function body");
             p.consume(TokenType::COLON, "expected ':' after 'do'");
 
-            if (!p.check(TokenType::NEWLINE) && !p.check(TokenType::EOF_TOKEN))
-            {
-                throw SyntaxError("function body must start on a new line — one-line shorthand is forbidden for functions",
-                                  p.current().location);
-            }
+            ++p.ctx.blockDepth;
+            decl.body = BodyParser::parse(p);
+            --p.ctx.blockDepth;
 
-            p.skipNewlines();
-            if (p.check(TokenType::INDENT))
-            {
-                p.advance();
-            }
-
-            auto body = parseBlockBody(p);
-
-            p.consumeEnd("expected 'end' to close function", loc);
-            p.match(TokenType::DEDENT);
-
-            FunctionDecl decl;
-            decl.isAsync = isAsync;
-            decl.isReturnable = isReturnable;
-            decl.isPure = isPure;
-            decl.name = name;
-            decl.nameId = internName(name);
-            decl.params = std::move(params);
-            decl.paramTypes = std::move(paramTypes);
-            decl.hasTypedParams = anyTyped;
-            for (const auto &pn : decl.params)
-                decl.paramIds.push_back(internName(pn));
-            decl.body = std::move(body);
-            decl.loc = loc;
-            decl.source = p.source;
+            closeBlock(p, "function", loc);
 
             return std::make_unique<Stmt>(StmtKind::FunctionDecl, std::move(decl));
         }
 
-        static std::vector<std::unique_ptr<Stmt>> parseBlockBody(ParserCore &p);
+    private:
+        // `[TYPE] NAME [to expression]`. A word followed by a name is a type; a word alone is the name.
+        static void parseParam(ParserCore &p, FunctionDecl &decl)
+        {
+            TypeSpec type;
+            if (p.check(TokenType::EMPTY))
+                throw SyntaxError(ErrorCode::UnexpectedToken, "'empty' cannot be the type of a parameter", p.current().location,
+                                  "leave the type out to accept any value");
+            if (p.check(TokenType::IDENTIFIER) && isNameToken(p.peek(1)) && !p.peek(1).is(TokenType::TO))
+            {
+                type = TypeParser::parse(p);
+                decl.hasTypedParams = true;
+            }
+
+            const Token nameTok = p.consumeName("expected parameter name");
+            for (const auto &existing : decl.params)
+                if (existing == nameTok.value)
+                    throw SyntaxError(ErrorCode::UnexpectedToken, "duplicate parameter name '" + nameTok.value + "'",
+                                      nameTok.location);
+
+            std::unique_ptr<Expr> fallback;
+            if (p.match(TokenType::TO))
+                fallback = ExpressionParser::parse(p);
+            else if (!decl.paramDefaults.empty() && decl.paramDefaults.back())
+                throw SyntaxError(ErrorCode::UnexpectedToken,
+                                  "parameter '" + nameTok.value + "' needs a default value: it follows a parameter that has one",
+                                  nameTok.location, "write `" + nameTok.value + " to value`, or move it before the others");
+
+            decl.params.push_back(nameTok.value);
+            decl.paramIds.push_back(internName(nameTok.value));
+            decl.paramTypes.push_back(std::move(type));
+            if (!fallback)
+                decl.requiredParams = decl.params.size();
+            decl.paramDefaults.push_back(std::move(fallback));
+        }
     };
 
 }

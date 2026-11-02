@@ -1,0 +1,32 @@
+note: async methods run later, in order, with their object; await runs one now.
+class Worker do:
+    set str name to "w"
+    set list log to []
+
+    func init(str name) do:
+        change self.name to name
+    end
+
+    async func job(number n) do:
+        add n to self.log
+        print(f"{self.name} job {n}")
+    end
+
+    async func total() do:
+        set number sum to 0
+        loop each n in self.log do:
+            change sum to sum + n
+        end
+        return sum
+    end
+end
+
+set Worker a to Worker("A")
+set Worker b to Worker("B")
+a.job(1)
+b.job(10)
+a.job(2)
+print("queued")
+set number t to await a.total()
+print(t)
+print(a.log, b.log)

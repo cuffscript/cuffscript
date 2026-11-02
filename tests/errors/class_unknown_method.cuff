@@ -1,0 +1,4 @@
+class Box do:
+end
+set Box b to Box()
+b.open()

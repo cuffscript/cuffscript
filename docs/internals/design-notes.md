@@ -6,6 +6,11 @@ the actual interpreter (`engine/interpreter/`) implements those points, and why 
 decided that way. Anything where the spec and the real behavior might read differently should
 be here — if you find a new one, please add it to this document.
 
+Items 1 to 45 were written for the 3.x language. Where they show code with `set func`, `returnable`, `find ... from`,
+`IS`, `&&` or `||`, that is the spelling of the time and the code no longer runs; the engine's behaviour that each item
+describes (the order of `async` calls, limits, error locations, and so on) holds unless a later item says otherwise.
+Items from 46 on record the decisions of 4.0.0, which are the language as it is now.
+
 ## 1. The `async` / `await` execution model
 
 `language.md` (section 6.5) states the model; this item records how the engine implements it and why.
@@ -1168,3 +1173,217 @@ cross compiler and running it under Wine (the method `docs/contributing/testing.
 exactly the tests that throw inside a function. Engine code that can sit between a `throw` and its `catch` should not
 force a frame pointer on Windows by other means either (`alloca`, variable-length arrays, over-aligned locals,
 `-fno-omit-frame-pointer`).
+
+
+## 46. v4.0.0: one kind of target for `change`, `add` and `remove`
+
+3.x had three ways to write into a collection (`change x[i] to v`, `replace x[i] to v`, and `add v to x` that could only name
+a plain variable), and a field of an object would have been a fourth. 4.0.0 has one rule: the target is a *place*, a name,
+`self` or a `.name` of a `with` block followed by any number of `[expression]` and `.name`. `change`, `add` and `remove` all
+take one, and `add 5 to grid[1]` appends to the inner list as `change grid[1][2] to 0` changes an item.
+
+`replace NAME[i] to value` is removed, because `replace` is now a text function and the statement was a second spelling of
+`change`. The one silent change is `add X to NAME[i]` and `remove X from NAME[i]`: in 3.x the target ended at the name and
+the `[i]` that followed was read as a list by itself, which was never useful; now they apply to the element `NAME[i]`. A
+program that has the old form usually fails with `E4-005` (the element is not a list), and `tools/migrate_3_to_4.py` reports
+every occurrence instead of rewriting it, because only the author knows what was meant.
+
+A function reaches variables of the program with `global x`, a statement before the names are used, instead of
+`change x to global`, which read as an assignment and could not name several variables. `global` stays a word that may also
+be a name, like `add`, `to`, `in`, `not` and `from` (the soft keywords, item 53).
+
+## 47. v4.0.0: classes are declared at the top level and are hoisted
+
+A class is a declaration, not a statement: it appears only at the top level of a program or a module, and every class and
+function of a file is known before its first line runs. A class can therefore be used above its declaration and two classes
+can refer to each other, which is the same rule functions already had. A class inside a block or a function is `E4-036`,
+raised by the parser (it is a question of where the text stands). The mistakes in the shape of a class (`E4-032`, `E4-037`,
+`E4-038`, `E4-039`, a constant field with a lower-case name `E4-004`, and the limits of item 57) are raised when the classes of
+a file are registered, before any statement runs, so a mistake in a class shows up even if the code that uses it never runs.
+The errors about use (`E4-031`, `E4-033`, `E4-034`, `E4-035`, `E4-040`, `E4-041`) are raised where the use is.
+
+Class names start with an uppercase letter (`E4-039`) so that a type name in `set Point p to Point(1, 2)` and a call of a
+class cannot be confused with a variable or a function, and so the type position can accept any word that starts with a
+capital as a class without reserving every class name as a keyword. A class may not be named like a function, another class
+or a built-in (`E4-038`). Declaring a class twice in one run is `E4-038` as well; a `cuffsh` session is the exception (item
+59).
+
+The table of classes belongs to the `Interpreter` object, not to the process. Two interpreters on two threads can declare a
+class with the same name without seeing each other, and the threads test now defines classes and makes objects on every
+thread. The engine gains no static state of its own for classes.
+
+## 48. v4.0.0: fields, and why a constant field is writable only in `init`
+
+A field is declared with a type and a starting value, `set number count to 0`, in the class body. The starting value is
+evaluated for each new object, in the order of the declarations, before `init` runs, so `set list items to []` gives every
+object its own list. The type of a field is checked once, against its starting value when the object is made (`E4-020`),
+as `set` checks a variable once; a later `change` of the field does not re-check it, as a later `change` of a variable does
+not. Pinning the type of a variable or a field for its whole life is a possible later step, and would apply to both.
+
+A `set constant` field must be written in capitals, as a constant variable must (`E4-004`, checked when the class is
+registered; a lower-case constant field was accepted at first and the rule was added when the tests showed it). Its value is
+fixed once the object is built: it can be written by `init` while the object is being constructed and by nothing after
+that (`E4-003`). The alternative, a constant that is set at its declaration and never again, would make the usual case, a
+constant that depends on an argument of the constructor, impossible; the alternative of allowing writes from any method
+would make `constant` mean nothing.
+
+## 49. v4.0.0: what `pure` means for a class
+
+`pure` on a function meant "reaches no global variable and calls only pure functions" (`E4-027`, `E4-029`). A method has one
+more thing to reach, the object, so `pure` on a method means: it may read fields and call pure functions and methods, and it
+may not write a field (`E4-041`) or call anything that is not pure. A pure function can build an object only if the class's
+`init` is pure (or the class has none), because building runs `init`; otherwise it is `E4-029` at the call of the class.
+
+Allowing a pure method to read fields is deliberate. A "pure" method that could not look at `self` would be a function in
+disguise, and the point of `pure` is that a call with the same fields and arguments gives the same answer and changes
+nothing else, which reading permits and writing does not.
+
+## 50. v4.0.0: `private`
+
+`private` before a field or a method makes it usable only by the methods of the class that declares it. It is checked at the
+use (`E4-034`) and is by class, not by object: one `Account` method can read another `Account`'s private field. A child
+class does not get access to its parent's private members, which is stricter than a protected level would be and which
+keeps the rule to one sentence. `private` is about who may name a member in the program, not about secrecy: `to_json` leaves
+private fields out, the display of an object shows only the class name, and `copy()` copies every field, private ones
+included, because it is the engine's own operation on the object.
+
+## 51. v4.0.0: names inside a `with` block
+
+`with obj do:` makes the members of `obj` reachable by their plain names and `.name`. The lookup for a plain name inside the
+block goes, for each enclosing scope from the innermost out: the local variables of that scope, then the members of that
+scope's `with` object, then the next scope out. A member is therefore found before a variable of an outer scope with the
+same name, and a variable declared inside the block hides a member. The alternative, looking at all variables first and
+members last, would mean a new global variable called `name` silently changed what a long-standing `with` block did.
+
+`.name` always means a member of the innermost `with` object, so it is how a block says "the member, whatever variables
+exist". A name that is neither a variable nor a member keeps its old error (`E4-001`), a method called by its plain name is
+looked up the same way, and a `with` on a value that is not an object is `E4-035`. Unlike `if` and a loop, a `with` block
+does open a scope: a variable made with `set` inside it is gone after `end`, so a name that meant a member inside the block
+does not turn into a variable of the program afterwards.
+
+## 52. v4.0.0: `Error` is a class written in CuffScript, and `fail` raises it
+
+Errors the engine raises and errors a program raises used to be two things, only the first of which could be caught. Now
+`or_else as err` binds an `Error` object in both cases, and `fail` raises one. `Error` has the fields `message`, `code`
+(`"E7-001"` unless the engine filled it in), `line`, `column` and `hint`, an `init` that takes the message, and a `to_str`
+that shows `[code] message`. It is not built into the evaluator: the engine registers a small class from a CuffScript
+source string when an interpreter starts, so it can be extended (`class NotFound extends Error do: ...`), constructed and
+displayed like any class, and the evaluator needs nothing special beyond `fail` and `or_else as`. It does not count against
+the limit on classes (item 57).
+
+`fail` takes a `str` (which becomes `Error(text)`) or an `Error`; anything else is `E4-005`. An error that was caught and is
+raised again with `fail err`, with its message, hint and code unchanged, is raised as the original error: the same code, the
+same line, the same snippet, and so an outer `or_else` or the command line sees what the first handler saw. If a handler
+changed a field, the error that is raised carries the changed fields and the line of the `fail`. A subclass shows its class
+name before the message, so `fail NotFound("x")` reports `NotFound: x`.
+
+A raised program error is `E7-001`, a new category that `or_else` can catch like the runtime errors (`E4`, `E5`, `E3-1xx`).
+The errors that cannot be caught stay so: the front end (`E1`, `E2`, `E3-0xx`), the resource limits (`E6`) and the engine's
+own faults (`E9`).
+
+## 53. v4.0.0: which words are reserved
+
+4.0.0 reserves `class each extends fail isa matches private self skip super with` and keeps `and`, `or` and the old
+words, 44 in all, and removes `returnable`. Everything the language can do without a word of its own stays a plain name:
+the names of the types (`number`, `str`, `list`, `map`, `boolean`, `match`, `pattern`, `object`) are types only where a type
+may stand and ordinary names everywhere else, which is why `set list list to [1]` and a parameter called `list` still work.
+`add to in global not from` stay soft keywords, words that are keywords in their own position and names elsewhere,
+because they were names in 3.x programs and making them reserved would break working code for little gain.
+
+A member name after a `.` is read as a name whatever the word is, so `x.end` on an object without such a member reports
+`E4-033` (the class has no field `end`) and not a syntax error in the middle of an expression. A field or a method of a class
+cannot be *declared* with a reserved word, because there the parser expects a name.
+
+## 54. v4.0.0: text functions, patterns as values, and `is`
+
+The statements `find ... from`, `match ... from`, `replace ... in ... to`, `split ... by` and `count ... in` were five
+statement forms with five orderings of the same three parts. They are now the functions `find(text, p"...")`,
+`find_all`, `match`, `replace`, `replace_all`, `split` and `count`, always with the text first, like the functions of
+`DLC:string`, so a program can pass the result to another function, use it in an expression and call it as a method
+(`text.find(p"...")`, item 55). `find_all` and `replace_all` are the old `g` flag, which is gone because a flag that changes
+what the function returns is a second function (a `g` after a pattern literal is `E2-001` with a hint that names them).
+
+A pattern is a value with its own type, written `p"..."` with the flags `i` and `m` after the closing quote. The literal is
+raw: its text goes to the pattern parser as written, so `\d`-style backslashes and the brackets of a pattern need no
+doubling, and the only escape the literal interprets is `\"`. `pattern(text, flags)` builds one from a string at run time;
+the optional second argument is the flags (`"i"`, `"m"`, `"im"`), which is an addition to the minimum the design asked for,
+because without it a pattern built from user input could not ignore case.
+
+`is` compares values and nothing else. In 3.x `text is "[num]4"` quietly became a pattern test when the right side held
+pattern characters, so `name is "[x]"` meant two different things depending on what the string held. `matches` is the
+pattern test: the left side must be a `str` and the right side a `pattern` (`E4-005` otherwise), and it tests the whole
+text, as the old form did. Two patterns are `is` equal when their source and flags are the same, and objects are `is` equal
+only when they are the same object. The migration tool rewrites `is "pattern-like literal"` to `matches p"..."` when the
+literal has characters that mean something in a pattern; it cannot know about a value that is not a literal, so a program
+that compares a variable holding a pattern with `is` needs a look. `IS` (case-insensitive) is gone; `matches p"..."i` says it.
+
+`&&` and `||` are removed because `and` and `or` do the same, and two spellings of one operator only invite the question of
+which one the project prefers.
+
+## 55. v4.0.0: one table of methods for built-in values, and `copy`
+
+`text.upper()` and `str_upper(text)` are the same call. Every library function whose first argument is the value it acts on
+has an entry in one table (`engine/dlc/MethodTable.h`: the method name, the function it calls, the type of the receiver),
+and the evaluator, `tools/introspect.cpp` (which fills the method column of the library pages) and the arity messages all
+read it. The function form stays: it works without a method table, can be passed the result of an expression with no
+receiver in front, and is what existing programs use. A method on a built-in value is allowed only when the library of the
+function is loaded, so the method syntax cannot reach a function the program did not ask for.
+
+An unknown method on a built-in value is `E4-033`, with a hint that says where methods come from (`add 'use DLC:string'`
+when the library is not loaded). A call with the wrong number of arguments is reported by the library function behind the
+method and counts the receiver: `s.upper(1)` says that `str_upper()` expects 1 argument and got 2. That wording is the least
+clear part of the feature; the table has no argument counts of its own to say it better.
+
+`copy(x)` is a core function and the method `x.copy()` on a list, a map and an object. A list, a map and an object are shared
+when assigned, which is what makes `copy` needed. The copy is one level deep: a list that holds lists, or an object whose
+field holds a list, shares the inner values with the original. For an object it makes a new object of the same class with the
+same field values and does not run `init` again: the copy is what the original is now, not what its constructor would make
+from the arguments. A deep copy is not offered because the language has no way to say how far it should go.
+
+## 56. v4.0.0: removed spellings fail with a hint, and the changes that cannot
+
+A program in the old syntax that still runs and does something different is the worst outcome of a syntax change, so every
+removed spelling is an `E2-001` with a hint that says what to write: ``hint: use find(text, p"x")``,
+``hint: write `func`; return works in every function``, ``hint: write `global x` ``, ``hint: use `matches p"y"i` ``, and so on.
+Each has a case in `tests/errors` that checks the code and the hint, and the migration tool does the same rewrites.
+
+Three changes cannot be turned into an error without making valid programs invalid, and are listed in the changelog as
+behaviour changes: `add X to NAME[i]` (item 46), `text is "pattern"` meaning equality (item 54), and `E4-016`, which no longer
+covers a `return` with a value in a function that was not `returnable` (there is no such function now) and means a `return
+value` outside any function. The first two are covered by the migration tool's report; the third is a code that used to be
+raised in a case that no longer exists.
+
+## 57. v4.0.0: limits for classes
+
+Three limits keep the class table from growing without bound, all `E4-026`: a class may have at most 64 ancestors
+(`kMaxInheritanceDepth`), a class at most 1,024 fields and methods together (`kMaxClassMembers`, counting inherited
+ones), and a program, modules included, at most 4,096 classes (`kMaxClasses`). The built-in `Error` does not count against
+the last, so a program has the same 4,096 as before it could use `Error`. A `static_assert` ties the depth limit to the
+class limit, as item 43 does for the others. A method that calls itself without end stops at the call depth limit (`E4-017`) as a function does, because a method call
+is a function call and takes the same budget.
+
+## 58. v4.0.0: smaller decisions
+
+- **`loop each` visits a snapshot.** It takes a copy of the list's items, the map's keys or the text's characters when the
+  loop starts. A body that adds to or removes from the list it is walking changes nothing about what it visits and cannot
+  invalidate the iteration; a key removed from a map during the loop is still visited.
+- **A default parameter is evaluated at each call, in the function's own scope.** It can use the parameters before it
+  and not the variables of the program (a `global` line is in the body, which runs after the defaults), and it is checked
+  against the parameter's type when used (`E4-030`), not when the function is declared. The alternative, evaluating it once
+  when the function is declared, would share one list between calls, the well-known trap.
+- **The number of arguments of an `async` call is checked when the call is queued**, so a wrong call fails on the line that
+  made it and not at the end of the program, where the error would point at nothing.
+- **An object is displayed as `<ClassName>`** unless its class has a `to_str` method, which `print` and f-strings use. A
+  class runs code to describe itself only if it chose to define `to_str`. `to_json` writes the public fields, parent class
+  first, and `from_json` gives back a map, not an object, because JSON does not say which class it was.
+- **`object` as a type** accepts any object, and a class name as a type accepts that class and its subclasses. `isa` is the
+  test and its right side must be a class (`E4-031`), so `x isa Shape` is checked for typos at run time, not silently false.
+- **A method is only reached by calling it.** `obj.method` without parentheses is `E4-040`, so there are no bound methods and
+  the language still has no function values (a "method reference" would need them).
+
+## 59. v4.0.0: classes in a `cuffsh` session
+
+In a session each line is a program of its own and variables, functions and classes persist. A class may be declared again,
+because the usual way to change a class in a session is to type the new version; the new declaration applies to objects
+made from then on, and objects made earlier keep the version they were made from. Declaring the same name twice in one file
+is still `E4-038`. The editor treats `class`, `with` and `loop each` as blocks when it decides whether an entry is complete.

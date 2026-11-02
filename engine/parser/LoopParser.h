@@ -2,6 +2,7 @@
 
 #include "ParserCore.h"
 #include "ASTNodes.h"
+#include "BodyParser.h"
 #include "ExpressionParser.h"
 #include "../common/TokenTypes.h"
 #include "../common/CuffError.h"
@@ -10,8 +11,6 @@
 
 namespace cuff
 {
-
-    class StatementParser;
 
     class LoopParser
     {
@@ -28,16 +27,9 @@ namespace cuff
             {
                 loop.kind = LoopStmt::LoopKind::Repeat;
 
-                if (isWordLikeToken(p.current()))
-                {
-                    loop.repeatVar = p.current().value;
-                    loop.repeatVarId = internName(loop.repeatVar);
-                    p.advance();
-                }
-                else
-                {
-                    throw SyntaxError("expected variable name after 'repeat'", p.current().location);
-                }
+                const Token var = p.consumeName("expected variable name after 'repeat'");
+                loop.repeatVar = var.value;
+                loop.repeatVarId = internName(loop.repeatVar);
 
                 p.consume(TokenType::TO, "expected 'to' in repeat loop");
 
@@ -47,8 +39,6 @@ namespace cuff
 
                 p.consume(TokenType::DO, "expected 'do' for repeat loop");
                 p.consume(TokenType::COLON, "expected ':' after 'do'");
-
-                loop.body = parseLoopBody(p);
             }
             else if (p.match(TokenType::WHILE))
             {
@@ -57,22 +47,34 @@ namespace cuff
 
                 p.consume(TokenType::DO, "expected 'do' for while loop");
                 p.consume(TokenType::COLON, "expected ':' after 'do'");
+            }
+            else if (p.match(TokenType::EACH))
+            {
+                loop.kind = LoopStmt::LoopKind::Each;
 
-                loop.body = parseLoopBody(p);
+                const Token var = p.consumeName("expected variable name after 'each'");
+                loop.repeatVar = var.value;
+                loop.repeatVarId = internName(loop.repeatVar);
+
+                p.consume(TokenType::IN, "expected 'in' in each loop");
+                loop.collection = ExpressionParser::parse(p);
+
+                p.consume(TokenType::DO, "expected 'do' for each loop");
+                p.consume(TokenType::COLON, "expected ':' after 'do'");
             }
             else
             {
-                throw SyntaxError("expected 'repeat' or 'while' after 'loop'",
-                                  p.current().location);
+                p.failUnexpected("expected 'repeat', 'while' or 'each' after 'loop'");
             }
 
-            p.consumeEnd("expected 'end' to close loop", loc);
-            p.match(TokenType::DEDENT);
+            ++p.ctx.blockDepth;
+            loop.body = BodyParser::parse(p);
+            --p.ctx.blockDepth;
+
+            closeBlock(p, "loop", loc);
 
             return std::make_unique<Stmt>(StmtKind::LoopStmt, std::move(loop));
         }
-
-        static std::vector<std::unique_ptr<Stmt>> parseLoopBody(ParserCore &p);
     };
 
 }

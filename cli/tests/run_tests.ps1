@@ -464,7 +464,7 @@ if ($runNative) {
   $r = Invoke-Proc $Cuffsh @('--max-steps', '100000') (Bytes $steps)
   Check '--max-steps with a generous limit lets the same loop finish' (($r.Out -ceq "1000`n") -and ($r.Err -ceq '')) ($r.Out + '|' + $r.Err)
 
-  $deep = "set returnable func f(n) do:`n    return f(n + 1)`nend`nprint(f(0))`n"
+  $deep = "func f(n) do:`n    return f(n + 1)`nend`nprint(f(0))`n"
   $r = Invoke-Proc -Exe $Cuffsh -ArgList @('--timeout', '0') -InputBytes (Bytes $deep) -TimeoutMs 60000
   Check 'runaway recursion ends with the engine''s stack error, not a crash' (($r.Err -cmatch '\[E4-017\]') -and (-not $r.TimedOut) -and ($r.ExitCode -eq 1)) ("exit " + $r.ExitCode + "; " + $r.Err)
 

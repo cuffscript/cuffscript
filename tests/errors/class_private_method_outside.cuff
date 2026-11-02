@@ -1,0 +1,7 @@
+class Safe do:
+    private func open() do:
+        print(1)
+    end
+end
+set Safe s to Safe()
+s.open()

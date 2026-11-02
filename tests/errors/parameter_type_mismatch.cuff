@@ -1,5 +1,5 @@
 note: E4-030 -- passing an argument of the wrong type is an error at the call site
-set returnable func add_num(number n1, number n2) do:
+func add_num(number n1, number n2) do:
     return n1 + n2
 end
 print(add_num(1, "2"))

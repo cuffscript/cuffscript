@@ -10,7 +10,8 @@ namespace cuff
     {
         Normal,
         Return,
-        Stop
+        Stop,
+        Skip
     };
 
     struct ExecOutcome
@@ -34,6 +35,14 @@ namespace cuff
         {
             ExecOutcome o;
             o.result = ExecResult::Stop;
+            o.loc = l;
+            return o;
+        }
+
+        static ExecOutcome makeSkip(SourceLocation l)
+        {
+            ExecOutcome o;
+            o.result = ExecResult::Skip;
             o.loc = l;
             return o;
         }

@@ -1,0 +1,76 @@
+note: with: call several methods and use fields of one object without repeating its name.
+
+class Robot do:
+    set str name to "R2"
+    set number x to 0
+    set number y to 0
+    set str facing to "north"
+    set list log to []
+
+    func init(str name) do:
+        change self.name to name
+    end
+
+    func move(number steps) do:
+        change self.y to self.y + steps
+        add f"moved {steps}" to self.log
+    end
+
+    func turnleft() do:
+        if self.facing is "north" do:
+            change self.facing to "west"
+        else if self.facing is "west" do:
+            change self.facing to "south"
+        else if self.facing is "south" do:
+            change self.facing to "east"
+        else do:
+            change self.facing to "north"
+        end
+        add "turned left" to self.log
+    end
+
+    func status() do:
+        return f"{self.name} at ({self.x}, {self.y}) facing {self.facing}"
+    end
+end
+
+set Robot rover to Robot("Rover")
+set Robot wall_e to Robot("Wall-E")
+
+with rover do:
+    move(3)
+    turnleft()
+    move(2)
+    print(status())
+end
+
+note: the object's fields come before the outer variables of the same name
+set number y to 1000
+with wall_e do:
+    change y to y + 7
+    print(y, .y)
+    print(name)
+end
+print(y)
+
+note: .name always means the object of the innermost with
+with rover do:
+    with wall_e do:
+        print(.name, status())
+    end
+    print(.name, log)
+end
+
+note: a variable made inside the block is gone after it, and return works through it
+func faster(Robot a, Robot b) do:
+    with a do:
+        set number mine to y
+        with b do:
+            if mine > .y do:
+                return a.name
+            end
+        end
+    end
+    return b.name
+end
+print(faster(rover, wall_e))

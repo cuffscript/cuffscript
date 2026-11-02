@@ -62,12 +62,12 @@ cost, and the recursion in `--ast`, which is a debugging aid.
 
 ## Memory
 
-Strings, lists, maps, JSON text, pattern sizes and the `async` queue each have a size limit. The engine does not count
+Strings, lists, maps, JSON text, pattern sizes and the `async` queue each have a size limit, and so do the shapes of a class: the depth of inheritance, the members of a class and the number of classes a program declares. A method call counts against the call depth and the stack budget like any call, so recursion through methods is bounded the same way. The engine does not count
 total memory: a host that needs to must set a limit on the process. A `std::bad_alloc` that reaches the front end is
 reported as `E6-003`, not a crash.
 
-Two shapes are never freed: a list or map that contains itself (reference counts cannot reach zero), and the
-process-wide table of identifier names. [Design notes](design-notes.md) records the first; `NameInterner.h` documents the
+Two shapes are never freed: a list, map or object that refers to itself, directly or through others (reference counts cannot
+reach zero), and the process-wide table of identifier names. [Design notes](design-notes.md) records the first; `NameInterner.h` documents the
 second.
 
 ## Adding a limit

@@ -14,7 +14,7 @@ listed because they change; the order is the order a program travels through the
 | `npm/` | The npm package that ships the WebAssembly build. |
 | `tests/` | The engine and language suite: unit tests, cases, error cases. |
 | `examples/` | Runnable programs with expected output, error cases, and a C++ embedding example. |
-| `tools/` | `docs.py` (the documentation generator and checker) and `introspect.cpp` (what it asks the engine). |
+| `tools/` | `docs.py` (the documentation generator and checker), `introspect.cpp` (what it asks the engine) and `migrate_3_to_4.py` (the syntax migration tool, with its tests). |
 | `docs/` | The documentation. |
 | `.github/` | Workflows, issue and pull request templates. |
 | `Makefile`, `Makefile.win` | The build for `cuffc` (and `cuffc.exe` with MinGW-w64). |
@@ -28,21 +28,22 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `tokenizer/Tokenizer.h` | Turns source text into raw tokens: words, numbers, strings, operators, newlines, indentation. |
 | `tokenizer/ScanState.h` | The cursor over the text (offset, line, column, whether a space came before); skips a byte order mark. |
 | `tokenizer/StringScanner.h`, `Escapes.h` | String and f-string literals, and what each backslash escape stands for. |
+| `tokenizer/PatternScanner.h` | Pattern literals `p"..."`: the raw text between the quotes and the flags after them. |
 | `tokenizer/NumberScanner.h`, `IdentifierScanner.h`, `OperatorScanner.h`, `CommentScanner.h`, `CharUtils.h` | The scanners for the other token kinds, and character classes. |
 | `lexer/Lexer.h` | Classifies words as keywords or identifiers and runs the colon check. |
-| `lexer/KeywordClassifier.h` | The table of reserved words. |
+| `lexer/KeywordClassifier.h` | The table of reserved words (44). |
 | `lexer/ColonValidator.h` | Rejects a space before a `:`. |
 | `parser/Parser.h`, `ParserCore.h` | The token cursor, error construction and helpers shared by the parsers. |
 | `parser/StatementParser.h` | Chooses the parser for a statement from its first token and attaches an `or_else`. |
-| `parser/DeclarationParser.h` | `set` and `change`. |
-| `parser/FunctionParser.h` | `set ... func` declarations and their parameters. |
-| `parser/ControlFlowParser.h`, `LoopParser.h` | `if` / `else`, and `loop repeat` / `loop while`. |
-| `parser/CollectionOpParser.h` | `add`, `remove` and the `replace` statement for collections. |
+| `parser/DeclarationParser.h` | `set`, `change`, `global`, and the two pieces they share: `TypeParser` (a type name) and `PlaceParser` (the target of `change`, `add` and `remove`). |
+| `parser/FunctionParser.h` | `[async] [pure] func` declarations, their parameters and default values; also the methods of a class. |
+| `parser/ClassParser.h` | `class` declarations: the fields and methods in the body. |
+| `parser/ControlFlowParser.h`, `LoopParser.h` | `if` / `else` and `with`, and `loop repeat` / `loop while` / `loop each`. |
+| `parser/CollectionOpParser.h` | `add` and `remove`. |
 | `parser/ImportParser.h` | `use DLC:...` and `use name from path`. |
 | `parser/OrElseParser.h` | Wraps a statement in its `or_else` handler. |
-| `parser/ExpressionParser.h` | Expressions by precedence, indexing, slicing and calls. |
-| `parser/LiteralParser.h` | Literals, f-strings (with the true position of each embedded expression), list and map literals. |
-| `parser/RegexExprParser.h` | `find`, `match`, `replace`, `split` and `count` expressions. |
+| `parser/ExpressionParser.h` | Expressions by precedence, indexing, slicing, member access, method calls and `super` calls, `matches` and `isa`. |
+| `parser/LiteralParser.h` | Literals, f-strings (with the true position of each embedded expression), pattern literals, list and map literals, `self` and `.name`. |
 | `parser/ASTNodes.h` | The syntax tree node types, built so that a very deep tree can be destroyed without recursion. |
 | `debug/ASTPrinter.h` | Prints tokens and the tree for `--ast`. |
 
@@ -50,8 +51,10 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 
 | File | What it does |
 | :--- | :--- |
-| `interpreter/Interpreter.h` | Walks the syntax tree: statements, expressions, functions, `async` queue, modules, `or_else`, budgets, the stack plan. By far the largest file. |
-| `interpreter/Value.h` | The value type (number, string, boolean, list, map, match, empty), equality, display form, and the read-only flag for constant lists. |
+| `interpreter/Interpreter.h` | Walks the syntax tree: statements, expressions, functions, classes and objects, `with`, `async` queue, modules, `or_else`, budgets, the stack plan. By far the largest file. |
+| `interpreter/Value.h` | The value type (number, string, boolean, list, map, match, pattern, object, empty), equality, display form, and the read-only flag for constant lists. |
+| `interpreter/ClassModel.h` | What the interpreter knows about a class (`ClassInfo`: parent, fields in layout order, methods with inherited ones merged) and the data of an object. |
+| `interpreter/ProgramError.h` | The error that `fail` raises, carrying the `Error` object so that `or_else as` hands the same object to the handler. |
 | `interpreter/Environment.h` | Scopes: function scopes are isolated from callers, block scopes chain to the enclosing scope; global bridging. |
 | `interpreter/Signals.h` | How `return` and `stop` travel up the interpreter without exceptions. |
 | `interpreter/NativeFunctions.h` | Registers the built-ins and the table of libraries that `use DLC:` looks up. |
@@ -80,8 +83,10 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `regex/RegexParser.h` | Turns a pattern string into a pattern tree: tokens, sets, groups, quantifiers, escapes. |
 | `regex/RegexAst.h` | The pattern tree. |
 | `regex/RegexMatcher.h` | Matches a tree against text, with the step, time and recursion budgets. |
-| `regex/RegexEngine.h` | Compiles and caches patterns and exposes `is`, `match`, `find`, `replace`, `split` and `count`. |
+| `regex/RegexEngine.h` | Compiles patterns and exposes whole-text matching, `match`, `find`, `replace`, `split` and `count`. |
+| `regex/PatternData.h` | The value behind a `pattern`: the compiled pattern with its source text and flags. |
 | `dlc/DLCCommon.h` | Argument checking shared by every library, number parsing for `to_number`, case mapping. |
+| `dlc/MethodTable.h` | The one list of built-in methods: which function runs for `value.name(...)`, on which kinds of value, from which library. |
 | `dlc/MathDLC.h`, `StringDLC.h`, `ListDLC.h`, `MapDLC.h`, `ConvertDLC.h`, `TimeDLC.h`, `RandomDLC.h`, `JsonDLC.h` | One library each: [`DLC:math`](../reference/dlc/math.md) and the others. |
 | `dlc/FilesystemDLC.h`, `NetworkDLC.h` | The two libraries that act on the outside world. |
 | `net/HttpClient.h` | The plain-HTTP client behind `DLC:network`, including the blocked-address check. |
@@ -103,9 +108,9 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | Path | What it does |
 | :--- | :--- |
 | `tests/run.sh`, `tests/run.ps1` | The runners for the engine and language suite. |
-| `tests/unit/` | C++ unit tests, each a program with a `main()`. |
+| `tests/unit/` | C++ unit tests, each a program with a `main()`: the grammar, the object model, the limits, threads and more. |
 | `tests/cases/`, `tests/errors/` | Programs with the output they must print, and programs that must fail with a given code. |
 | `cli/tests/` | The shell suites: `run_tests.sh`, `run_tests.ps1`, the Python harness and tests. |
 | `tools/docs.py` | Generates the tables in the documentation and checks it; see [Documentation](../contributing/documentation.md). |
-| `tools/introspect.cpp` | A small program that prints what the engine knows about itself (the libraries and their functions, the built-ins, the error codes and the limits), so the documentation check reads these from the engine. |
+| `tools/introspect.cpp` | A small program that prints what the engine knows about itself (the libraries and their functions, the built-in methods, the error codes and the limits), so the documentation check reads these from the engine. |
 | `docs/guide/`, `docs/reference/`, `docs/internals/`, `docs/contributing/` | The four kinds of page; see [the documentation index](../README.md). |

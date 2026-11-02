@@ -1,0 +1,8 @@
+rectangle with area 12
+square with area 25, all sides equal
+circle with area 12
+rectangle true true false
+square true true true
+circle true false false
+49
+2 2 square

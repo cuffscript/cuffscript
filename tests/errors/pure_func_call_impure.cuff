@@ -1,12 +1,12 @@
 note: E4-029
 set number counter to 0
 
-set func bump() do:
-    change counter to global
+func bump() do:
+    global counter
     change counter to counter + 1
 end
 
-set returnable pure func trigger_bump() do:
+pure func trigger_bump() do:
     note: a pure function can no longer call a user function that is not pure --
     note: previously this call was allowed, so a plain helper function could be used
     note: to get around pure's global-access block.

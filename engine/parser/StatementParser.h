@@ -2,9 +2,11 @@
 
 #include "ParserCore.h"
 #include "ASTNodes.h"
+#include "BodyParser.h"
 #include "ExpressionParser.h"
 #include "DeclarationParser.h"
 #include "FunctionParser.h"
+#include "ClassParser.h"
 #include "ControlFlowParser.h"
 #include "LoopParser.h"
 #include "CollectionOpParser.h"
@@ -21,6 +23,8 @@ namespace cuff
     class StatementParser
     {
     public:
+        // One statement, including a trailing `or_else`. A statement ends at the end of its line, or where the
+        // enclosing one-line construct ends (`end`, `else`, `or_else`); anything else after it is an error.
         static std::unique_ptr<Stmt> parseStatement(ParserCore &p)
         {
             p.skipNewlines();
@@ -29,116 +33,116 @@ namespace cuff
 
             const Token &tok = p.current();
             ParseDepthScope depth(tok.location);
-            std::unique_ptr<Stmt> stmt;
+            std::unique_ptr<Stmt> stmt = parseOne(p, tok);
 
+            if (stmt && p.check(TokenType::OR_ELSE))
+                stmt = OrElseParser::wrap(p, std::move(stmt));
+
+            if (!p.atStatementEnd())
+                p.failUnexpected("expected the end of the line after the statement");
+
+            return stmt;
+        }
+
+    private:
+        static std::unique_ptr<Stmt> simple(StmtKind kind, const SourceLocation &loc)
+        {
+            if (kind == StmtKind::StopStmt)
+                return std::make_unique<Stmt>(kind, StopStmt(loc));
+            return std::make_unique<Stmt>(kind, SkipStmt(loc));
+        }
+
+        static std::unique_ptr<Stmt> parseOne(ParserCore &p, const Token &tok)
+        {
             switch (tok.type)
             {
             case TokenType::SET:
-                if (DeclarationParser::isFunctionDecl(p))
-                {
-                    stmt = FunctionParser::parse(p);
-                }
-                else
-                {
-                    stmt = DeclarationParser::parseSet(p);
-                }
-                break;
+                return DeclarationParser::parseSet(p);
 
             case TokenType::CHANGE:
-                stmt = DeclarationParser::parseChange(p);
+                return DeclarationParser::parseChange(p);
+
+            case TokenType::GLOBAL:
+                if (isNameToken(p.peek(1)))
+                    return DeclarationParser::parseGlobal(p);
                 break;
+
+            case TokenType::FUNCTION:
+            case TokenType::ASYNC:
+            case TokenType::PURE:
+                return FunctionParser::parse(p);
+
+            case TokenType::CLASS:
+                return ClassParser::parse(p);
+
+            case TokenType::PRIVATE:
+                throw SyntaxError(ErrorCode::UnexpectedToken, "'private' can only be used on a member of a class", tok.location,
+                                  "put the field or method inside a class body");
 
             case TokenType::IF:
-                stmt = ControlFlowParser::parse(p);
-                break;
+                return ControlFlowParser::parse(p);
+
+            case TokenType::WITH:
+                return ControlFlowParser::parseWith(p);
 
             case TokenType::LOOP:
-                stmt = LoopParser::parse(p);
-                break;
+                return LoopParser::parse(p);
 
             case TokenType::STOP:
                 p.advance();
-                stmt = std::make_unique<Stmt>(StmtKind::StopStmt, StopStmt(tok.location));
-                break;
+                return simple(StmtKind::StopStmt, tok.location);
+
+            case TokenType::SKIP:
+                p.advance();
+                return simple(StmtKind::SkipStmt, tok.location);
 
             case TokenType::RETURN:
             {
+                const SourceLocation loc = tok.location;
                 p.advance();
-                if (p.check(TokenType::NEWLINE) || p.check(TokenType::EOF_TOKEN) || p.check(TokenType::END) || p.check(TokenType::DEDENT))
-                {
-                    stmt = std::make_unique<Stmt>(StmtKind::ReturnStmt,
-                                                  ReturnStmt(nullptr, tok.location));
-                }
-                else
-                {
-                    auto val = ExpressionParser::parse(p);
-                    stmt = std::make_unique<Stmt>(StmtKind::ReturnStmt,
-                                                  ReturnStmt(std::move(val), tok.location));
-                }
-                break;
+                if (p.atStatementEnd())
+                    return std::make_unique<Stmt>(StmtKind::ReturnStmt, ReturnStmt(nullptr, loc));
+                auto val = ExpressionParser::parse(p);
+                return std::make_unique<Stmt>(StmtKind::ReturnStmt, ReturnStmt(std::move(val), loc));
+            }
+
+            case TokenType::FAIL:
+            {
+                const SourceLocation loc = tok.location;
+                p.advance();
+                if (p.atStatementEnd())
+                    p.failUnexpected("expected an error after 'fail': a message or an Error");
+                auto val = ExpressionParser::parse(p);
+                return std::make_unique<Stmt>(StmtKind::FailStmt, FailStmt(std::move(val), loc));
             }
 
             case TokenType::AWAIT:
             {
-                SourceLocation awaitLoc = tok.location;
+                const SourceLocation awaitLoc = tok.location;
                 p.advance();
-                auto expr = ExpressionParser::parse(p);
-                if (expr->kind != ExprKind::FunctionCall)
-                {
-                    throw SyntaxError("expected function call after 'await'", awaitLoc);
-                }
-                FunctionCall fc = std::move(std::get<FunctionCall>(expr->data));
-                auto callPtr = std::make_unique<FunctionCall>(std::move(fc));
-                auto awaitExpr = std::make_unique<AwaitExpr>(std::move(callPtr), awaitLoc);
-                stmt = std::make_unique<Stmt>(StmtKind::AwaitStmt,
-                                              AwaitStmt(std::move(awaitExpr), awaitLoc));
-                break;
+                auto awaitExpr = ExpressionParser::makeAwait(p, awaitLoc);
+                return std::make_unique<Stmt>(StmtKind::AwaitStmt, AwaitStmt(std::move(awaitExpr), awaitLoc));
             }
 
             case TokenType::USE:
-                stmt = ImportParser::parse(p);
-                break;
+                return ImportParser::parse(p);
 
             case TokenType::ADD:
-                stmt = CollectionOpParser::parseAdd(p);
-                break;
+                return CollectionOpParser::parseAdd(p);
 
             case TokenType::REMOVE:
-                stmt = CollectionOpParser::parseRemove(p);
-                break;
-
-            case TokenType::REPLACE:
-                if (RegexExprParser::looksLikeCollectionReplace(p))
-                {
-                    stmt = CollectionOpParser::parseReplace(p);
-                }
-                else
-                {
-                    auto expr = ExpressionParser::parse(p);
-                    stmt = std::make_unique<Stmt>(StmtKind::ExprStmt,
-                                                  ExprStmt(std::move(expr), tok.location));
-                }
-                break;
+                return CollectionOpParser::parseRemove(p);
 
             default:
-            {
-                auto expr = ExpressionParser::parse(p);
-                stmt = std::make_unique<Stmt>(StmtKind::ExprStmt,
-                                              ExprStmt(std::move(expr), tok.location));
                 break;
             }
-            }
 
-            if (stmt && p.check(TokenType::OR_ELSE))
-            {
-                stmt = OrElseParser::wrap(p, std::move(stmt));
-            }
-
-            return stmt;
+            auto expr = ExpressionParser::parse(p);
+            return std::make_unique<Stmt>(StmtKind::ExprStmt, ExprStmt(std::move(expr), tok.location));
         }
     };
 
-    inline std::vector<std::unique_ptr<Stmt>> FunctionParser::parseBlockBody(ParserCore &p)
+    inline std::vector<std::unique_ptr<Stmt>> BodyParser::parseLines(ParserCore &p)
     {
         std::vector<std::unique_ptr<Stmt>> body;
 
@@ -149,15 +153,11 @@ namespace cuff
                 break;
 
             if (p.check(TokenType::END) || p.check(TokenType::ELSE) || p.check(TokenType::DEDENT))
-            {
                 break;
-            }
 
             auto stmt = StatementParser::parseStatement(p);
             if (stmt)
-            {
                 body.push_back(std::move(stmt));
-            }
 
             p.skipNewlines();
         }
@@ -165,16 +165,14 @@ namespace cuff
         return body;
     }
 
-    inline std::vector<std::unique_ptr<Stmt>> ControlFlowParser::parseBranchBody(ParserCore &p)
+    inline std::vector<std::unique_ptr<Stmt>> BodyParser::parse(ParserCore &p)
     {
         if (p.check(TokenType::NEWLINE))
         {
             p.skipNewlines();
             if (p.check(TokenType::INDENT))
-            {
                 p.advance();
-            }
-            return FunctionParser::parseBlockBody(p);
+            return parseLines(p);
         }
 
         std::vector<std::unique_ptr<Stmt>> body;
@@ -182,61 +180,6 @@ namespace cuff
         if (stmt)
             body.push_back(std::move(stmt));
         return body;
-    }
-
-    inline std::vector<std::unique_ptr<Stmt>> LoopParser::parseLoopBody(ParserCore &p)
-    {
-        if (p.check(TokenType::NEWLINE))
-        {
-            p.skipNewlines();
-            if (p.check(TokenType::INDENT))
-            {
-                p.advance();
-            }
-            return FunctionParser::parseBlockBody(p);
-        }
-
-        std::vector<std::unique_ptr<Stmt>> body;
-        auto stmt = StatementParser::parseStatement(p);
-        if (stmt)
-            body.push_back(std::move(stmt));
-        return body;
-    }
-
-    inline std::unique_ptr<Stmt> OrElseParser::wrap(ParserCore &p, std::unique_ptr<Stmt> primaryStmt)
-    {
-        SourceLocation loc = p.current().location;
-        p.consume(TokenType::OR_ELSE, "Expected 'or_else'");
-        p.consume(TokenType::DO, "expected 'do' after 'or_else'");
-        p.consume(TokenType::COLON, "expected ':' after 'do'");
-
-        std::vector<std::unique_ptr<Stmt>> fallbackBody;
-
-        if (p.check(TokenType::NEWLINE))
-        {
-            p.skipNewlines();
-            if (p.check(TokenType::INDENT))
-            {
-                p.advance();
-            }
-            fallbackBody = FunctionParser::parseBlockBody(p);
-        }
-        else
-        {
-            auto stmt = StatementParser::parseStatement(p);
-            if (stmt)
-                fallbackBody.push_back(std::move(stmt));
-        }
-
-        p.consumeEnd("expected 'end' to close or_else block", loc);
-        p.match(TokenType::DEDENT);
-
-        OrElseStmt orElse;
-        orElse.primaryStmt = std::move(primaryStmt);
-        orElse.fallbackBody = std::move(fallbackBody);
-        orElse.loc = loc;
-
-        return std::make_unique<Stmt>(StmtKind::OrElse, std::move(orElse));
     }
 
 }

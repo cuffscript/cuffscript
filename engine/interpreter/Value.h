@@ -2,6 +2,8 @@
 
 #include "../common/Limits.h"
 #include "../common/StrData.h"
+#include "../regex/PatternData.h"
+#include "ClassModel.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -20,6 +22,7 @@ namespace cuff
     struct ValueList;
     class ValueMap;
     struct MatchResult;
+    struct ObjectData;
 
     enum class ValueType
     {
@@ -29,7 +32,9 @@ namespace cuff
         Boolean,
         List,
         Map,
-        Match
+        Match,
+        Pattern,
+        Object
     };
 
     inline std::string valueTypeName(ValueType t)
@@ -50,6 +55,10 @@ namespace cuff
             return "map";
         case ValueType::Match:
             return "match";
+        case ValueType::Pattern:
+            return "pattern";
+        case ValueType::Object:
+            return "object";
         }
         return "unknown";
     }
@@ -65,7 +74,9 @@ namespace cuff
             bool,
             std::shared_ptr<ValueList>,
             std::shared_ptr<ValueMap>,
-            std::shared_ptr<MatchResult>>;
+            std::shared_ptr<MatchResult>,
+            std::shared_ptr<const PatternData>,
+            std::shared_ptr<ObjectData>>;
 
         Value() : storage_(std::monostate{}) {}
 
@@ -118,6 +129,18 @@ namespace cuff
             v.storage_.emplace<6>(std::move(m));
             return v;
         }
+        static Value makePattern(std::shared_ptr<const PatternData> p)
+        {
+            Value v;
+            v.storage_.emplace<7>(std::move(p));
+            return v;
+        }
+        static Value makeObject(std::shared_ptr<ObjectData> o)
+        {
+            Value v;
+            v.storage_.emplace<8>(std::move(o));
+            return v;
+        }
         ValueType type() const { return static_cast<ValueType>(storage_.index()); }
 
         bool isEmpty() const { return storage_.index() == 0; }
@@ -127,6 +150,8 @@ namespace cuff
         bool isList() const { return storage_.index() == 4; }
         bool isMap() const { return storage_.index() == 5; }
         bool isMatch() const { return storage_.index() == 6; }
+        bool isPattern() const { return storage_.index() == 7; }
+        bool isObject() const { return storage_.index() == 8; }
 
         double asNumber() const { return std::get<1>(storage_); }
         const std::string &asStr() const { return std::get<2>(storage_)->text(); }
@@ -136,6 +161,8 @@ namespace cuff
         const std::shared_ptr<ValueList> &asList() const { return std::get<4>(storage_); }
         const std::shared_ptr<ValueMap> &asMap() const { return std::get<5>(storage_); }
         const std::shared_ptr<MatchResult> &asMatch() const { return std::get<6>(storage_); }
+        const std::shared_ptr<const PatternData> &asPattern() const { return std::get<7>(storage_); }
+        const std::shared_ptr<ObjectData> &asObject() const { return std::get<8>(storage_); }
 
         Value takeOut()
         {
@@ -256,7 +283,7 @@ namespace cuff
         void takeContainersInto(std::vector<Value> &out)
         {
             for (auto &v : values_)
-                if (v.isList() || v.isMap())
+                if (v.isList() || v.isMap() || v.isObject())
                     out.push_back(v.takeOut());
         }
 
@@ -265,6 +292,33 @@ namespace cuff
         std::vector<Value> values_;
         std::unordered_map<std::string, size_t> index_;
     };
+
+    // An instance of a class. The fields are in the order of ClassInfo::fields. `origin` is set on an Error that
+    // stands for an error the engine raised, so that `fail` can raise that error again unchanged.
+    struct ObjectData
+    {
+        std::shared_ptr<const ClassInfo> cls;
+        std::vector<Value> fields;
+        std::shared_ptr<const void> origin;
+        bool constructing = false; // true while its `init` runs: only then may a `constant` field be given its value
+        ~ObjectData();
+    };
+
+    // Lets the interpreter turn an object into text when a value is printed or put in an f-string, since that can
+    // mean running the object's `to_str` method. The interpreter that is running installs itself for the thread.
+    struct ObjectDisplayHook
+    {
+        virtual void display(const Value &object, std::string &out) = 0;
+
+    protected:
+        ~ObjectDisplayHook() = default;
+    };
+
+    inline ObjectDisplayHook *&activeObjectDisplay()
+    {
+        static thread_local ObjectDisplayHook *hook = nullptr;
+        return hook;
+    }
 
     struct MatchResult
     {
@@ -275,19 +329,21 @@ namespace cuff
         std::unordered_map<std::string, std::string> named;
     };
 
-    // Destroying a deeply nested list/map would recurse once per level through shared_ptr destructors.
+    // Destroying a deeply nested list/map/object chain would recurse once per level through shared_ptr destructors.
+    inline bool holdsOtherValues(const Value &v) { return v.isList() || v.isMap() || v.isObject(); }
+
     inline void dismantleValues(std::vector<Value> &items)
     {
         size_t i = 0;
         for (; i < items.size(); ++i)
-            if (items[i].isList() || items[i].isMap())
+            if (holdsOtherValues(items[i]))
                 break;
         if (i == items.size())
             return;
 
         std::vector<Value> pending;
         for (; i < items.size(); ++i)
-            if (items[i].isList() || items[i].isMap())
+            if (holdsOtherValues(items[i]))
                 pending.push_back(items[i].takeOut());
 
         while (!pending.empty())
@@ -299,7 +355,7 @@ namespace cuff
                 auto &sp = v.asList();
                 if (sp && sp.use_count() == 1)
                     for (auto &c : sp->items)
-                        if (c.isList() || c.isMap())
+                        if (holdsOtherValues(c))
                             pending.push_back(c.takeOut());
             }
             else if (v.isMap())
@@ -308,11 +364,20 @@ namespace cuff
                 if (sp && sp.use_count() == 1)
                     sp->takeContainersInto(pending);
             }
+            else if (v.isObject())
+            {
+                auto &sp = v.asObject();
+                if (sp && sp.use_count() == 1)
+                    for (auto &c : sp->fields)
+                        if (holdsOtherValues(c))
+                            pending.push_back(c.takeOut());
+            }
         }
     }
 
     inline ValueList::~ValueList() { dismantleValues(items); }
     inline ValueMap::~ValueMap() { dismantleValues(values_); }
+    inline ObjectData::~ObjectData() { dismantleValues(fields); }
 
     inline bool Value::truthy() const
     {
@@ -332,6 +397,9 @@ namespace cuff
             return asMap()->size() > 0;
         case ValueType::Match:
             return asMatch()->matched;
+        case ValueType::Pattern:
+        case ValueType::Object:
+            return true;
         }
         return false;
     }
@@ -472,6 +540,10 @@ namespace cuff
             case ValueType::Match:
                 return a.asMatch()->matched == b.asMatch()->matched &&
                        a.asMatch()->wholeMatch == b.asMatch()->wholeMatch;
+            case ValueType::Pattern:
+                return a.asPattern() == b.asPattern() || a.asPattern()->sameAs(*b.asPattern());
+            case ValueType::Object:
+                return a.asObject() == b.asObject();
             default:
                 return false;
             }
@@ -594,6 +666,19 @@ namespace cuff
             out += "<match \"";
             out += asMatch()->wholeMatch;
             out += "\">";
+            return;
+        case ValueType::Pattern:
+            out += asPattern()->display();
+            return;
+        case ValueType::Object:
+            if (ObjectDisplayHook *hook = activeObjectDisplay())
+            {
+                hook->display(*this, out);
+                return;
+            }
+            out += '<';
+            out += asObject()->cls->name;
+            out += '>';
             return;
         }
     }

@@ -137,7 +137,21 @@ print(n)
 27
 ```
 
-`stop` ends the nearest loop. A loop does not open a new scope: `i` and `n` are still there afterwards.
+`loop each` visits the elements of a list, the keys of a map or the characters of a text, and `skip` goes on with the next pass. `stop` ends the nearest loop. A loop does not open a new scope: `i` and `n` are still there afterwards.
+
+```cuff
+loop each word in ["red", "", "blue"] do:
+    if word is "" do:
+        skip
+    end
+    print(word)
+end
+```
+
+```output
+red
+blue
+```
 
 ## Lists and maps
 
@@ -160,17 +174,17 @@ print(stock["pears"], stock)
 
 `remove 2 from items` takes out the element at position 2; removing a value instead of a position is done by naming a
 value that is not a number, such as a string. Lists and maps are shared, not copied: if two names refer to the same list, a change through one shows through the
-other. The [list](../reference/dlc/list.md) and [map](../reference/dlc/map.md) libraries add sorting, joining, keys
+other; `copy(items)` makes an independent list. `change`, `add` and `remove` work on anything that holds a value, however deep: `add 5 to grid[1]` appends to the inner list, and `change grid[2][3] to 0` changes one item. The [list](../reference/dlc/list.md) and [map](../reference/dlc/map.md) libraries add sorting, joining, keys
 and more.
 
 ## Functions
 
 ```cuff
-set func announce(text) do:
+func announce(text) do:
     print(">> " + text)
 end
 
-set returnable func add(number a, number b) do:
+func add(number a, number b) do:
     return a + b
 end
 
@@ -183,19 +197,19 @@ print(add(2, 3))
 5
 ```
 
-A function that is not `returnable` gives nothing back. Parameters may carry a type (`number a`), which is checked at
-the call. Functions can call themselves, and a function may be called above the line that declares it. There are no
-closures: a function does not see your global variables unless it asks, with `change x to global`.
+`return value` gives a value back from any function, and a function that ends without one gives `empty`. Parameters may carry a type (`number a`), which is checked at
+the call, and may have a default (`str greeting to "Hello"`). Functions can call themselves, and a function may be called above the line that declares it. A short function fits on one line: `func twice(x) do: return x * 2 end`. There are no
+closures: a function does not see your global variables unless it asks, with `global x`.
 
 ### Global variables and functions
 
-A function sees only its own variables and its parameters. To use or change a variable of the main program, name it with `change ... to global` first:
+A function sees only its own variables and its parameters. To use or change a variable of the main program, name it with `global` first:
 
 ```cuff
 set number counter to 0
 
-set func bump() do:
-    change counter to global
+func bump() do:
+    global counter
     change counter to counter + 1
 end
 
@@ -212,7 +226,7 @@ Constants are bridged the same way, to read them. Functions are the exception: e
 the outside world can say so with `pure`, which makes any use of a global an error:
 
 ```cuff
-set pure returnable func square(n) do:
+pure func square(n) do:
     return n * n
 end
 print(square(7))
@@ -228,7 +242,7 @@ An `async` function does not run where it is called. The call is put in a queue,
 order they were made. `await` runs a call right there instead:
 
 ```cuff
-set async func job(name) do:
+async func job(name) do:
     print("ran " + name)
 end
 
@@ -266,6 +280,25 @@ not a number, using 1
 1
 ```
 
+`or_else as err` hands the handler the error as an object, with a `message`, a `code` and the line where it happened, and `fail` raises an error of your own:
+
+```cuff
+func half(number n) do:
+    if n % 2 is not 0 do:
+        fail f"{n} is odd"
+    end
+    return n / 2
+end
+
+print(half(7)) or_else as err do:
+    print(err.code, err.message)
+end
+```
+
+```output
+E7-001 7 is odd
+```
+
 Which errors can be caught is in the [error catalogue](../reference/errors.md), and
 [errors and debugging](errors-and-debugging.md) shows how to read and handle them.
 
@@ -283,15 +316,15 @@ print(math_sqrt(81), str_upper("done"), length("한글"))
 
 ## Searching text
 
-Pattern expressions find and test text by shape instead of by exact characters:
+A pattern describes text by shape instead of by exact characters. It is written `p"..."`, and a few functions take it: `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count`, with the text first.
 
 ```cuff
 set str code to "order SN-2024-0042 shipped"
-set match found to match code from "SN-([num]4)-([num]+)"
+set match found to match(code, p"SN-([num]4)-([num]+)")
 if found do:
     print("matched")
 end
-print(find "[num]4" from code)
+print(find(code, p"[num]4"))
 ```
 
 ```output
@@ -299,31 +332,65 @@ matched
 2024
 ```
 
-A string literal on the right of `is` is a whole-text pattern test, and `IS` ignores case:
+`matches` tests whether a whole text fits a pattern, and the flag `i` after the pattern ignores case. `is` only ever compares values:
 
 ```cuff
 set str answer to "yes"
-if answer IS "YES" do:
-    print("case does not matter with IS")
+if answer matches p"YES"i do:
+    print("case does not matter with the i flag")
 end
 
 set str code to "AB-1234"
-if code is "[up]2-[num]4" do:
+if code matches p"[up]2-[num]4" do:
     print("shape matches")
 end
 if code is "AB" do:
-    print("never: is needs the whole text to match")
+    print("never: is compares whole values")
 end
-print(find "[num]+" from code)
+print(find(code, p"[num]+"))
 ```
 
 ```output
-case does not matter with IS
+case does not matter with the i flag
 shape matches
 1234
 ```
 
 [Text and patterns](text-and-patterns.md) builds this up step by step.
+
+## Classes and objects
+
+A class describes a kind of thing, and objects made from it each carry their own values. Methods use `self`, a child class `extends` its parent, and `with` saves repeating an object's name:
+
+```cuff
+class Counter do:
+    set number count to 0
+
+    func bump() do:
+        change self.count to self.count + 1
+    end
+end
+
+class LoudCounter extends Counter do:
+    func bump() do:
+        super.bump()
+        print("count is", self.count)
+    end
+end
+
+set LoudCounter c to LoudCounter()
+c.bump()
+with c do:
+    bump()
+end
+```
+
+```output
+count is 1
+count is 2
+```
+
+[Classes and objects](classes-and-objects.md) teaches this step by step.
 
 ## Splitting a program into files
 
@@ -331,6 +398,6 @@ shape matches
 
 ## What is not here
 
-No classes, no closures, no `==` or `!=` (equality is `is`), and no one-line function declarations. The
+No closures and no function values, no `==` or `!=` (equality is `is`), and no multiple inheritance. The
 language is small on purpose, and the [reference](../reference/language.md) says exactly what is and is not
 allowed.

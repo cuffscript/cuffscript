@@ -1,0 +1,6 @@
+func Helper() do:
+    print(1)
+end
+class Child extends Helper do:
+end
+print(1)

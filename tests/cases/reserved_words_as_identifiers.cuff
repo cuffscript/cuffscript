@@ -21,7 +21,7 @@ print(not)
 print(to)
 
 note: the same name can also be reused as a function (variables and functions have separate namespaces)
-set returnable func add(x, y) do:
+func add(x, y) do:
     return x + y
 end
 print(add(1, 2))
@@ -45,10 +45,10 @@ print(match)
 
 note: and the real syntax must still work.
 use DLC:string
-print(split "a,b,c" by ",")
-print(find "world" from "hello world")
-print(replace "world" in "hello world" to "there")
-print(count "a" in "banana")
+print(split("a,b,c", p","))
+print(find("hello world", p"world"))
+print(replace("hello world", p"world", "there"))
+print(count("banana", p"a"))
 
 note: the "is not" comparison must not conflict with using `not` as a variable.
 set boolean flag to true

@@ -12,6 +12,7 @@ namespace cuff
         NUMBER,
         STRING,
         FSTRING,
+        PATTERN,
 
         PLUS,  // +
         MINUS,  // -
@@ -49,11 +50,13 @@ namespace cuff
         LOOP,
         REPEAT,
         WHILE,
-        MATCH,
+        EACH,
         DO,
         END,
         STOP,
+        SKIP,
         RETURN,
+        FAIL,
         AWAIT,
         USE,
         FROM,
@@ -61,35 +64,30 @@ namespace cuff
         ENDNOTE,
         EMPTY,
         ASYNC,
-        RETURNABLE,
         PURE,
+        PRIVATE,
         FUNCTION,
+        CLASS,
+        EXTENDS,
+        WITH,
+        SELF,
+        SUPER,
         ADD,
         REMOVE,
-        REPLACE,
         TO,
         OR_ELSE,
         GLOBAL,
         NOT,
-        AND,  // and, &&
-        OR,  // or, ||
-        FIND,
-        SPLIT,
-        COUNT,
-        BY,
+        AND,
+        OR,
         IN,
-
-        NUMBER_TYPE,  // number
-        STR_TYPE,  // str
-        LIST_TYPE,  // list
-        MAP_TYPE,  // map
-        BOOLEAN_TYPE,  // boolean
 
         TRUE,  // true
         FALSE,  // false
 
-        IS_STRICT,
-        IS_CASEINSENSITIVE,
+        IS,
+        MATCHES,
+        ISA,
 
         IDENTIFIER,
     };
@@ -106,6 +104,8 @@ namespace cuff
             return "STRING";
         case TokenType::FSTRING:
             return "FSTRING";
+        case TokenType::PATTERN:
+            return "PATTERN";
         case TokenType::PLUS:
             return "+";
         case TokenType::MINUS:
@@ -172,16 +172,20 @@ namespace cuff
             return "repeat";
         case TokenType::WHILE:
             return "while";
-        case TokenType::MATCH:
-            return "match";
+        case TokenType::EACH:
+            return "each";
         case TokenType::DO:
             return "do";
         case TokenType::END:
             return "end";
         case TokenType::STOP:
             return "stop";
+        case TokenType::SKIP:
+            return "skip";
         case TokenType::RETURN:
             return "return";
+        case TokenType::FAIL:
+            return "fail";
         case TokenType::AWAIT:
             return "await";
         case TokenType::USE:
@@ -196,18 +200,26 @@ namespace cuff
             return "empty";
         case TokenType::ASYNC:
             return "async";
-        case TokenType::RETURNABLE:
-            return "returnable";
         case TokenType::PURE:
             return "pure";
+        case TokenType::PRIVATE:
+            return "private";
         case TokenType::FUNCTION:
             return "func";
+        case TokenType::CLASS:
+            return "class";
+        case TokenType::EXTENDS:
+            return "extends";
+        case TokenType::WITH:
+            return "with";
+        case TokenType::SELF:
+            return "self";
+        case TokenType::SUPER:
+            return "super";
         case TokenType::ADD:
             return "add";
         case TokenType::REMOVE:
             return "remove";
-        case TokenType::REPLACE:
-            return "replace";
         case TokenType::TO:
             return "to";
         case TokenType::OR_ELSE:
@@ -220,34 +232,18 @@ namespace cuff
             return "and";
         case TokenType::OR:
             return "or";
-        case TokenType::FIND:
-            return "find";
-        case TokenType::SPLIT:
-            return "split";
-        case TokenType::COUNT:
-            return "count";
-        case TokenType::BY:
-            return "by";
         case TokenType::IN:
             return "in";
-        case TokenType::NUMBER_TYPE:
-            return "number";
-        case TokenType::STR_TYPE:
-            return "str";
-        case TokenType::LIST_TYPE:
-            return "list";
-        case TokenType::MAP_TYPE:
-            return "map";
-        case TokenType::BOOLEAN_TYPE:
-            return "boolean";
         case TokenType::TRUE:
             return "true";
         case TokenType::FALSE:
             return "false";
-        case TokenType::IS_STRICT:
+        case TokenType::IS:
             return "is";
-        case TokenType::IS_CASEINSENSITIVE:
-            return "IS";
+        case TokenType::MATCHES:
+            return "matches";
+        case TokenType::ISA:
+            return "isa";
         case TokenType::IDENTIFIER:
             return "IDENTIFIER";
         }

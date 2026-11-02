@@ -1,0 +1,4 @@
+class Limits do:
+    set constant number low to 1
+end
+print("not reached")

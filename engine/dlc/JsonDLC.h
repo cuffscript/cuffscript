@@ -110,6 +110,42 @@ namespace cuff
         case ValueType::Match:
             throw TypeError("to_json() cannot serialize a match result", loc,
                             "pull the captures you need out of it first");
+        case ValueType::Pattern:
+            throw TypeError("to_json() cannot serialize a pattern", loc,
+                            "write its source text instead, e.g. as a str");
+        case ValueType::Object:
+        {
+            // The public fields, in declaration order (a parent's first); methods and private fields are left out.
+            const ObjectData &object = *v.asObject();
+            const auto &fields = object.cls->fields;
+            bool any = false;
+            for (const auto &f : fields)
+                if (!f.isPrivate)
+                {
+                    any = true;
+                    break;
+                }
+            if (!any) { out += "{}"; return; }
+            if (depth >= limits::kMaxJsonDepth)
+                throw ValueError("to_json(): the value is nested too deeply or contains a circular reference", loc);
+            out += '{';
+            bool first = true;
+            for (size_t i = 0; i < fields.size(); ++i)
+            {
+                if (fields[i].isPrivate)
+                    continue;
+                if (!first) out += ',';
+                first = false;
+                jsonNewlineIndent(out, indentWidth, depth + 1);
+                jsonEscapeInto(fields[i].name, out);
+                out += ':';
+                if (indentWidth > 0) out += ' ';
+                jsonStringifyInto(object.fields[i], out, indentWidth, depth + 1, loc);
+            }
+            jsonNewlineIndent(out, indentWidth, depth);
+            out += '}';
+            return;
+        }
         }
     }
 

@@ -19,6 +19,9 @@ Function names follow `library_verb`: `math_sqrt`, `str_upper`, `list_sort`. The
 `contains` and `index_of`, which are shared by the string, list and map libraries, and the conversions
 (`to_number` and friends), which are also [always available](../builtins.md).
 
+A function whose first argument is the value it works on can also be called as a method of that value, once its library is loaded: `"cuff".upper()` is `str_upper("cuff")`, and `[3, 1, 2].sort()` is `list_sort([3, 1, 2])`. The method name drops the library prefix. The
+[function index](../functions.md) lists the method form of every function that has one, and [method calls](../language.md#104-method-calls-on-built-in-values) gives the rules.
+
 ## The libraries
 
 <!-- BEGIN GENERATED: dlc-table -->

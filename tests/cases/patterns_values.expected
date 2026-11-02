@@ -1,0 +1,21 @@
+p"[num]+"
+p"[word]+"i
+true false false
+true false true
+true false false
+true true
+pattern
+true p"[num]+"
+true false
+p"[low]+"i
+p"[num]+" false
+p"[up]+" true
+p"[low]+" false
+true false
+true
+true
+true
+p"a\"b"
+true false
+false true
+2 [1, 2] {"a": 1} s 3

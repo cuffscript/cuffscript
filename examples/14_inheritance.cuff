@@ -1,0 +1,80 @@
+note: Inheritance: extends, overriding methods, super, and treating a child as its parent.
+
+class Shape do:
+    set str name to "shape"
+
+    func init(str name) do:
+        change self.name to name
+    end
+
+    func area() do:
+        return 0
+    end
+
+    func describe() do:
+        return f"{self.name} with area {self.area()}"
+    end
+end
+
+class Rectangle extends Shape do:
+    set number width to 0
+    set number height to 0
+
+    func init(number width, number height) do:
+        super.init("rectangle")
+        change self.width to width
+        change self.height to height
+    end
+
+    func area() do:
+        return self.width * self.height
+    end
+end
+
+class Square extends Rectangle do:
+    func init(number side) do:
+        super.init(side, side)
+        change self.name to "square"
+    end
+
+    func describe() do:
+        return super.describe() + ", all sides equal"
+    end
+end
+
+class Circle extends Shape do:
+    set number radius to 1
+
+    func init(number radius) do:
+        super.init("circle")
+        change self.radius to radius
+    end
+
+    func area() do:
+        return 3 * self.radius ** 2
+    end
+end
+
+set list shapes to [Rectangle(3, 4), Square(5), Circle(2)]
+loop each shape in shapes do:
+    print(shape.describe())
+end
+
+note: isa asks whether an object is of a class or one of its descendants
+loop each shape in shapes do:
+    print(shape.name, shape isa Shape, shape isa Rectangle, shape isa Square)
+end
+
+note: a parameter typed with the parent class accepts every child
+func total_area(list items) do:
+    set number total to 0
+    loop each item in items do:
+        change total to total + item.area()
+    end
+    return total
+end
+print(total_area(shapes))
+
+note: the parent's constructor is called explicitly with super.init(...)
+set Square sq to Square(2)
+print(sq.width, sq.height, sq.name)

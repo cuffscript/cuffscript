@@ -68,8 +68,8 @@ The report names the file and line where the error happened, but not who called 
 
 ## Recovering with `or_else`
 
-Errors raised while the program runs can be caught: the run-time errors (`E4-`), the module and sandbox errors (`E5-`) and the errors a pattern raises
-while matching (`E3-1`). Put an `or_else` block after the statement that may fail:
+Errors raised while the program runs can be caught: the run-time errors (`E4-`), the module and sandbox errors (`E5-`), the errors a pattern raises
+while matching (`E3-1`) and the errors the program raises itself with `fail` (`E7-`). Put an `or_else` block after the statement that may fail:
 
 ```cuff
 set number port to to_number("80a") or_else do:
@@ -85,7 +85,25 @@ port is not a number, using 80
 ```
 
 The handler runs in its own scope, what the statement did before failing stays done, and an error inside the handler
-is not caught by the same `or_else`. Syntax errors (`E1-`, `E2-`), errors in the syntax of a pattern (`E3-0`) and resource-limit errors (`E6-`) cannot be caught: they
+is not caught by the same `or_else`.
+
+### Looking at the error
+
+`or_else as err do:` gives the handler the error as an object with a `message`, a `code`, the `line` and `column` where it happened, and a `hint`:
+
+```cuff
+print(10 / 0) or_else as err do:
+    print(f"{err.code} at line {err.line}: {err.message}")
+end
+```
+
+```output
+E4-006 at line 1: division by zero
+```
+
+Use the code to decide what to do, and `fail err` inside the handler to pass an error you cannot deal with on to the caller. To raise an error of your own, write `fail "what went wrong"`, or `fail` an object of a class that `extends Error` to carry more details (see [errors are objects](../reference/classes.md#errors-are-objects)).
+
+Syntax errors (`E1-`, `E2-`), errors in the syntax of a pattern (`E3-0`) and resource-limit errors (`E6-`) cannot be caught: they
 mean the program or its budget has to change. The last column of the [catalogue](../reference/errors.md) says which codes can be caught. The full rules are in
 the [language reference](../reference/language.md#8-errors-and-or_else).
 
@@ -100,14 +118,17 @@ An error can also be *prevented*: check `length` before indexing, `map_has_key` 
 | [`E4-001`](../reference/errors.md#e4-001) | A variable that does not exist (yet). | Check the spelling, and that it was declared with `set` before this line, in a scope that can see it. |
 | [`E4-002`](../reference/errors.md#e4-002) | A function that does not exist. | A library function needs its `use DLC:...` line first. |
 | [`E4-005`](../reference/errors.md#e4-005) | A value of the wrong type, such as `"a" + 1`. | Convert explicitly with `to_str` or `to_number`. |
-| [`E4-003`](../reference/errors.md#e4-003) | A change to a constant, or to a read-only list. | Use `set` for a value that changes; make a copy of a constant list with `+ []` before changing it. |
+| [`E4-003`](../reference/errors.md#e4-003) | A change to a constant, or to a read-only list. | Use `set` for a value that changes; make a copy of a constant list with `copy(...)` before changing it. |
 | [`E4-004`](../reference/errors.md#e4-004) | A constant whose name is not in capitals. | Write the name in capitals, digits and underscores: `MAX_USERS`. |
 | [`E4-006`](../reference/errors.md#e4-006) | Division or remainder by zero, or zero to a negative power. | Test the divisor first. |
 | [`E4-007`](../reference/errors.md#e4-007) | Position `0`. | Positions start at 1; the last element is `-1`. |
 | [`E4-008`](../reference/errors.md#e4-008) | A position outside a list or string. | Positions run from 1 to the length, or from -1 (the last) backwards. |
 | [`E4-009`](../reference/errors.md#e4-009) | A map key that is not there. | Test with `map_has_key` first, or recover with `or_else`. |
 | [`E4-010`](../reference/errors.md#e4-010) | The wrong number of arguments. | Compare the call with the function's parameters. |
-| [`E4-016`](../reference/errors.md#e4-016) | `return` with a value in a function that is not `returnable`, or at the top level. | Declare it `set returnable func`. |
+| [`E4-016`](../reference/errors.md#e4-016) | `return` with a value at the top level of a program. | Put the code in a function, or show the value with `print`. |
+| [`E4-033`](../reference/errors.md#e4-033) | A field or method the object's class does not have. | The message lists the fields of the class; check the spelling. |
+| [`E4-034`](../reference/errors.md#e4-034) | A `private` member used outside its class. | Use it from a method of the class, or remove `private`. |
+| [`E7-001`](../reference/errors.md#e7-001) | The program raised an error with `fail`. | Read the message it gave, and fix the condition that led to it, or catch it with `or_else`. |
 | [`E4-017`](../reference/errors.md#e4-017) | Recursion that went too deep. | Make sure the recursion has a base case. |
 | [`E4-020`](../reference/errors.md#e4-020) | The value does not have the type `set` declared. | Declare the type the value really has: `find` gives a `str`, `match` gives a `match`. |
 | [`E4-024`](../reference/errors.md#e4-024) | A position or count that is not a whole number, such as `list[1.5]`. | Round it first with `math_floor` or `math_round`. |

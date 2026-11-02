@@ -1,4 +1,4 @@
-set returnable func say(text, value) do:
+func say(text, value) do:
     print(text)
     return value
 end
@@ -12,4 +12,4 @@ print(say("a", true) and say("b", false) or say("c", true))
 print(false and 1 / 0 is 1)
 print(true or 1 / 0 is 1)
 print(false and not_defined_anywhere)
-print(true || not_defined_anywhere)
+print(true or not_defined_anywhere)

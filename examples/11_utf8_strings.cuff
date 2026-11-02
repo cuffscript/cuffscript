@@ -11,15 +11,15 @@ print(f"3rd character of the mixed string: {mixed[3]}")
 print(f"mixed string character count: {length(mixed)}")
 
 note: regex also works per code point (character)
-if greeting is "[any]5" do:
+if greeting matches p"[any]5" do:
     print("[any]5 matched five Hangul characters")
 end
 
 note: Hangul can be written directly inside a pattern
-set match m to match "이름: 홍길동" from "이름: <name:[any]+>"
+set match m to match("이름: 홍길동", p"이름: <name:[any]+>")
 print(f"captured name: {m['name']}")
 
 note: but [let]/[str]/[word] are English-only, per the spec
-if !(greeting is "[let]+") do:
+if !(greeting matches p"[let]+") do:
     print("[let] is English-only, so it does not match Hangul (intended)")
 end

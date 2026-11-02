@@ -23,6 +23,10 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 ```
 
 - If it must always exist, add it to `registerBuiltins()`.
+- If its first argument is the value it works on (`str_upper(s)`, `list_sort(xs)`), also add one row to
+  `methodTable()` in `engine/dlc/MethodTable.h`: the method name (the function name without its library prefix), the function,
+  the kinds of value it accepts and the library it comes from. That one row makes `s.upper()` work, produces the "undefined
+  method" hint and fills the Method column of the function index. A function with no receiver (`math_min`, `random_*`) gets no row.
 - For a brand-new library, create a new file in `engine/dlc/` (include only
   `DLCCommon.h`), write a `registerXxxDLC()` function, `#include` the file from
   `NativeFunctions.h`, and add one row to `dlcTable()` in that file. The "unknown
@@ -61,9 +65,10 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 
 Extend the `Value` class in `engine/interpreter/Value.h`.
 
-1. Add an entry to `ValueType` and a name to `valueTypeName()`.
+1. Add an entry to `ValueType` and a name to `valueTypeName()` (`Pattern` and `Object` are the most recent additions,
+   and show what a reference-like type needs: its data lives behind a `shared_ptr`).
 2. Add the storage type to the `Value::Storage` variant, and add `make*`/`as*`/`is*`
-   helpers.
+   helpers. Add the type to `receiverBit()` in `engine/dlc/MethodTable.h` so that methods can be called on it.
 3. Add a new case to the switches in `truthy()`, `appendDisplay()` and
    `strictEquals()` (`equalsImpl`/`scalarEquals`) — the compiler catches a missing
    case via `-Wswitch`. The same goes for any other switch that branches on
@@ -77,23 +82,28 @@ Extend the `Value` class in `engine/interpreter/Value.h`.
 2. Add the parsing logic to the appropriate parser file (`StatementParser.h`
    dispatches on a statement's first token, and `LiteralParser::parsePrimary`
    dispatches on an expression's first token). If you need a new reserved word, add
-   it to `engine/common/TokenTypes.h` and `engine/lexer/KeywordClassifier.h`.
+   it to `engine/common/TokenTypes.h` and `engine/lexer/KeywordClassifier.h`, and decide whether it may still be used as a
+   name (see section 9). A new reserved word breaks every program that used it as a name, so it needs an entry in the
+   changelog.
 3. Add an output case to `engine/debug/ASTPrinter.h` (you can check it with `--ast`).
 4. Add the execution logic to the `execStatement`/`evalExpr` switches in
    `engine/interpreter/Interpreter.h`.
 
 If two parser classes have to call each other (for example, a new expression that
-must parse sub-expressions), follow the pattern `RegexExprParser.h` uses: keep only
+must parse sub-expressions), follow the pattern `LiteralParser.h` uses: keep only
 a forward declaration plus the member function **declarations** in the header, and
-write the actual definitions at the bottom of `ExpressionParser.h`, after both
-classes are complete types.
+write the actual definitions at the bottom of `ExpressionParser.h` (where
+`LiteralParser::parsePrimary` is defined), after both classes are complete types.
+
+A statement that changes a value takes a **place** as its target: `change`, `add` and `remove` all read it with the same
+function, so a new statement of that kind needs no target rule of its own.
 
 ## 4. Adding a new kind of error
 
 1. Add a new value to `ErrorCode` in `engine/common/ErrorCodes.h`, inside the right
    numeric band (1000=lexical, 2000=syntax, 3000/3100=regex syntax/runtime,
    4000=runtime, 5000=module, 6000=resource limit (not caught by `or_else`),
-   9000=internal).
+   7000=errors the program raises with `fail`, 9000=internal).
 2. If needed, add a small subclass to `engine/common/CuffError.h` (skip this step if
    one of the existing classes is enough — for example, you can throw
    `CuffRuntimeError(ErrorCode::MyCode, ...)` directly).
@@ -101,12 +111,14 @@ classes are complete types.
    by `errorCodeTag()` — do not write the tag string by hand; only write it in that
    form in a test's `.expected_code`.
 4. Whether an error is `recoverable` is decided automatically by the code's numeric
-   band (`errorCodeRecoverable()`) — 3100 to 5999 can be caught by `or_else`, the
-   rest cannot.
+   band (`errorCodeRecoverable()`) — 3100 to 5999 and 7000 to 7999 can be caught by `or_else`, the
+   rest cannot. A caught error reaches the program as an `Error` object, so a new catchable code needs nothing else to be
+   readable from a handler.
 5. Write a one-line description after the enumerator (`Name = 4031, // What this means.`).
    The [error catalogue](../reference/errors.md) is generated from it: run
    `python3 tools/docs.py generate`. A code that nothing raises is listed as reserved
-   automatically.
+   automatically. Add a `cuff error CODE` example for it to the catalogue by hand; the documentation check runs it.
+6. Add a `tests/errors/` case for the new code.
 
 ## 5. Adding a "freezable" state to a value type (e.g. `isConstant` on `constant list`)
 
@@ -134,32 +146,34 @@ instead of creating a new value type (see `constant list` in v2.0.0).
 ## 6. Toggling per-call state with function scope (e.g. `pure`)
 
 This is the pattern for adding a modifier that is only valid "during this function
-call", like `async`/`returnable`/`pure`.
+call", like `async` and `pure`.
 
-1. Add a boolean field to `FunctionDecl` and fill it in the parser (mainly the
-   modifier loop in `FunctionParser.h`). The lookahead condition in
-   `DeclarationParser::isFunctionDecl` also needs the new keyword, so that
-   `set newkeyword func ...` is recognized as a function declaration.
-2. Add a `bool currentFlag_ = false;` member to `Interpreter`, and have `FrameGuard`
-   save the previous value on call entry and restore it on exit (so each frame has
-   its own value even under recursion). This state belongs to `Interpreter`, not to
-   `Environment` — `returnable` is done the same way, for the same reason.
+1. Add a boolean field to `FunctionDecl` and fill it in the parser (the modifier loop
+   in `FunctionParser::parse`). The new keyword also has to be accepted by
+   `FunctionParser::atFunctionStart`, so that `newkeyword func ...` is recognized as a
+   function declaration where `StatementParser.h` dispatches on the first token. A
+   modifier that is written twice is a syntax error.
+2. Add a member to `Interpreter` for the state, and have `FrameGuard` save the previous
+   value on call entry and restore it on exit (so each frame has its own value even
+   under recursion). This state belongs to `Interpreter`, not to `Environment`;
+   `currentFunctionPure_` is done this way.
 3. Put the actual restriction or behavior at the places that check the flag. A
    function scope sees only its own locals plus the names it bridged with
-   `change x to global`, so `pure` is enforced where a name fails to resolve:
+   `global x`, so `pure` is enforced where a name fails to resolve:
    `Interpreter::throwUnresolved()` (reached from the identifier lookup in
    `evalExpr`, `execChange` and `execCollectionOp`) raises the pure-specific error
    when the missing name exists as a global. A pure function can never bridge, so it
-   can never reach a global. If your new restriction has a different condition,
-   pick the points that fit it.
+   can never reach a global. A pure method may also not change a field
+   (`PureFunctionFieldWrite`), which is checked where a field is written. If your new
+   restriction has a different condition, pick the points that fit it.
 4. By default the flag applies **only to that function's own body** and is not
    propagated to other functions it calls (when the callee finishes, `FrameGuard`
    automatically restores the previous value). For `pure` that default is too easy
    to bypass (just wrap a general function that touches globals in one more call),
-   so at the call site (`evalCall`/`invokeAwaited`) `checkPureCallAllowed()`
-   additionally enforces "a pure function cannot call a user function that is not
-   pure" — follow this pattern if you need a restriction that propagates through
-   the whole call graph.
+   so at the call sites (`evalCall`, `invokeAwaited` and the method call path)
+   `checkPureCallAllowed()` additionally enforces "a pure function cannot call a user
+   function that is not pure" — follow this pattern if you need a restriction that
+   propagates through the whole call graph.
 
 ## 7. Adding a new token to regex patterns (e.g. `[newtoken]`)
 
@@ -196,33 +210,23 @@ page under `docs/`; [Documentation](documentation.md) says which, and what is ge
 
 ## 9. Allowing reserved words in name positions (parser)
 
-When a new statement/declaration syntax has a spot where "a name goes here", use
-`isWordLikeToken(p.current())` (`ParserCore.h`) instead of
-`p.check(TokenType::IDENTIFIER)`. Otherwise words that are reserved elsewhere, such
-as `add`, `count` and `find`, are rejected as names. A name position is a fixed spot
-in the grammar where "exactly one word comes and the next token is determined", so
-accepting reserved words there is not ambiguous.
+Six reserved words may still be used as names: `add`, `to`, `in`, `global`, `not` and `from`
+(`isBareIdentifierKeyword()` in `ParserCore.h`). When a new statement/declaration syntax has a spot where
+"a name goes here", use `isNameToken(p.current())` (or `p.consumeName(...)`) instead of
+`p.check(TokenType::IDENTIFIER)`, so that those six are accepted there. Every other reserved word stays reserved:
+a block or control-flow keyword (`end`, `do`, `if`, ...), an operator written as a word (`is`, `and`, `or`, `matches`,
+`isa`) or a literal (`true`/`false`/`empty`) appearing where an expression should be usually means a real syntax error
+with a missing operand, and accepting it as a name would turn a clear "unexpected token" into a misleading runtime error.
 
-Reading a name back in expression position (`LiteralParser::parsePrimary`) is
-different — it is the only place where the token type decides "what to parse", so
-the handling depends on whether the keyword means something else in expression
-grammar:
-- Connectors that mean nothing in expression grammar
-  (`add`/`to`/`in`/`by`/`global`/`not`/`from`) become plain identifiers when added
-  to `isBareIdentifierKeyword()`.
-- Keywords that already have their own expression syntax
-  (`match`/`find`/`replace`/`split`/`count`) use a one-token lookahead
-  (`looksLikeConstructContinuation()`) to tell "that syntax starts here" from "it is
-  just a name". `(` and `[` are deliberately left out of that check: postfix parsing
-  turns `name(...)` into a call and `name[...]` into an indexing, so treating them
-  as "construct start" here would leave no way to call or index a function/variable
-  with that name.
-- Block/control-flow keywords (`end`, `do`, `if`, ...), the operators written as
-  words (`is`, `and`, `or`) and the literals (`true`/`false`/`empty`) are
-  deliberately kept reserved — such a token appearing
-  where an expression should be usually means a real syntax error with a missing
-  operand, and accepting it as a name would turn a clear "unexpected token" into a
-  misleading runtime error.
+Two more rules decide what a word means from where it stands:
+
+- **After a dot.** A member name is read by `consumeMemberName()`, which accepts any word, keywords included
+  (`text.repeat(3)`, `m.end`), because a dot leaves no doubt about what the word is.
+- **Type names.** The names of the types (`number`, `list`, `pattern`, ...) and of classes are not reserved. They are
+  read as types only where a type may stand, which `TypeParser::atType` decides: after `set [constant]`, before a
+  parameter name that follows, and in a field declaration. Anywhere else they are ordinary identifiers.
+
+Adding a new reserved word is a breaking change for programs that used it as a name; see section 3.
 
 ## 10. Source line and caret (`^`) in error messages
 
@@ -271,13 +275,14 @@ as `NetworkDLC.h` does with the HTTP client.
 
 ## 12. When touching function parameter syntax
 
-The parameter list is parsed in one place, `parseParam` in `FunctionParser.h`
-(`name` or `type name`). To allow a new type, add it in three places:
-`ParamType`/`paramTypeName` in `ASTNodes.h`, `FunctionParser::paramTypeFromToken`,
-and the switch in `Interpreter::checkParamTypes` (`-Wswitch` catches a missing
-case in the switches). Type checking happens in `evalCall`/`invokeAwaited` **before**
-dispatch, so an async function also errors at the call site — do not defer it until
-after the job is queued.
+The parameter list is parsed in one place, `FunctionParser::parseParam`
+(`[type] name [to default]`). A word followed by a name is a type and a word alone is
+the name. A new built-in type is added in `TypeKind` and `builtinTypeFromName`
+(`ASTNodes.h`) and in `Interpreter::typeAccepts`, which both `set` and the parameter
+check use (`-Wswitch` catches a missing case in the switches). Type checking happens in
+`evalCall`/`invokeAwaited` **before** dispatch, so an async function also errors at the
+call site — do not defer it until after the job is queued. Default values are worked out
+at each call, in the scope of the function, after the arguments that were passed.
 
 ## 13. When touching `use` statement syntax
 

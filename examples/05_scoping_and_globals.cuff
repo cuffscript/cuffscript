@@ -1,9 +1,9 @@
-note: function-level scope + bridging with change ... to global
+note: function-level scope + bridging a global variable with `global`
 
 set number counter to 0
 
-set func increment() do:
-    change counter to global
+func increment() do:
+    global counter
     change counter to counter + 1
 end
 

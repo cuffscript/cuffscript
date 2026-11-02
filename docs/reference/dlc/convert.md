@@ -59,4 +59,4 @@ print(n)
 ```
 
 `to_number` does not accept a comma as a decimal separator or as a thousands separator: `"1,5"` is `E4-025`. Remove the commas first with
-`replace "," in text to "" g`, or split the text.
+`replace_all(text, p",", "")`, or split the text.

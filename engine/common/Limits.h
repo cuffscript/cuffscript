@@ -96,6 +96,19 @@ namespace cuff::limits
     // How many `async` calls may wait to run at once.
     constexpr size_t kMaxQueuedTasks = 1000000;
 
+    // @limit Class inheritance depth | E4-026
+    // How many parent classes one class may have in a chain (`extends` of `extends` of ...).
+    constexpr int kMaxInheritanceDepth = 64;
+
+    // @limit Members per class | E4-026
+    // The most fields and methods one class can have, counting the ones it inherits. It also bounds the size of
+    // every object of that class.
+    constexpr size_t kMaxClassMembers = 1024;
+
+    // @limit Classes | E4-026
+    // The most classes a program can declare, modules included. The built-in `Error` class does not count.
+    constexpr size_t kMaxClasses = 4096;
+
     // @limit Module nesting | E5-007
     // How many levels of modules may import other modules.
     constexpr int kMaxImportDepth = 64;
@@ -169,6 +182,10 @@ namespace cuff::limits
     // Queued calls are counted against the same family of limits as collections: the queue is never allowed to
     // outgrow what a list of the same calls could be.
     static_assert(kMaxQueuedTasks <= kMaxCollectionItems, "kMaxQueuedTasks exceeds kMaxCollectionItems");
+
+    // A chain of parents is a chain of classes, so it can be no longer than the number of classes.
+    static_assert(static_cast<size_t>(kMaxInheritanceDepth) < kMaxClasses,
+                  "kMaxInheritanceDepth does not fit in kMaxClasses");
 
     // The connect timeout is part of the total one.
     static_assert(kHttpConnectTimeoutMs <= kHttpTotalTimeoutMs, "kHttpConnectTimeoutMs exceeds kHttpTotalTimeoutMs");

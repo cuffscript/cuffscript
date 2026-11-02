@@ -13,7 +13,7 @@ project/
 `lib/ratio.cuff`:
 
 ```cuff
-set returnable func ratio(a, b) do:
+func ratio(a, b) do:
     return a / b
 end
 ```
@@ -32,7 +32,7 @@ the script, written as `.`:
 
 ```cuff
 use DLC:filesystem
-file_write("greeter.cuff", "set returnable func greet(name) do:\n    return \"Hello, \" + name + \"!\"\nend\nset number visits to 0\n")
+file_write("greeter.cuff", "func greet(name) do:\n    return \"Hello, \" + name + \"!\"\nend\nset number visits to 0\n")
 
 use greeter from .
 print(greet("Ann"), visits)
@@ -74,8 +74,8 @@ Hello, Ann! 0
 
   ```cuff
   use DLC:filesystem
-  file_write("a.cuff", "set returnable func fa() do:\n    return 1\nend\n")
-  file_write("b.cuff", "use a from .\nset returnable func fb() do:\n    return fa() + 1\nend\n")
+  file_write("a.cuff", "func fa() do:\n    return 1\nend\n")
+  file_write("b.cuff", "use a from .\nfunc fb() do:\n    return fa() + 1\nend\n")
   use b from .
   print(fb())
   ```
@@ -84,8 +84,23 @@ Hello, Ann! 0
   2
   ```
 
+- A module's classes are available to the whole program as well:
+
+  ```cuff
+  use DLC:filesystem
+  file_write("shapes.cuff", "class Square do:\n    set number side to 1\n    func area() do:\n        return self.side * self.side\n    end\nend\n")
+  use shapes from .
+  set Square s to Square()
+  change s.side to 3
+  print(s.area())
+  ```
+
+  ```output
+  9
+  ```
+
 - A module's top-level variables are copied into the scope that wrote `use`, after the module has run, so `set number secret_a to 1` in a module is visible as `secret_a` in the file that
-  loaded it. A function of the module that wants to read such a variable has to bridge it first, like any function (`change secret_a to global`); the bridge finds the copy in the file that loaded the module.
+  loaded it. A function of the module that wants to read such a variable has to bridge it first, like any function (`global secret_a`); the bridge finds the copy in the file that loaded the module.
 - Modules may load modules; the nesting is limited (see [limits](../reference/limits.md)).
 - The libraries a module loads with `use DLC:...` stay available to the whole program, because a library is loaded into the program, not into one file.
 

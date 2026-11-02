@@ -1,0 +1,9 @@
+class Box do:
+    func open() do:
+        print(1)
+    end
+    func open() do:
+        print(2)
+    end
+end
+print(1)

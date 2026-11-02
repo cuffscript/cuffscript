@@ -1,12 +1,12 @@
 note: E4-001 -- if one queued job throws, the remaining jobs must not run,
 note: exactly as when an error occurs partway through synchronous code.
-set async func task_a() do:
+async func task_a() do:
     print("A ran")
 end
-set async func task_b() do:
+async func task_b() do:
     change undeclared_var to 5
 end
-set async func task_c() do:
+async func task_c() do:
     print("C ran (should not happen)")
 end
 task_a()

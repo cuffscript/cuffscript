@@ -1,0 +1,4 @@
+set number total to 0
+func bump() do:
+    change total to global
+end

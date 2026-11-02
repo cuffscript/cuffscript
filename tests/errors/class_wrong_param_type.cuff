@@ -1,0 +1,8 @@
+class Cat do:
+end
+class Dog do:
+end
+func feed(Cat c) do:
+    print(1)
+end
+feed(Dog())

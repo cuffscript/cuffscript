@@ -15,13 +15,13 @@ set number current_lvl to 1
 set str user_email to "Player_One@CuffLang.com"
 set list reward_tier_list to ["Gold", "Silver", "Bronze"]
 
-note: Step 3: declare the returnable functions that handle logic checks and text pattern matching
-set returnable func audit_and_assess_user(email, lvl) do:
+note: Step 3: declare the functions that handle logic checks and text pattern matching
+func audit_and_assess_user(email, lvl) do:
 
-    change MAX_LEVEL to global
+    global MAX_LEVEL
 
     note: validate the email's structure with pattern matching (the `is` operator)
-    if email is "[str]+@[str]2~10" do:
+    if email matches p"[str]+@[str]2~10" do:
         print("Pattern matching engine: email structure verified")
     end
 
@@ -40,7 +40,7 @@ set returnable func audit_and_assess_user(email, lvl) do:
 end
 
 note: Step 4: define a standalone async function for background data processing
-set async func backup_user_cloud_data() do:
+async func backup_user_cloud_data() do:
     print("Sending a snapshot of the virtual machine's internal data to the remote cloud infrastructure.")
 end
 

@@ -1,5 +1,5 @@
 note: await on a non-async function -> AwaitOnNonAsync
-set func greet() do:
+func greet() do:
     print("hi")
 end
 await greet()

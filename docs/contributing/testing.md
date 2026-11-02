@@ -1,12 +1,13 @@
 # Testing
 
-There are three test suites and one documentation check. All of them run in CI; `.github/workflows/` says which on what.
+There are three test suites, one tool test and one documentation check. All of them run in CI; `.github/workflows/` says which on what.
 
 | Suite | What it covers | Run it with |
 | :--- | :--- | :--- |
 | Engine and language | `tests/`: unit tests, success cases, error cases, the examples | `bash tests/run.sh` |
 | Shell | `cli/tests/`: the interactive shell, on a real pseudo-terminal | `cli/tests/run_tests.sh` |
 | Documentation | Generated pages, links, the examples in the docs | `python3 tools/docs.py check` |
+| Migration tool | `tools/migrate_3_to_4_test.py`: the rewrites the 3.x-to-4.0 migration tool makes | `python3 tools/migrate_3_to_4_test.py` |
 
 Build first: `make` for the first two, plus `cli/build.sh` for the shell tests.
 
@@ -42,10 +43,13 @@ normalises line endings and links the unit tests the way `Makefile.win` does.
 | File | Protects |
 | :--- | :--- |
 | `regex_test.cpp` | The pattern engine on its own, without the language around it. |
+| `syntax_test.cpp` | The grammar, production by production: what the parser accepts, what it rejects, and the hint it gives for a spelling it recognises but does not accept. The programs are parsed, never run. |
+| `classes_test.cpp` | The object model: that each interpreter owns its classes, what a `Session` keeps between entries, the order in which an object is made, how `with` looks a name up, private access, and how errors become objects. |
+| `builtins_test.cpp` | The built-in functions that touch the process's streams or shared state: `input()` and `DLC:random`. |
 | `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which file it is drawn from, and that a reported line and column always agree with the offset. |
-| `limits_test.cpp` | The limits and how they relate: long chains, the stack plan, a small real thread stack. |
+| `limits_test.cpp` | The limits and how they relate: long chains, the stack plan, a small real thread stack, and the limits on classes, members and inheritance depth. |
 | `dlc_guards_test.cpp` | The network and filesystem guards. |
-| `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
+| `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time, including programs that declare classes and make objects. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
 
 ## The shell suite
 
@@ -94,7 +98,7 @@ produces the output shown. See [Documentation](documentation.md).
 
 ## Sanitizers
 
-Leak detection is off on purpose: a list or map that contains itself is reference counted and never freed (see
+Leak detection is off on purpose: a list, map or object that refers to itself is reference counted and never freed (see
 [design notes](../internals/design-notes.md)), and some tests build exactly that.
 
 ```sh

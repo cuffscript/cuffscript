@@ -1,0 +1,19 @@
+invalid age: age cannot be negative
+error E7-001: age is too large
+custom text E7-001 0 0 true
+[E7-001] custom text
+true Error
+E4-006
+division by zero
+44 9
+true
+E4-008 index 5 is out of range (length 2)
+caught
+outer saw: inner problem
+NotFound true false
+[E7-001] wrapped: inner problem
+first E4-006
+again E4-006
+E7-001 lookup failed
+[E7-001] lookup failed
+94 5 located

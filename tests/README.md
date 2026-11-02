@@ -16,6 +16,6 @@ bash tests/run.sh                      # Linux, macOS
 powershell -File tests\run.ps1         # Windows
 ```
 
-A passing run ends with a summary line such as `146 passed, 0 failed`. Set `CUFFC` to test another binary (a sanitizer build, for example) and `UNIT_FLAGS` to change how the unit tests are compiled.
+A passing run ends with a summary line of the form `N passed, 0 failed`. Set `CUFFC` to test another binary (a sanitizer build, for example) and `UNIT_FLAGS` to change how the unit tests are compiled.
 
 How the suites work, how to add a test, what each unit test protects, sanitizers and what CI runs are in [Testing](../docs/contributing/testing.md). The interactive shell has its own tests in `cli/tests/`.

@@ -1,2 +1,2 @@
 note: E3-004
-print("a" is "[num]99999999999")
+print("a" matches p"[num]99999999999")

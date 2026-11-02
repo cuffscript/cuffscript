@@ -1,0 +1,2 @@
+set str answer to "yes"
+print(answer IS "YES")
