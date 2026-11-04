@@ -1,3 +1,79 @@
+## v4.0.0 - 2026-11-04
+
+## Description
+
+- **Behavior change: the syntax is cleaned up, and a program written for 3.x has to be rewritten by hand.** Every form that was removed is a syntax error (`E2-001`) whose hint says what to write, so an old program stops with a message and never quietly means something else, apart from the three changes listed separately below. The table at the end of this entry lists every change with the form to write instead.
+
+- **Behavior change: `change`, `add` and `remove` take the same kind of target, a place.** A place is a name, `self` or a `.name` of a `with` block, followed by any number of `[index]` and `.field`. `add 5 to grid[1]` adds to the inner list, `remove "x" from self.items` removes from a field, and `change grid[2][3] to 0` changes an item, all by one rule. The statement `replace items[2] to "x"` is gone (`change items[2] to "x"`). **A program that has `add X to NAME[i]` or `remove X from NAME[i]` means something different now:** in 3.x the target ended at the name and the `[i]` after it was read as a list of its own; now the target is the element `NAME[i]`. Search a program for `add ... to NAME[` and `remove ... from NAME[`.
+
+- **Behavior change: `is` only compares values.** It no longer reads a string on its right as a pattern, so `code is "[num]4"` is an ordinary comparison with that text and is false. Write `code matches p"[num]4"`. The case-insensitive `IS` is removed (`answer matches p"yes"i`). Two objects are `is` equal only when they are the same object; two patterns when their source and flags are the same.
+
+- **Behavior change: functions are declared with `func`, with `async` and `pure` in front.** `set returnable func f()` is `func f()`, and `set async pure func f()` is `async pure func f()`. `returnable` is removed because every function can `return` a value, and a function that ends without one gives `empty`. `E4-016` now means `return` with a value outside any function.
+
+- **Behavior change: `change x to global` is `global x`**, a statement written before the names are used, which may name several variables (`global a, b`).
+
+- **Behavior change: the text statements are functions, and patterns are values.** `find P from T`, `match T from P`, `replace P in T to R`, `split T by P` and `count P in T` are `find(T, p"P")`, `match(T, p"P")`, `replace(T, p"P", R)`, `split(T, p"P")` and `count(T, p"P")`, with the text first. The flag `g` is gone: `find_all` and `replace_all` do what it did. A pattern is written `p"..."` and is *raw*: the text between the quotes goes to the pattern parser as written, so a backslash in a pattern is written once, not four times (`p"a\\b"`), and the only escape the literal reads is `\"`. The flags `i` and `m` follow the closing quote.
+
+- **Behavior change: 11 reserved words are added and 13 are removed, 44 in all.** `class`, `each`, `extends`, `fail`, `isa`, `matches`, `private`, `self`, `skip`, `super` and `with` can no longer be names of variables, functions or parameters. Rename them. `IS`, `by`, `count`, `find`, `replace`, `split`, `returnable` and the type names `boolean`, `list`, `map`, `match`, `number` and `str` are no longer reserved: a type name is a type only where a type may stand (`set list items to []`, a parameter `list items`) and is an ordinary name everywhere else, so `set list list to [1]` is valid.
+
+- **Removed: `&&` and `||`.** Write `and` and `or`; the hint says so. Also removed: `replace NAME[i] to value`, `set` and `returnable` before `func`, `change x to global`, the five text statements and their flag `g`, and `IS`.
+
+- **Added: classes and objects.** `class Player do: ... end` declares fields (`set number x to 0`), methods (`func`) and, if wanted, the constructor `init`. `Player("Ann")` makes an object, `player1.sayhello()` calls a method, `self` is the object inside a method, `class Hero extends Player` inherits and `super.sayhello()` calls the parent's method. A member marked `private` can be used only by the methods of its class. Objects are shared like lists and maps, `is` compares identity, `copy(obj)` makes a shallow copy, `obj isa Player` tests the class, and `Player` and `object` are types for variables and parameters. A `print` of an object shows `<Player>` unless its class has a `to_str` method, `to_json` writes the public fields, and a `set constant` field must be written in capitals and can be set only by `init`. A class is declared at the top level of a file and may be used above its declaration. The reference is [classes](reference/classes.md) and the tutorial [classes and objects](guide/classes-and-objects.md).
+
+- **Added: `with object do:`.** Inside the block the object's members can be used by their plain names (`sayhello()`, `change speed to 5`) and as `.name`. A name is looked up as a variable of the block, then as a member, then in the rest of the program. `with` opens a scope of its own.
+
+- **Added: errors are objects.** `or_else as err do:` gives the handler an `Error` with `message`, `code`, `line`, `column` and `hint`, for every error the handler can catch. `fail "message"` or `fail Error("message")` raises an error of the program, reported as `E7-001`, a new category that `or_else` can catch, and a class that `extends Error` raises its own kind (`fail NotFound("x")`, tested with `err isa NotFound`). `fail err` inside a handler raises the same error again.
+
+- **Added: patterns as values.** `p"..."` has the type `pattern`; `set pattern p to p"[num]+"` and `text matches p` work, a pattern can be passed to a function, and `pattern(text)` or `pattern(text, "i")` builds one while the program runs. `matches` tells whether a whole `str` fits a pattern.
+
+- **Added: `loop each`, `skip` and default parameters.** `loop each item in items do:` visits the items of a list, the keys of a map or the characters of a text, and `skip` goes on with the next pass. A parameter may have a default (`func greet(str name, str word to "Hello")`), which is worked out at each call.
+
+- **Added: methods on built-in values.** A library function whose first argument is the value it works on can be called as a method: `text.upper()` is `str_upper(text)`, `scores.sort()` is `list_sort(scores)`, `text.find(p"[num]+")` is `find(text, p"[num]+")`. The library must be loaded with `use` as before, and the function form still works. `copy(x)`, also written `x.copy()`, makes a copy of a list, a map or an object, one level deep.
+
+- **Added: error codes `E4-031` to `E4-041` and `E7-001`.** They cover an unknown class, a class that inherits from itself, a member that does not exist, a `private` member used outside its class, `.name` or `with` on something that is not an object, a class inside a block, a member declared twice, a class named like a function or another class, a class name without a capital, a method used as a value, and a `pure` function that changes a field. `E4-004` also covers a constant field whose name is not in capitals. `E4-026` covers three new limits: 64 ancestors of a class, 1,024 members of a class and 4,096 classes in a program. Every code has an example in the error catalogue that the documentation check runs.
+
+- **Changed: `cuffsh`, the tools and the examples follow the new syntax.** The shell knows that `class`, `with` and `loop each` open a block, and keeps the classes of a session (declaring a class again replaces it for objects made afterwards). The syntax tree printed by `cuffc --ast` shows the new nodes, and the function pages of the documentation list the method form of each function. The examples are rewritten as a course: `01` to `12` take one subject each, in order, from `print` through text and patterns, errors, `async`, classes, inheritance and `with`; `13` to `15` load a module, use the libraries and work with a file; `16` to `19` are small programs of the kind people write (a word count, an inventory, a bank account, a log summary).
+
+- **Changed: the documentation is written for 4.0.0.** The grammar, the language reference, the pattern reference, the error catalogue, the limits, every library page, the guides, the cookbook and the FAQ describe the new language, with the new reference [classes](reference/classes.md) and the new guide [classes and objects](guide/classes-and-objects.md). The design notes record the decisions of this release from item 46 on. The documentation check runs 217 examples, up from 148.
+
+- **Added: tests, grouped by the part of the language they check.** `tests/cases/` and `tests/errors/` are divided into `syntax`, `values`, `operators`, `collections`, `control`, `functions`, `errors`, `classes`, `modules`, `text`, `libraries`, `limits` and `phenomena`, and `tests/README.md` says which productions of the grammar each area answers for. There are 146 error cases (84 in 3.5.1), 66 cases (32 in 3.5.1), 19 examples and 13 example errors, and nine unit tests with 2,550 checks: `syntax_test.cpp` for what the parser accepts and refuses, `classes_test.cpp` for the object model and the `with` lookup order, `phenomena_test.cpp` for what has been printed when an error ends a run, more limits (module depth and size, the regex step and time budgets) in `limits_test.cpp` and `regex_test.cpp`, and a threads test that declares classes and makes objects on every thread. The new `python3 tests/coverage.py` asks the engine what it contains and fails when an error code that can be raised, a library function, a built-in method or a production of the grammar is touched by no test; it runs in CI.
+
+- **Added: [How it works](internals/how-it-works.md) and [Phenomena](guide/phenomena.md).** The first says what the engine does while a program runs: the four steps of a run, scopes, calls, how values are shared, loops, errors and the `async` queue. The second lists fourteen behaviours that follow from those rules, such as functions being known before the first line runs, a loop working from the items it started with, and `0.1 + 0.2` printing as `0.3` while not being `is 0.3`. Each has a program that is also a test, and `tests/coverage.py` fails if a program in the guide stops being the test.
+
+- **Fixed: the build failed with clang on macOS.** `Interpreter` has a private base class with a virtual function and no virtual destructor, and clang's `-Wdelete-non-abstract-non-virtual-dtor` is an error under `-Werror`. `Interpreter` is now `final`, which is what it always was.
+
+- **Fixed: a line break inside a string literal was a carriage return and a line feed when the file used CRLF.** `length()` of a two-line literal was one more on Windows than on Linux and macOS, so the same program printed different text. A line break in a literal is now one `\n` on every platform. `*.cuff` files are checked out with LF line endings, and `phenomena_test.cpp` runs the same literal with both endings.
+
+- **Fixed: `cuffsh`'s test of a failing `async` job looked for a file that had moved**, so it passed without checking anything. It now finds the file, and stops if it is missing.
+
+- **Changed: the engine is faster.** A value is now a tag and a payload written out by hand instead of a `std::variant`, so copying, moving and dropping a number, a boolean or `empty` costs a few instructions and no call, and the pattern matcher no longer allocates for every step. Measured on one machine against 3.5.1, best of five: a loop of 400,000 iterations 48.9 ms to 34.9 ms, recursive `fib(24)` 30.6 ms to 23.8 ms, pattern matching and text functions over 100 KB 54.7 ms to 26.7 ms, random numbers 30.0 ms to 23.9 ms. One million method calls take 133 ms, down from 237 ms. `change self.name to value` and `change variable.name to value` skip the general walk of a place. Behaviour is unchanged: the whole suite passes under AddressSanitizer and UndefinedBehaviorSanitizer with assertions on, and a mutation fuzz of 3,000 programs found nothing.
+
+### Migrating from 3.x
+
+| 3.x | 4.0.0 |
+| :--- | :--- |
+| `set returnable func f(a) do: ... end` | `func f(a) do: ... end` |
+| `set async pure returnable func f()` | `async pure func f()` |
+| `change total to global` | `global total` |
+| `replace items[2] to "x"` | `change items[2] to "x"` |
+| `add 5 to grid[1]` (added to `grid`) | `add 5 to grid[1]` (adds to the inner list) |
+| `if code is "[up]2-[num]4" do:` | `if code matches p"[up]2-[num]4" do:` |
+| `if answer IS "yes" do:` | `if answer matches p"yes"i do:` (or `is`) |
+| `set str p to "[num]+"` and `x is p` | `set pattern p to p"[num]+"` and `x matches p` |
+| `find "[num]+" from text` | `find(text, p"[num]+")` |
+| `find "[num]+" from text g` | `find_all(text, p"[num]+")` |
+| `match text from "(a)(b)"` | `match(text, p"(a)(b)")` |
+| `replace "a" in text to "b" g` | `replace_all(text, p"a", "b")` |
+| `split text by "[sp]+"` | `split(text, p"[sp]+")` |
+| `count "a" in text i` | `count(text, p"a"i)` |
+| `"a\\\\b"` (one backslash in a pattern) | `p"a\\b"` |
+| `a && b`, `a \|\| b` | `a and b`, `a or b` |
+| a variable named `each`, `skip`, `with`, ... | the same name with a trailing underscore, or another name |
+| index loop `1 ~ length(items)` | `loop each item in items do:` |
+
+
+---
+
 ## v3.5.1 - 2026-10-28
 
 ## Description
