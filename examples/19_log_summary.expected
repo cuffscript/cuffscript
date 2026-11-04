@@ -1,0 +1,8 @@
+by level:
+  ERROR: 1
+  INFO: 3
+  WARN: 1
+by user:
+  ann: 3
+  bob: 2
+skipped 1 line(s)

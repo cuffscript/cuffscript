@@ -1,0 +1,13 @@
+["magic staff", "shield", "potion"]
+["magic staff", "potion"]
+["magic staff"]
+{"name": "Bob", "level": 50}
+{"name": "Bob"}
+[[1, 2, 5], [30, 4]]
+{"scores": [10, 20, 30]}
+[20, 30, 40] 50 [30, 40, 50]
+Hello World
+[1, 2, 3, 4]
+[1, 2, 3, 4] [1, 2, 3, 4, 5]
+position 99 does not exist; using 0
+safe_value = 0

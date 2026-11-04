@@ -71,5 +71,5 @@ for logs. Front ends print the rendered text, prefixed with `ERROR: `, and nothi
 1. Add an enumerator to `ErrorCodes.h` in the right range, with its one-line description after it.
 2. Add `errorCategoryName`/`errorCodeRecoverable` handling only if you start a new range.
 3. Throw it where the problem is found, from the subclass that matches its kind, with a message and, where one helps, a hint.
-4. Add a case to `tests/errors/` that must fail with that code (see [Testing](../contributing/testing.md)).
+4. Add a case to `tests/errors/<area>/` that must fail with that code (see [Testing](../contributing/testing.md)).
 5. Run `python3 tools/docs.py generate`, which adds the code to the catalogue.

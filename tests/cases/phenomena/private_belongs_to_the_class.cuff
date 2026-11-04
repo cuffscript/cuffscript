@@ -1,0 +1,19 @@
+class Parent do:
+    private set number secret to 7
+
+    func reveal() do:
+        return self.secret
+    end
+end
+
+class Child extends Parent do:
+    func peek() do:
+        return self.secret
+    end
+end
+
+set Child kid to Child()
+print(kid.reveal())
+print(kid.peek()) or_else as problem do:
+    print(problem.code, "a child inherits the field but not the right to read it")
+end

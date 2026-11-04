@@ -14,7 +14,7 @@ listed because they change; the order is the order a program travels through the
 | `npm/` | The npm package that ships the WebAssembly build. |
 | `tests/` | The engine and language suite: unit tests, cases, error cases. |
 | `examples/` | Runnable programs with expected output, error cases, and a C++ embedding example. |
-| `tools/` | `docs.py` (the documentation generator and checker), `introspect.cpp` (what it asks the engine) and `migrate_3_to_4.py` (the syntax migration tool, with its tests). |
+| `tools/` | `docs.py` (the documentation generator and checker), `introspect.cpp` (what it asks the engine). |
 | `docs/` | The documentation. |
 | `.github/` | Workflows, issue and pull request templates. |
 | `Makefile`, `Makefile.win` | The build for `cuffc` (and `cuffc.exe` with MinGW-w64). |
@@ -109,7 +109,9 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | :--- | :--- |
 | `tests/run.sh`, `tests/run.ps1` | The runners for the engine and language suite. |
 | `tests/unit/` | C++ unit tests, each a program with a `main()`: the grammar, the object model, the limits, threads and more. |
-| `tests/cases/`, `tests/errors/` | Programs with the output they must print, and programs that must fail with a given code. |
+| `tests/cases/<area>/`, `tests/errors/<area>/` | Programs with the output they must print, and programs that must fail with a given code, grouped by the part of the language they are about. |
+| `tests/cases/phenomena/` | One program for each behaviour in [Phenomena](../guide/phenomena.md); `tests/unit/phenomena_test.cpp` covers what a script cannot show about itself. |
+| `tests/coverage.py` | Reports the error codes, functions, methods and grammar productions that no test touches. |
 | `cli/tests/` | The shell suites: `run_tests.sh`, `run_tests.ps1`, the Python harness and tests. |
 | `tools/docs.py` | Generates the tables in the documentation and checks it; see [Documentation](../contributing/documentation.md). |
 | `tools/introspect.cpp` | A small program that prints what the engine knows about itself (the libraries and their functions, the built-in methods, the error codes and the limits), so the documentation check reads these from the engine. |

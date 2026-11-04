@@ -1,0 +1,9 @@
+note: a number prints with 15 significant digits, but is compared exactly
+print(0.1 + 0.2)
+print(0.1 + 0.2 is 0.3)
+print(1 / 3)
+print(0.1 * 3, 0.1 * 3 is 0.3)
+
+note: so compare after rounding
+use DLC:math
+print(math_round(0.1 + 0.2, 10) is math_round(0.3, 10))

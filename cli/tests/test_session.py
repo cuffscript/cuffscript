@@ -205,8 +205,10 @@ ae = os.path.join(
     "..",
     "tests",
     "errors",
+    "functions",
     "async_error_stops_queue.cuff",
 )
+assert os.path.exists(ae), ae
 r = subprocess.run([BIN, ae], input=b'print("next entry")\n', capture_output=True)
 check(
     "an async job's error drops the jobs still queued; the next entry runs normally",

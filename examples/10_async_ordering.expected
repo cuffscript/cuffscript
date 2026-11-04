@@ -1,6 +1,0 @@
-[sync] program start
-[async] looking up the score...
-[sync] score = 87
-[sync] end of the program's synchronous part
-[async] A done
-[async] B done

@@ -36,6 +36,11 @@ jobs:
                 name: Run test suite
                 shell: bash
                 run: bash tests/run.sh
+            -
+                name: Check what the tests cover
+                if: matrix.os == 'ubuntu-latest'
+                shell: bash
+                run: python3 tests/coverage.py
 
     build-and-test-windows:
         runs-on: windows-latest

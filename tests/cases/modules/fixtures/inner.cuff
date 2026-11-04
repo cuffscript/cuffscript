@@ -1,0 +1,4 @@
+func inner_value() do:
+    return 42
+end
+print("inner loaded")

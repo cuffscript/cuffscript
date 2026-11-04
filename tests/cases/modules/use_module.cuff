@@ -1,0 +1,12 @@
+note: use NAME from FOLDER runs FOLDER/NAME.cuff once, however often it is named, and its functions, constants and classes become available.
+use DLC:string
+use helpers from ./fixtures
+use helpers from ./fixtures
+
+print(GREETING)
+print(shout("modules"))
+print(inner_value())
+
+set Counter c to Counter()
+print(c.bump(), c.bump())
+print(c isa Counter)

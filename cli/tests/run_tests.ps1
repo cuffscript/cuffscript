@@ -474,9 +474,9 @@ if ($runNative) {
   } elseif (-not $Cuffc) {
     Skip 'cuffc vs cuffsh over the shipped scripts' 'cuffc not found; build it (make -f Makefile.win) or pass -Cuffc'
   } else {
-    # Not comparable by design: random dice rolls, and a stack-exhaustion error
+    # Not comparable by design: a stack-exhaustion error
     # whose column depends on exactly how much stack each program's frames use.
-    $nondeterministic = @('08_dlc_libraries.cuff', 'stack_budget_nested_recursion.cuff')
+    $nondeterministic = @('stack_budget_nested_recursion.cuff')
     $groups = @(
       @{ Dir = 'tests/cases'; Stdin = $true },
       @{ Dir = 'tests/errors'; Stdin = $false },
@@ -487,11 +487,11 @@ if ($runNative) {
     foreach ($g in $groups) {
       $dir = Join-Path $root $g.Dir
       if (-not (Test-Path -LiteralPath $dir)) { continue }
-      Get-ChildItem -LiteralPath $dir -Filter '*.cuff' -File | Sort-Object Name | ForEach-Object {
+      Get-ChildItem -LiteralPath $dir -Filter '*.cuff' -File -Recurse | Where-Object { $_.FullName -notmatch '[\\/]fixtures[\\/]' } | Sort-Object FullName | ForEach-Object {
         if ($nondeterministic -contains $_.Name) { return }
         # as a script file, run from its own folder, no stdin
-        $a = Invoke-Proc $Cuffc @($_.Name) $null $dir
-        $b = Invoke-Proc $Cuffsh @('--timeout', '0', $_.Name) $null $dir
+        $a = Invoke-Proc $Cuffc @($_.Name) $null $_.DirectoryName
+        $b = Invoke-Proc $Cuffsh @('--timeout', '0', $_.Name) $null $_.DirectoryName
         $nFile++
         if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (as a file)')) }
         # as a script on stdin (how cuffc reads a script when given no file)

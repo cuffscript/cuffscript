@@ -1,0 +1,20 @@
+note: both calls print the same word, because every function was collected before the first line ran
+func pick() do:
+    return "first"
+end
+
+print(pick())
+
+func pick() do:
+    return "second"
+end
+
+print(pick())
+
+note: functions are looked up before the library, so one of your own replaces a library function everywhere, above its line too
+use DLC:string
+print(str_upper("hello"))
+
+func str_upper(text) do:
+    return "no thanks"
+end

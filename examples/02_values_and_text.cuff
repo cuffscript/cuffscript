@@ -1,0 +1,33 @@
+note: The basic values, constants and f-strings, and how positions in text and lists are counted.
+use DLC:string
+
+set number age to 25
+set str name to "Ann"
+set boolean active to true
+set list scores to [90, 85, 77]
+set map profile to {"name": "Ann", "city": "Seoul"}
+set constant number MAX_AGE to 120
+
+print(name, age, active)
+print(scores, profile)
+print(f"{name} is {age}; the limit is {MAX_AGE}")
+
+note: change gives an existing variable a new value.
+change age to age + 1
+print(age)
+
+note: Positions start at 1, a negative position counts from the end, and a~b includes both ends.
+set str city to "Seoul"
+print(city[1], city[-1], city[2~4])
+print(scores[1], scores[-1], scores[2~3])
+
+note: Text is counted in characters, not bytes.
+set str hangul to "안녕하세요"
+print(length(hangul), hangul[2~3], hangul[-1])
+
+note: Arithmetic: / divides, % is the remainder, ** is a power, and ** binds tighter than a minus.
+print(7 / 2, 7 % 3, 2 ** 10, -2 ** 2)
+
+note: empty is the value of "nothing"; find gives it when the pattern is not there.
+set str digits to find("no digits here", p"[num]+")
+print(digits is empty)

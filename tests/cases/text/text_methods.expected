@@ -1,0 +1,13 @@
+123 empty
+["123", "45", "6", "789"]
+4
+alpha # beta 45.6 gamma-789
+alpha # beta #.# gamma-#
+["alpha", "123", "beta", "45.6", "gamma-789"]
+2024 05
+empty
+[hi  ] [  hi]
+65 54620
+true false
+true false
+true true

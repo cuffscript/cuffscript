@@ -1,0 +1,62 @@
+note: a comment runs to the end of the line.
+note:
+    A block comment
+    runs until the word below.
+endnote
+use DLC:string
+use DLC:list
+use DLC:map
+print("after comments")
+
+note: numbers, strings and f-strings
+set number a to 42
+set number b to 3.25
+set str double to "say \"hi\""
+set str single to 'it\'s'
+set str escapes to "tab:\tend\\"
+print(a, b, double, single)
+print(escapes)
+set str two_lines to "first
+second"
+print(two_lines)
+print(length(two_lines))
+print(f"{a} + {b} = {a + b}")
+print(f"braces: {{a}} and {{{a}}}")
+print(f"{double.length()} chars")
+
+note: a list or a map may end with a comma and may break across lines
+set list items to [
+    1,
+    2,
+    3,
+]
+set map ages to {
+    "ann": 31,
+    "bo": 27,
+}
+print(items, length(items))
+print(ages, length(ages))
+print(join_all(
+    "a",
+    "b"
+))
+
+func join_all(x, y) do:
+    return x + y
+end
+
+note: every type can be written as a declaration
+set empty nothing to empty
+set object thing to empty
+set match found to empty
+set pattern digits to p"[num]+"
+set boolean ok to true
+print(nothing, thing, found, ok, type_of(digits))
+
+note: a body may sit on the header's line
+if a is 42 do: print("one-line if") end
+loop repeat i to 1 ~ 3 do: print(i) end
+func twice(x) do: return x * 2 end
+print(twice(4))
+class Marker do: end
+print(Marker() isa Marker)

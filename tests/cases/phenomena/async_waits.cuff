@@ -1,0 +1,12 @@
+note: an async call that is not awaited waits until the program's own lines are done
+async func hello(str who) do:
+    print("hello " + who)
+end
+
+print("1")
+hello("a")
+print("2")
+await hello("b")
+print("3")
+hello("c")
+print("4")

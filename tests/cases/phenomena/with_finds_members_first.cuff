@@ -1,0 +1,15 @@
+class Box do:
+    set number size to 1
+    set str label to "box"
+end
+
+set number size to 100
+set number label to 5
+set Box b to Box()
+
+with b do:
+    note: inside with, a bare name is looked for in the object first
+    print(size, label)
+    print(.size)
+end
+print(size, label)

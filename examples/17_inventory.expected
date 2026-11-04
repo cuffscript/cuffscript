@@ -1,0 +1,5 @@
+62
+10 x apple at 3
+6 x apple at 3 50
+no kiwi in stock
+{"items":[{"name":"apple","price":3,"quantity":6},{"name":"pear","price":4,"quantity":5},{"name":"melon","price":12,"quantity":1}]}

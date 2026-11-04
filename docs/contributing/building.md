@@ -35,7 +35,7 @@ make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK
 
 | Flag | Effect |
 | :--- | :--- |
-| `-DCUFF_DISABLE_NETWORK` | Leaves out the socket client and its platform headers. `use DLC:network` still loads; its functions report that the feature is unavailable. The `tests/errors/network_*` cases test the client and are expected to fail in such a build. |
+| `-DCUFF_DISABLE_NETWORK` | Leaves out the socket client and its platform headers. `use DLC:network` still loads; its functions report that the feature is unavailable. The `tests/errors/libraries/network_*` cases test the client and are expected to fail in such a build. |
 
 ## Checking a build the way CI does
 

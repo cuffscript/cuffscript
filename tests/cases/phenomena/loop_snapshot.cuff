@@ -1,0 +1,17 @@
+note: loop each walks the items it started with
+set list xs to [1, 2, 3]
+loop each x in xs do:
+    if x < 3 do:
+        add x + 10 to xs
+    end
+    print(x)
+end
+print(xs)
+
+note: a key removed during the loop is still visited, and is gone afterwards
+set map m to {"a": 1, "b": 2, "c": 3}
+loop each key in m do:
+    remove "c" from m
+    print(key)
+end
+print(m)

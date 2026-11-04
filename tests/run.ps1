@@ -171,10 +171,10 @@ foreach ($src in (Get-ChildItem 'tests/unit/*.cpp' | Sort-Object Name)) {
 }
 
 Write-Host '== tests/cases (output diff) =='
-foreach ($f in (Get-ChildItem 'tests/cases/*.cuff' | Sort-Object Name)) { Invoke-SuccessCase $f.FullName }
+foreach ($f in (Get-ChildItem 'tests/cases' -Filter '*.cuff' -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/]fixtures[\\/]' } | Sort-Object FullName)) { Invoke-SuccessCase $f.FullName }
 
 Write-Host '== tests/errors (error code check) =='
-foreach ($f in (Get-ChildItem 'tests/errors/*.cuff' | Sort-Object Name)) { Invoke-ErrorCase $f.FullName }
+foreach ($f in (Get-ChildItem 'tests/errors' -Filter '*.cuff' -Recurse -File | Where-Object { $_.FullName -notmatch '[\\/]fixtures[\\/]' } | Sort-Object FullName)) { Invoke-ErrorCase $f.FullName }
 
 Write-Host '== examples (output diff) =='
 foreach ($f in (Get-ChildItem 'examples/*.cuff' | Where-Object { $_.Name -match '^[01]' } | Sort-Object Name)) { Invoke-SuccessCase $f.FullName }

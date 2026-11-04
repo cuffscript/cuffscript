@@ -36,7 +36,7 @@
 namespace cuff
 {
 
-    class Interpreter : private ObjectDisplayHook
+    class Interpreter final : private ObjectDisplayHook
     {
     public:
         struct Config
@@ -1312,7 +1312,36 @@ namespace cuff
                     return;
                 }
             }
+            // The next most common: one field of an object, `self.name` or `variable.name`, with no index.
+            else if (pl.steps.size() == 1 && !pl.steps[0].isIndex && !currentFunctionPure_)
+            {
+                const Value *holder = nullptr;
+                if (pl.root == Place::Root::Self)
+                    holder = &selfValue(c.loc);
+                else if (pl.root == Place::Root::Name && !pl.inWith)
+                {
+                    const Environment::Lookup look = env.resolve(pl.nameId);
+                    if (look.value && !env.isConstantIn(look.owner, pl.nameId))
+                        holder = look.value;
+                }
+                if (holder && holder->isObject())
+                {
+                    changeField(c, env, *holder);
+                    return;
+                }
+            }
             execChangePlace(c, env);
+        }
+
+        // Stores into the one field a place names. The holder is read again after the new value is worked out, as the
+        // general path does: evaluating the value may have put another object in the variable, and a slot is never
+        // moved by evaluating an expression.
+        CUFF_NOINLINE void changeField(const ChangeStmt &c, Environment &env, const Value &holder)
+        {
+            const PlaceStep &s = c.target.steps[0];
+            Value newVal = evalExpr(*c.value, env);
+            ObjectData &o = expectObject(holder, s.name, s.loc);
+            writeField(o, fieldIndexOrThrow(o, s.nameId, s.name, s.loc), std::move(newVal), s.loc);
         }
 
         CUFF_NOINLINE void execChangePlace(const ChangeStmt &c, Environment &env)

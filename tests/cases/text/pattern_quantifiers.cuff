@@ -1,0 +1,7 @@
+note: a quantifier is greedy; a ? after it makes it take as little as it can
+set str page to "#one# and #two#"
+print(find(page, p"#[any]+#"))
+print(find(page, p"#[any]+?#"))
+print(find_all(page, p"#[any]+?#"))
+print(find("aaaa", p"a~3"), find("aaaa", p"a~3?"))
+print(find("aaaa", p"a+"), find("aaaa", p"a+?"))

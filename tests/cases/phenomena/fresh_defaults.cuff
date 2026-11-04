@@ -1,0 +1,10 @@
+note: a default is worked out again at every call, so a new list is made each time
+func collect(item, list bag to []) do:
+    add item to bag
+    return bag
+end
+
+print(collect(1))
+print(collect(2))
+print(collect(3, [0]))
+print(collect(4))

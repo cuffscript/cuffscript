@@ -11,6 +11,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | [Getting started](guide/getting-started.md) | Running a script, your first program, the shell |
 | [A tour of the language](guide/language-tour.md) | Every part of the language, with examples that run |
 | [Classes and objects](guide/classes-and-objects.md) | Your own kinds of thing: fields, methods, inheritance, `with`, error objects |
+| [Phenomena](guide/phenomena.md) | Behaviour that follows from how the engine works, such as functions being known before the first line: each with a program that shows it |
 | [Cookbook](guide/cookbook.md) | Short recipes for common jobs |
 | [Text and patterns](guide/text-and-patterns.md) | Finding and changing text by shape |
 | [Errors and debugging](guide/errors-and-debugging.md) | Reading an error report, `or_else`, the common errors, finding a bug |
@@ -40,6 +41,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | Page | Covers |
 | :--- | :--- |
 | [Architecture](internals/architecture.md) | The pipeline, the folders and the front ends |
+| [How it works](internals/how-it-works.md) | What the engine does while a program runs: collecting, scopes, calls, sharing, loops, errors, the async queue |
 | [Source map](internals/source-map.md) | Which file does what |
 | [Source locations and error reports](internals/source-locations.md) | How an error finds its line |
 | [The error model](internals/error-model.md) | What an error is, and who catches it |

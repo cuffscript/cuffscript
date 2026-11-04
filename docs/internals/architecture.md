@@ -94,6 +94,7 @@ runs with the value as its first argument. A user function or class method with 
 
 ## Related reading
 
+- [How it works](how-it-works.md) for what the interpreter does once the tree exists, and [Phenomena](../guide/phenomena.md) for what follows from it.
 - [Source locations and error reports](source-locations.md) for how an error finds its line.
 - [The error model](error-model.md) for what an error is and who may catch it.
 - [Resource limits](resource-limits.md) for how the engine stays inside the stack and memory it has.

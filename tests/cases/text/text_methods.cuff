@@ -1,0 +1,22 @@
+note: the text functions are also methods of a str: the text comes first, so it goes before the dot.
+use DLC:string
+set str text to "alpha 123 beta 45.6 gamma-789"
+
+print(text.find(p"[num]+"), text.find(p"zzz"))
+print(text.find_all(p"[num]+"))
+print(text.count(p"[num]+"))
+print(text.replace(p"[num]+", "#"))
+print(text.replace_all(p"[num]+", "#"))
+print(text.split(p"[sp]"))
+set match m to "2024-05-17".match(p"(<year:[num]4>)-(<month:[num]2>)")
+print(m["year"], m["month"])
+print("none".match(p"[num]+"))
+
+note: trimming one side, and the code of a character
+print("[" + "  hi  ".trim_start() + "]", "[" + "  hi  ".trim_end() + "]")
+print("A".char_code(), "한".char_code())
+
+note: the function form and the method form give the same answer
+print(str_starts_with("cuffscript", "cuff"), "cuffscript".starts_with("script"))
+print(str_ends_with("cuffscript", "script"), "cuffscript".ends_with("cuff"))
+print(str_starts_with("", ""), str_ends_with("abc", ""))

@@ -295,6 +295,31 @@ int main() {
     }
 
 
+    // The two budgets are told apart: the step budget (E3-101) and the time budget (E3-102).
+    {
+        auto p = eng.compile("([any]+)+end", loc);
+        const std::string text(40, 'a');
+
+        cuff::ErrorCode steps = cuff::ErrorCode::InternalError;
+        try {
+            RegexMatcher m(p->root, p->groupCount, false, false, loc, RegexLimits());
+            MatchOutcome out;
+            m.fullMatch(text, out);
+        } catch (cuff::RegexRuntimeError &e) { steps = e.code; }
+        check(steps == cuff::ErrorCode::RegexStepLimitExceeded, "an exhausted step budget is E3-101");
+
+        cuff::ErrorCode time = cuff::ErrorCode::InternalError;
+        try {
+            RegexLimits limits;
+            limits.stepLimit = static_cast<size_t>(-1);                                   // only the clock may stop it
+            limits.operationDeadline = std::chrono::steady_clock::now() - std::chrono::seconds(1); // already past
+            RegexMatcher m(p->root, p->groupCount, false, false, loc, limits);
+            MatchOutcome out;
+            m.fullMatch(text, out);
+        } catch (cuff::RegexRuntimeError &e) { time = e.code; }
+        check(time == cuff::ErrorCode::RegexTimeout, "a passed deadline is E3-102");
+    }
+
     // ---- Unicode / codepoint-based matching ----
     {
         auto p = eng.compile("[any]5", loc);

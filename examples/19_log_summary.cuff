@@ -1,0 +1,46 @@
+note: Read log lines with a pattern, count them by level and by user, and skip lines that do not fit.
+use DLC:list
+use DLC:map
+
+set list lines to [
+    "2026-11-02 09:15:01 INFO  user=ann action=login",
+    "2026-11-02 09:15:44 WARN  user=bob action=retry",
+    "this line is not a log entry",
+    "2026-11-02 09:16:02 INFO  user=bob action=login",
+    "2026-11-02 09:17:30 ERROR user=ann action=upload",
+    "2026-11-02 09:18:12 INFO  user=ann action=logout"
+]
+
+set pattern entry to p"<date:[num]4-[num]2-[num]2> <time:[num]2:[num]2:[num]2> <level:[up]+> +user=<user:[word]+> action=<action:[word]+>"
+
+set map by_level to {}
+set map by_user to {}
+set number skipped to 0
+
+loop each line in lines do:
+    set match found to match(line, entry)
+    if found is empty do:
+        change skipped to skipped + 1
+        skip
+    end
+    set str level to found["level"]
+    set str user to found["user"]
+    if !map_has_key(by_level, level) do:
+        change by_level[level] to 0
+    end
+    if !map_has_key(by_user, user) do:
+        change by_user[user] to 0
+    end
+    change by_level[level] to by_level[level] + 1
+    change by_user[user] to by_user[user] + 1
+end
+
+print("by level:")
+loop each level in list_sort(map_keys(by_level)) do:
+    print(f"  {level}: {by_level[level]}")
+end
+print("by user:")
+loop each user in list_sort(map_keys(by_user)) do:
+    print(f"  {user}: {by_user[user]}")
+end
+print(f"skipped {skipped} line(s)")

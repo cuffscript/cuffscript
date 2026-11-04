@@ -1,0 +1,31 @@
+note: or_else runs a block when the statement before it fails with an error that can be caught.
+
+set number a to 10
+set number b to 0
+set number result to a / b or_else do:
+    print("division by zero; using -1")
+    change result to -1
+end
+print(f"result = {result}")
+
+note: A position that does not exist is an error too.
+set list items to ["a", "b", "c"]
+set str safe_item to items[99] or_else do:
+    change safe_item to "(none)"
+end
+print(f"safe_item = {safe_item}")
+
+note: find finding nothing is not an error: it gives empty, so or_else does not run.
+set str config to find("no digits here", p"[num]+")
+if config is empty do:
+    change config to "default_mode"
+end
+print(f"config = {config}")
+
+note: or_else guards one statement. Use `as` to get the error as an object.
+set number n to to_number("abc") or_else as err do:
+    print(err.code)
+    print(err.message)
+    change n to 0
+end
+print(n)

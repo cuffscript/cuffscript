@@ -1,26 +1,28 @@
 # Example programs
 
-Read the numbered programs in order to pick up the language one feature at a time. Each one has an `.expected` file with its output, and the test suite runs them and compares (`08_dlc_libraries.cuff` uses random numbers, so it only has to run).
+The numbered programs teach the language in order, one subject at a time; the last four are small programs of the kind people write. Each has an `.expected` file with its output, and the test suite runs them and compares.
 
 | File | What it shows |
 | :--- | :--- |
 | `01_hello.cuff` | The simplest `print` |
-| `02_comprehensive_demo.cuff` | A program that uses most of the language: constants, functions, `matches` combined with `!`, `async` with `await` and `or_else`, 1-based lists, `loop repeat` with `stop`, `use DLC:` and `use ... from ...` |
-| `03_pattern_matching.cuff` | Pattern literals (`p"..."`), `matches`, and the text functions `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count`; named captures (`<name:...>`), numbered captures, `[one:...]`, the `i` flag, escapes (`\.`) |
-| `04_collections.cuff` | List and map `add`, `change` and `remove`, slicing (`[2~4]`, negative positions), recovering from an out-of-range position with `or_else` |
-| `05_scoping_and_globals.cuff` | Function scope and `global x` |
-| `06_error_recovery.cuff` | How `or_else` recovers a failed declaration |
-| `07_functions_async.cuff` | Recursive functions, and `async` functions that return values |
-| `08_dlc_libraries.cuff` | `DLC:math`, `DLC:string`, `DLC:random`, `DLC:list`, `DLC:convert` and `DLC:json`. Library functions are named `library_verb` (`math_sqrt`, `str_upper`, `list_sort`), and `use DLC:a, DLC:b` loads several on one line |
-| `09_modules_demo.cuff`, `lib/greetings.cuff` | Loading another `.cuff` file with `use <name> from <path>` |
-| `10_async_ordering.cuff` | An `async` function called without `await` runs after the code around it finishes, in the order it was called: cooperative scheduling, not concurrency |
-| `11_utf8_strings.cuff` | Indexing, slicing and `length()` of multi-byte text such as Hangul, counted in characters |
-| `12_filesystem.cuff` | `DLC:filesystem`: `file_write`, `file_add`, `file_readlines`, `file_size` and `file_remove`, only inside the script's folder; the temporary file removes itself |
-| `maps/core_engine/stage_data.cuff` | A second module, loaded by `02_comprehensive_demo.cuff` |
-| `13_classes.cuff` | A class with fields, a constructor (`init`), methods, `private` and `to_str`, and objects that are shared rather than copied |
-| `14_inheritance.cuff` | `extends`, replacing a method, `super`, `init` in a child class, and `isa` |
-| `15_with_block.cuff` | `with`: members by their plain names, `.name`, the lookup order, nested blocks |
-| `16_errors_as_objects.cuff` | `fail`, `or_else as`, the built-in `Error` class and a class that extends it |
+| `02_values_and_text.cuff` | Numbers, text, booleans, lists, maps and constants; f-strings; positions that start at 1, negative positions and slices; text counted in characters; arithmetic; `empty` |
+| `03_decisions_and_loops.cuff` | `if`, truthiness, `and`, `or`, `!`; `loop repeat` (also backwards), `loop while`, `loop each` over a list, a map and a text; `skip` and `stop`; a loop does not open a scope |
+| `04_functions.cuff` | Parameters with types and defaults, calling a function above its declaration, recursion, `global`, a variable that is not visible, `pure` |
+| `05_lists_and_maps.cuff` | `add`, `change` and `remove` on lists, maps and nested values; slices; shared lists and `copy`; recovering from a missing position |
+| `06_text_and_patterns.cuff` | Pattern literals (`p"..."`), `matches`, `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count`; captures, `[one:...]`, the `i` flag, escapes, patterns on Hangul |
+| `07_or_else.cuff` | `or_else` around one statement, what is and is not an error, and `or_else as` |
+| `08_errors_as_objects.cuff` | `fail`, the `Error` object a handler receives, and a class that extends `Error` |
+| `09_async.cuff` | `async` calls that are queued and run after the main program, and `await` |
+| `10_classes.cuff` | Fields, a constructor (`init`), methods, `private`, `to_str`, and objects that are shared rather than copied |
+| `11_inheritance.cuff` | `extends`, replacing a method, `super`, `init` in a child class, `isa` |
+| `12_with_block.cuff` | `with`: members by their plain names, `.name`, the lookup order, nested blocks |
+| `13_modules.cuff`, `lib/greetings.cuff` | Loading another `.cuff` file with `use <name> from <path>` |
+| `14_libraries.cuff` | `DLC:math`, `string`, `random`, `list`, `map`, `convert` and `json`; library functions are named `library_verb` |
+| `15_files.cuff` | `DLC:filesystem`, only inside the script's folder; the temporary file removes itself |
+| `16_word_frequency.cuff` | A text split into words with a pattern, counted in a map, and the most common words picked out |
+| `17_inventory.cuff` | Two classes that work together, a method that returns a found object, and the result written as JSON |
+| `18_bank_account.cuff` | Errors raised by methods, an error class with its own field, `private` methods, and `or_else as` with `isa` |
+| `19_log_summary.cuff` | Log lines read with a named-capture pattern, counted by level and user in maps; lines that do not fit are skipped |
 | [`embedding/`](embedding/README.md) | A complete C++ program that hosts the engine |
 
 Run one from the repository root:

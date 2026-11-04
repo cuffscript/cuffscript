@@ -1,2 +1,0 @@
-set constant number STAGE_COUNT to 10
-set str default_stage_name to "Tutorial"

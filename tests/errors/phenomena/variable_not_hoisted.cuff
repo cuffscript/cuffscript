@@ -1,0 +1,3 @@
+note: E4-001
+print(total)
+set number total to 5

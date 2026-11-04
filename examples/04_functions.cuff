@@ -1,0 +1,59 @@
+note: Functions: parameters and their types, defaults, recursion, scope, global and pure.
+
+func add(number a, number b) do:
+    return a + b
+end
+print(add(2, 3))
+
+note: A function may be called above the line that declares it.
+print(double(21))
+func double(x) do: return x * 2 end
+
+note: A parameter may have a default, worked out at each call; it can use the parameters before it.
+func greet(str name, str word to "Hello", str line to word + ", " + name + "!") do:
+    return line
+end
+print(greet("Ann"))
+print(greet("Bob", "Hi"))
+print(greet("Cy", "Yo", "custom line"))
+
+note: A function that ends without return gives empty.
+func nothing() do:
+    set number unused to 1
+end
+print(nothing() is empty)
+
+note: Recursion.
+func factorial(n) do:
+    if n <= 1 do:
+        return 1
+    end
+    return n * factorial(n - 1)
+end
+print(factorial(10))
+
+note: A function sees only its own variables. global connects a variable of the program.
+set number counter to 0
+func bump() do:
+    global counter
+    change counter to counter + 1
+end
+bump()
+bump()
+print(counter)
+
+note: Without global the name is not visible, and the error can be caught.
+func peek() do:
+    return counter
+end
+set number seen to peek() or_else do:
+    print("counter is not visible here")
+    change seen to -1
+end
+print(seen)
+
+note: A pure function may not use globals or call functions that are not pure.
+pure func square(n) do:
+    return n * n
+end
+print(square(12))

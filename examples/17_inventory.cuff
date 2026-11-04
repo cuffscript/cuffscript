@@ -1,0 +1,64 @@
+note: A small shop inventory: two classes that work together, and the result written as JSON.
+use DLC:json
+
+class Item do:
+    set str name to ""
+    set number price to 0
+    set number quantity to 0
+
+    func init(str name, number price, number quantity to 1) do:
+        change self.name to name
+        change self.price to price
+        change self.quantity to quantity
+    end
+
+    func total() do:
+        return self.price * self.quantity
+    end
+
+    func to_str() do:
+        return f"{self.quantity} x {self.name} at {self.price}"
+    end
+end
+
+class Inventory do:
+    set list items to []
+
+    func add_item(Item item) do:
+        add item to self.items
+    end
+
+    func total_value() do:
+        set number sum to 0
+        loop each item in self.items do:
+            change sum to sum + item.total()
+        end
+        return sum
+    end
+
+    func find_item(str name) do:
+        loop each item in self.items do:
+            if item.name is name do:
+                return item
+            end
+        end
+        return empty
+    end
+end
+
+set Inventory shop to Inventory()
+shop.add_item(Item("apple", 3, 10))
+shop.add_item(Item("pear", 4, 5))
+shop.add_item(Item("melon", 12))
+print(shop.total_value())
+
+set Item apples to shop.find_item("apple")
+print(apples)
+change apples.quantity to apples.quantity - 4
+print(apples, shop.total_value())
+
+if shop.find_item("kiwi") is empty do:
+    print("no kiwi in stock")
+end
+
+print(to_json(shop))

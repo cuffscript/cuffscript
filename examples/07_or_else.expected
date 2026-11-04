@@ -1,0 +1,7 @@
+division by zero; using -1
+result = -1
+safe_item = (none)
+config = default_mode
+E4-025
+to_number() could not parse "abc" as a number
+0

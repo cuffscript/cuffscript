@@ -1,0 +1,21 @@
+note: An async function called without await is queued. The queued calls run in order after the
+note: rest of the program has finished. await runs the call right there and gives its value.
+
+async func notify(name) do:
+    print("[async] " + name + " done")
+end
+
+async func fetch_score() do:
+    print("[async] looking up the score")
+    return 87
+end
+
+print("[sync] start")
+notify("A")
+notify("B")
+
+set number score to await fetch_score()
+print(f"[sync] score = {score}")
+
+notify("C")
+print("[sync] end of the main program")

@@ -7,7 +7,6 @@ There are three test suites, one tool test and one documentation check. All of t
 | Engine and language | `tests/`: unit tests, success cases, error cases, the examples | `bash tests/run.sh` |
 | Shell | `cli/tests/`: the interactive shell, on a real pseudo-terminal | `cli/tests/run_tests.sh` |
 | Documentation | Generated pages, links, the examples in the docs | `python3 tools/docs.py check` |
-| Migration tool | `tools/migrate_3_to_4_test.py`: the rewrites the 3.x-to-4.0 migration tool makes | `python3 tools/migrate_3_to_4_test.py` |
 
 Build first: `make` for the first two, plus `cli/build.sh` for the shell tests.
 
@@ -18,8 +17,8 @@ Build first: `make` for the first two, plus `cli/build.sh` for the shell tests.
 | Section | Directory | A test is |
 | :--- | :--- | :--- |
 | Unit | `tests/unit/*.cpp` | A C++ file with a `main()`, compiled and run. Exit non-zero to fail; the last line of output is shown. |
-| Cases | `tests/cases/` | `name.cuff` and `name.expected`; the output must match exactly. |
-| Errors | `tests/errors/` | `name.cuff` that must fail; `name.expected_code` (optional) holds the error code it must fail with. |
+| Cases | `tests/cases/<area>/` | `name.cuff` and `name.expected`; the output must match exactly. |
+| Errors | `tests/errors/<area>/` | `name.cuff` that must fail; `name.expected_code` (optional) holds the error code it must fail with. |
 | Examples | `examples/` | Output must match `name.expected` where there is one; otherwise it only has to run. |
 | Example errors | `examples/error_cases/` | Must fail with the code in `name.expected_code`. |
 
@@ -32,11 +31,27 @@ normalises line endings and links the unit tests the way `Makefile.win` does.
 
 - **A unit test:** drop a `.cpp` with a `main()` into `tests/unit/`. It is compiled with `-I.` from the root, so include
   engine headers by path (`#include "engine/CuffEngine.h"`).
-- **A success case:** add `tests/cases/my_case.cuff`, then record the output after reading it once:
-  `./cuffc tests/cases/my_case.cuff > tests/cases/my_case.expected`. Do not add a case whose output varies (random numbers,
-  timestamps).
-- **An error case:** add `tests/errors/my_error.cuff`, run it, and write the code it prints into
-  `tests/errors/my_error.expected_code` (for example `E4-006`).
+- **A success case:** pick the area the test is about (the list is in [`tests/README.md`](../../tests/README.md#areas)) and add
+  `tests/cases/<area>/my_case.cuff`, then record the output after reading it once:
+  `./cuffc tests/cases/<area>/my_case.cuff > tests/cases/<area>/my_case.expected`. Do not add a case whose output varies (random
+  numbers, timestamps). A file a case loads, such as a module, goes in a `fixtures/` folder beside it; the runners never run
+  that folder on its own.
+- **An error case:** add `tests/errors/<area>/my_error.cuff`, run it, and write the code it prints into
+  `tests/errors/<area>/my_error.expected_code` (for example `E4-006`). Options for the run go in `my_error.args`.
+
+### What the tests leave out
+
+`python3 tests/coverage.py` asks the engine what it contains and fails when
+
+- an error code the engine can raise is the expected code of no test (a unit test or an expected output that names the code
+  counts too);
+- a built-in or library function is called by no test or example, or a built-in method is never called as `.name(`;
+- a production of the [grammar](../reference/grammar.md) is in no area of the map in `tests/README.md`, or the map names an
+  area that has no tests.
+
+A gap that cannot be closed (a code no script can reach) is written in `tests/coverage_exceptions.txt` with the reason, and the
+checker then shows it as accepted. Add a new error code, function or grammar production together with its test, and run the
+checker before sending a change. `--list` also prints the first tests that cover each item.
 
 ### What the unit tests are for
 
@@ -47,6 +62,7 @@ normalises line endings and links the unit tests the way `Makefile.win` does.
 | `classes_test.cpp` | The object model: that each interpreter owns its classes, what a `Session` keeps between entries, the order in which an object is made, how `with` looks a name up, private access, and how errors become objects. |
 | `builtins_test.cpp` | The built-in functions that touch the process's streams or shared state: `input()` and `DLC:random`. |
 | `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which file it is drawn from, and that a reported line and column always agree with the offset. |
+| `phenomena_test.cpp` | What has been printed when an error ends a run: a syntax error stops everything, a runtime error keeps the earlier lines, a waiting `async` call is dropped. The rest of [Phenomena](../guide/phenomena.md) is in `tests/cases/phenomena/`. |
 | `limits_test.cpp` | The limits and how they relate: long chains, the stack plan, a small real thread stack, and the limits on classes, members and inheritance depth. |
 | `dlc_guards_test.cpp` | The network and filesystem guards. |
 | `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time, including programs that declare classes and make objects. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
@@ -119,7 +135,7 @@ available through `run.ps1`.
 ## A reduced build
 
 `make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK` then `CUFFC=./cuffc bash tests/run.sh`: everything passes except the
-`tests/errors/network_*.cuff` cases, which test the client that was left out.
+`tests/errors/libraries/network_*.cuff` cases, which test the client that was left out.
 
 ## When CI fails and it passes for you
 

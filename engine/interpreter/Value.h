@@ -1,18 +1,21 @@
 #pragma once
 
+#include "../common/Attributes.h"
 #include "../common/Limits.h"
 #include "../common/StrData.h"
 #include "../regex/PatternData.h"
 #include "ClassModel.h"
 #include <algorithm>
+#include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <new>
 #include <unordered_set>
 #include <utility>
 #include <string>
 #include <unordered_map>
-#include <variant>
 #include <vector>
 
 namespace cuff
@@ -63,40 +66,77 @@ namespace cuff
         return "unknown";
     }
 
+    // A value is a tag and an eight-byte payload or a counted pointer. The tag is the ValueType, so type() is a
+    // cast. Numbers, booleans and `empty` hold no pointer, so copying, moving and dropping them is a few
+    // instructions with no call: that is the point of writing this by hand instead of using std::variant, whose
+    // copy, move and destructor are a visit per operation on every temporary an expression makes.
     class Value
     {
     public:
         using StrPtr = std::shared_ptr<const StrData>;
-        using Storage = std::variant<
-            std::monostate,
-            double,
-            StrPtr,
-            bool,
-            std::shared_ptr<ValueList>,
-            std::shared_ptr<ValueMap>,
-            std::shared_ptr<MatchResult>,
-            std::shared_ptr<const PatternData>,
-            std::shared_ptr<ObjectData>>;
 
-        Value() : storage_(std::monostate{}) {}
+        Value() noexcept : tag_(ValueType::Empty) {}
+
+        Value(const Value &o) : tag_(o.tag_)
+        {
+            if (isPlain(tag_))
+                u_.bits = o.u_.bits;
+            else
+                copyCounted(o);
+        }
+
+        Value(Value &&o) noexcept : tag_(ValueType::Empty) { takeFrom(o); }
+
+        Value &operator=(const Value &o)
+        {
+            if (this != &o)
+            {
+                Value copy(o);
+                *this = std::move(copy);
+            }
+            return *this;
+        }
+
+        Value &operator=(Value &&o) noexcept
+        {
+            if (this == &o)
+                return *this;
+            if (isPlain(tag_))
+            {
+                takeFrom(o);
+            }
+            else
+            {
+                // Take `o` first and let the old content go last: releasing it may free a structure that holds `o`.
+                Value old(std::move(*this));
+                takeFrom(o);
+            }
+            return *this;
+        }
+
+        ~Value()
+        {
+            if (!isPlain(tag_))
+                releaseCounted();
+        }
 
         static Value makeEmpty() { return Value(); }
         static Value makeNumber(double d)
         {
             Value v;
-            v.storage_.emplace<1>(d);
+            v.tag_ = ValueType::Number;
+            v.u_.num = d;
             return v;
         }
         static Value makeStr(std::string s)
         {
-            Value v;
-            v.storage_.emplace<2>(std::make_shared<const StrData>(std::move(s)));
-            return v;
+            return makeStr(std::make_shared<const StrData>(std::move(s)));
         }
         static Value makeStr(StrPtr p)
         {
             Value v;
-            v.storage_.emplace<2>(std::move(p));
+            new (&v.u_.str) StrPtr(std::move(p));
+            v.tag_ = ValueType::Str;
             return v;
         }
         static Value makeChar(unsigned char c)
@@ -108,67 +148,73 @@ namespace cuff
         static Value makeBool(bool b)
         {
             Value v;
-            v.storage_.emplace<3>(b);
+            v.tag_ = ValueType::Boolean;
+            v.u_.bits = b ? 1 : 0;
             return v;
         }
         static Value makeList(std::shared_ptr<ValueList> l)
         {
             Value v;
-            v.storage_.emplace<4>(std::move(l));
+            new (&v.u_.list) std::shared_ptr<ValueList>(std::move(l));
+            v.tag_ = ValueType::List;
             return v;
         }
         static Value makeMap(std::shared_ptr<ValueMap> m)
         {
             Value v;
-            v.storage_.emplace<5>(std::move(m));
+            new (&v.u_.map) std::shared_ptr<ValueMap>(std::move(m));
+            v.tag_ = ValueType::Map;
             return v;
         }
         static Value makeMatch(std::shared_ptr<MatchResult> m)
         {
             Value v;
-            v.storage_.emplace<6>(std::move(m));
+            new (&v.u_.match) std::shared_ptr<MatchResult>(std::move(m));
+            v.tag_ = ValueType::Match;
             return v;
         }
         static Value makePattern(std::shared_ptr<const PatternData> p)
         {
             Value v;
-            v.storage_.emplace<7>(std::move(p));
+            new (&v.u_.pattern) std::shared_ptr<const PatternData>(std::move(p));
+            v.tag_ = ValueType::Pattern;
             return v;
         }
         static Value makeObject(std::shared_ptr<ObjectData> o)
         {
             Value v;
-            v.storage_.emplace<8>(std::move(o));
+            new (&v.u_.object) std::shared_ptr<ObjectData>(std::move(o));
+            v.tag_ = ValueType::Object;
             return v;
         }
-        ValueType type() const { return static_cast<ValueType>(storage_.index()); }
+        ValueType type() const { return tag_; }
 
-        bool isEmpty() const { return storage_.index() == 0; }
-        bool isNumber() const { return storage_.index() == 1; }
-        bool isStr() const { return storage_.index() == 2; }
-        bool isBool() const { return storage_.index() == 3; }
-        bool isList() const { return storage_.index() == 4; }
-        bool isMap() const { return storage_.index() == 5; }
-        bool isMatch() const { return storage_.index() == 6; }
-        bool isPattern() const { return storage_.index() == 7; }
-        bool isObject() const { return storage_.index() == 8; }
+        bool isEmpty() const { return tag_ == ValueType::Empty; }
+        bool isNumber() const { return tag_ == ValueType::Number; }
+        bool isStr() const { return tag_ == ValueType::Str; }
+        bool isBool() const { return tag_ == ValueType::Boolean; }
+        bool isList() const { return tag_ == ValueType::List; }
+        bool isMap() const { return tag_ == ValueType::Map; }
+        bool isMatch() const { return tag_ == ValueType::Match; }
+        bool isPattern() const { return tag_ == ValueType::Pattern; }
+        bool isObject() const { return tag_ == ValueType::Object; }
 
-        double asNumber() const { return std::get<1>(storage_); }
-        const std::string &asStr() const { return std::get<2>(storage_)->text(); }
-        const StrData &asStrData() const { return *std::get<2>(storage_); }
-        const StrPtr &asStrPtr() const { return std::get<2>(storage_); }
-        bool asBool() const { return std::get<3>(storage_); }
-        const std::shared_ptr<ValueList> &asList() const { return std::get<4>(storage_); }
-        const std::shared_ptr<ValueMap> &asMap() const { return std::get<5>(storage_); }
-        const std::shared_ptr<MatchResult> &asMatch() const { return std::get<6>(storage_); }
-        const std::shared_ptr<const PatternData> &asPattern() const { return std::get<7>(storage_); }
-        const std::shared_ptr<ObjectData> &asObject() const { return std::get<8>(storage_); }
+        // The accessors trust the caller to have asked for the right type, as every call site does; a builds
+        // without NDEBUG (the sanitizer runs) checks it.
+        double asNumber() const { expect(ValueType::Number); return u_.num; }
+        const std::string &asStr() const { expect(ValueType::Str); return u_.str->text(); }
+        const StrData &asStrData() const { expect(ValueType::Str); return *u_.str; }
+        const StrPtr &asStrPtr() const { expect(ValueType::Str); return u_.str; }
+        bool asBool() const { expect(ValueType::Boolean); return u_.bits != 0; }
+        const std::shared_ptr<ValueList> &asList() const { expect(ValueType::List); return u_.list; }
+        const std::shared_ptr<ValueMap> &asMap() const { expect(ValueType::Map); return u_.map; }
+        const std::shared_ptr<MatchResult> &asMatch() const { expect(ValueType::Match); return u_.match; }
+        const std::shared_ptr<const PatternData> &asPattern() const { expect(ValueType::Pattern); return u_.pattern; }
+        const std::shared_ptr<ObjectData> &asObject() const { expect(ValueType::Object); return u_.object; }
 
         Value takeOut()
         {
-            Value out;
-            out.storage_.swap(storage_);
-            return out;
+            return std::move(*this);
         }
 
         bool truthy() const;
@@ -184,7 +230,92 @@ namespace cuff
         bool strictEquals(const Value &other) const;
 
     private:
-        Storage storage_;
+        // Empty, number and boolean hold their payload in `bits`; every other type holds a counted pointer.
+        static constexpr bool isPlain(ValueType t)
+        {
+            return t == ValueType::Empty || t == ValueType::Number || t == ValueType::Boolean;
+        }
+
+        // Makes this value what `o` is and leaves `o` empty. This value must hold nothing that needs releasing.
+        void takeFrom(Value &o) noexcept
+        {
+            tag_ = o.tag_;
+            if (isPlain(tag_))
+                u_.bits = o.u_.bits;
+            else
+                moveCounted(o);
+            o.tag_ = ValueType::Empty;
+        }
+
+        void expect([[maybe_unused]] ValueType t) const
+        {
+#ifndef NDEBUG
+            assert(tag_ == t && "a Value was read as a type it does not hold");
+#endif
+        }
+
+        union Payload
+        {
+            uint64_t bits;
+            double num;
+            StrPtr str;
+            std::shared_ptr<ValueList> list;
+            std::shared_ptr<ValueMap> map;
+            std::shared_ptr<MatchResult> match;
+            std::shared_ptr<const PatternData> pattern;
+            std::shared_ptr<ObjectData> object;
+            Payload() : bits(0) {}
+            ~Payload() {}
+        };
+
+        // The counted types. Out of line, because the plain types never come here.
+        CUFF_NOINLINE void copyCounted(const Value &o)
+        {
+            switch (tag_)
+            {
+            case ValueType::Str: new (&u_.str) StrPtr(o.u_.str); break;
+            case ValueType::List: new (&u_.list) std::shared_ptr<ValueList>(o.u_.list); break;
+            case ValueType::Map: new (&u_.map) std::shared_ptr<ValueMap>(o.u_.map); break;
+            case ValueType::Match: new (&u_.match) std::shared_ptr<MatchResult>(o.u_.match); break;
+            case ValueType::Pattern: new (&u_.pattern) std::shared_ptr<const PatternData>(o.u_.pattern); break;
+            case ValueType::Object: new (&u_.object) std::shared_ptr<ObjectData>(o.u_.object); break;
+            default: break;
+            }
+        }
+
+        CUFF_NOINLINE void moveCounted(Value &o) noexcept
+        {
+            switch (tag_)
+            {
+            case ValueType::Str: new (&u_.str) StrPtr(std::move(o.u_.str)); o.u_.str.~StrPtr(); break;
+            case ValueType::List: new (&u_.list) std::shared_ptr<ValueList>(std::move(o.u_.list)); o.u_.list.~shared_ptr(); break;
+            case ValueType::Map: new (&u_.map) std::shared_ptr<ValueMap>(std::move(o.u_.map)); o.u_.map.~shared_ptr(); break;
+            case ValueType::Match: new (&u_.match) std::shared_ptr<MatchResult>(std::move(o.u_.match)); o.u_.match.~shared_ptr(); break;
+            case ValueType::Pattern:
+                new (&u_.pattern) std::shared_ptr<const PatternData>(std::move(o.u_.pattern));
+                o.u_.pattern.~shared_ptr();
+                break;
+            case ValueType::Object: new (&u_.object) std::shared_ptr<ObjectData>(std::move(o.u_.object)); o.u_.object.~shared_ptr(); break;
+            default: break;
+            }
+        }
+
+        CUFF_NOINLINE void releaseCounted() noexcept
+        {
+            switch (tag_)
+            {
+            case ValueType::Str: u_.str.~StrPtr(); break;
+            case ValueType::List: u_.list.~shared_ptr(); break;
+            case ValueType::Map: u_.map.~shared_ptr(); break;
+            case ValueType::Match: u_.match.~shared_ptr(); break;
+            case ValueType::Pattern: u_.pattern.~shared_ptr(); break;
+            case ValueType::Object: u_.object.~shared_ptr(); break;
+            default: break;
+            }
+        }
+
+        ValueType tag_;
+        Payload u_;
 
         static const std::vector<StrPtr> &asciiTable()
         {

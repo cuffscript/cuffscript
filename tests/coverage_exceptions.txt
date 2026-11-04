@@ -1,0 +1,5 @@
+# Gaps the coverage checker (tests/coverage.py) accepts, one per line: kind name reason
+# kind is error, function or method; the reason says why a test cannot close the gap.
+error E3-007 No pattern can reach it today: an unknown word in brackets is read as a set of characters (see docs/reference/errors.md).
+error E6-003 The host running out of memory cannot be provoked from a script without exhausting the machine running the tests.
+error E9-001 A bug in the engine; no program is meant to reach it.

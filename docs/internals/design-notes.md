@@ -27,7 +27,7 @@ Items from 46 on record the decisions of 4.0.0, which are the language as it is 
       finished before the line right after the one that queued it even ran", which felt no
       different from immediate execution. The rule "it runs after the synchronous code is
       all done" is far easier to understand and actually shows that it runs "later".
-      (See `examples/10_async_ordering.cuff`.)
+      (See `examples/09_async.cuff`.)
     - No real threads or parallelism are used at all — the interpreter's shared state
       (`Environment`, the function table, the regex cache, etc.) is not thread-safe, so
       introducing true concurrency would be a big job that means wrapping all of it in
@@ -165,7 +165,7 @@ Python/JS). Numbers, strings, booleans and `empty` are copied by value.
 
 Because they are reference-counted, a list or map that contains itself (`add a to a`) is never
 freed: the reference cycle keeps it alive until the process exits. Printing and comparing such
-structures is safe (see `tests/cases/value_semantics.cuff`), and a one-shot `cuffc` run is
+structures is safe (see `tests/cases/values/value_semantics.cuff`), and a one-shot `cuffc` run is
 unaffected, but a long-lived host that runs many scripts in one process should be aware that a
 script which builds cycles leaks that memory.
 
@@ -267,7 +267,7 @@ keywords, such as `add`/`count`/`find`/`split`/`replace`/`match`/`in`/`by`/`not`
 could not be used as variable or function names at all. It has the same cause as the DLC-name
 problem in `ImportParser` (a strict check of only `TokenType::IDENTIFIER`), but this time it was
 spread across every point that declares a name, such as `DeclarationParser`/`FunctionParser`, so
-the scope was larger. `tests/errors/argument_count_mismatch.cuff` had originally tried to use
+the scope was larger. `tests/errors/functions/argument_count_mismatch.cuff` had originally tried to use
 the function name `add`, ran into this problem, and worked around it with `combine`.
 
 ## 17. Regex matching is codepoint-based (not byte-based)
@@ -601,9 +601,9 @@ site (`evalCall`, `invokeAwaited`) and rejects a pure caller invoking a non-pure
 Native/DLC functions are still exempt — they never touch a CuffScript `Environment` at
 all, so they can't reach a global through this route regardless. Recursion and
 pure-calling-pure remain unrestricted, since `decl.isPure` is checked per callee, not
-per call depth. This is a **behavior change**: `tests/cases/pure_functions.cuff`'s old
+per call depth. This is a **behavior change**: `tests/cases/functions/pure_functions.cuff`'s old
 "pure calling non-pure is fine" example no longer holds and was rewritten; the same
-scenario now lives in `tests/errors/pure_func_call_impure.cuff` as an E4-029 case.
+scenario now lives in `tests/errors/functions/pure_func_call_impure.cuff` as an E4-029 case.
 
 
 ## 27. Global-bridge bug: `Environment::resolve()` checked the bridge before the local
@@ -621,7 +621,7 @@ scope itself), and only fall back to `globalDeclared_`/true-global when no local
 already follows. This also incidentally fixes the same class of misattribution in the
 `pure` global-access check (`currentFunctionPure_ && look.owner == &globalEnv_`), which
 could previously misreport an ordinary shadowed local as forbidden global access.
-Regression test: `tests/cases/global_bridge_shadowing.cuff` (loop-variable shadowing and
+Regression test: `tests/cases/functions/global_bridge_shadowing.cuff` (loop-variable shadowing and
 the `or_else` declaration-recovery placeholder, which hits the identical bug from a
 different angle).
 
@@ -667,7 +667,7 @@ mechanically, not a complete lifting of every keyword restriction — see the no
 `language.md` section 1.5 (Names and reserved words) for exactly which words are covered. `not`'s only other grammar role is the
 `is not` comparison (`parseComparison`'s own `p.check(TokenType::NOT)`, unrelated to
 `parsePrimary`), so there's no interaction between using `not` as a variable and using it
-in an `is not` comparison. Regression test: `tests/cases/reserved_words_as_identifiers.cuff`.
+in an `is not` comparison. Regression test: `tests/cases/values/reserved_words_as_identifiers.cuff`.
 
 ## 29. Caret (`^`) marker in error messages
 
@@ -724,9 +724,9 @@ slurping the whole file first and rejecting after), so an oversized file on the 
 filesystem can't force an oversized allocation just to get rejected. New host controls,
 mirroring `DLC:network`'s existing shape exactly: `CuffEngine::Options::filesystemEnabled`
 (default true) / `--no-filesystem`. See `SECURITY.md`'s "DLC:filesystem" section for the
-full trust-boundary discussion. Regression tests: `tests/cases/dlc_filesystem.cuff`
-(success paths, self-cleaning), `tests/errors/dlc_filesystem_disabled.cuff` (E5-005),
-`tests/errors/filesystem_sandbox_escape.cuff` (E5-008).
+full trust-boundary discussion. Regression tests: `tests/cases/libraries/dlc_filesystem.cuff`
+(success paths, self-cleaning), `tests/errors/libraries/dlc_filesystem_disabled.cuff` (E5-005),
+`tests/errors/libraries/filesystem_sandbox_escape.cuff` (E5-008).
 
 ## 31. DLC function naming convention (`library_verb`)
 
@@ -783,7 +783,7 @@ this release; see the more general version of this argument given directly to th
 alongside it. **What "async" means here remains unchanged and is now documented as such
 rather than implied otherwise**: `f()` on an `async` function queues it; the queue drains,
 strictly in FIFO order, once the top-level script's synchronous code finishes (self-queued
-tasks included, see `examples/10_async_ordering.cuff`); `await f()` runs it immediately,
+tasks included, see `examples/09_async.cuff`); `await f()` runs it immediately,
 synchronously, and returns its value. This is cooperative scheduling, not concurrency —
 useful for controlling *when* code runs relative to the rest of the script, not for
 making two things run at the same wall-clock time.
@@ -798,12 +798,12 @@ already correct but untested:
   English word for it.
 - An error thrown by a queued task now has a regression test confirming it stops the
   drain the same way an error mid-script stops synchronous execution — tasks queued after
-  the failing one don't run (`tests/errors/async_error_stops_queue.cuff`) — this was
+  the failing one don't run (`tests/errors/functions/async_error_stops_queue.cuff`) — this was
   already the behavior (an uncaught exception simply unwinds out of `drainTaskQueue`), just
   previously unverified by a test.
 - Self-queuing chains (a queued task queuing another queued task queuing another, `A` →
   `B` → `C`) already drained correctly in the documented FIFO order; now has a permanent
-  regression test (`tests/cases/async_self_queue_chain.cuff`).
+  regression test (`tests/cases/functions/async_self_queue_chain.cuff`).
 
 ## 34. `NativeFunctions.h` split into `engine/dlc/`
 
@@ -839,7 +839,7 @@ dangling comma and for a forgotten comma (`use DLC:math DLC:string`; without tha
 second `DLC` would parse as the start of a new statement and fail with a confusing `unexpected
 token ':'`). `language.md` section 9.1 requires a `use` statement to stay on a single line, so a list cannot be
 continued onto the next line — separate `use` lines are the multi-line form.
-Tests: `tests/cases/use_multiple_dlcs.cuff`, `tests/errors/use_multiple_*.cuff`.
+Tests: `tests/cases/libraries/use_multiple_dlcs.cuff`, `tests/errors/modules/use_multiple_*.cuff`.
 
 ## 36. Typed function parameters
 
@@ -854,8 +854,8 @@ rather than surfacing later when the queue drains. A mismatch is `ParameterTypeM
 failed `find`/`file_read` returning `empty` should be something a function can receive and
 handle. A type keyword counts as a type only when a name follows it, so `(number)` and
 `(number, x)` stay legal untyped parameters named `number`. Arity is still checked separately,
-by `callUserFunction`. Tests: `tests/cases/typed_parameters.cuff`,
-`tests/errors/parameter_type_mismatch*.cuff`.
+by `callUserFunction`. Tests: `tests/cases/functions/typed_parameters.cuff`,
+`tests/errors/functions/parameter_type_mismatch*.cuff`.
 
 ## 37. Performance pass: measured, mostly nothing to change
 
@@ -927,14 +927,13 @@ same situation raises `PureFunctionGlobalAccess` (E4-027) exactly as before — 
 cannot bridge, so it can never reach a global — which is why the three
 `look.owner == &globalEnv_` checks from item 25 are gone: they could no longer fire.
 
-**Knock-on changes.** `examples/02_comprehensive_demo.cuff` (and the comprehensive example in `language.md`, Appendix A, that mirrors it)
-reads the constant `MAX_LEVEL` inside a function, and `examples/lib/greetings.cuff` reads a
-module-level constant, so both now begin with `change <NAME> to global`. Module functions follow
+**Knock-on changes.** `examples/lib/greetings.cuff` reads a
+module-level constant, so it begins with `change <NAME> to global` (`global <NAME>` in 4.0.0). Module functions follow
 the same rule as any function (item 8).
 
-**Tests.** `tests/cases/global_bridge_required.cuff` (read/write/collection op blocked without a
+**Tests.** `tests/cases/functions/global_bridge_required.cuff` (read/write/collection op blocked without a
 bridge, allowed with one, local shadowing, the global untouched afterwards) and
-`tests/errors/global_read_without_bridge.cuff` / `global_write_without_bridge.cuff` (E4-001).
+`tests/errors/functions/global_read_without_bridge.cuff` / `global_write_without_bridge.cuff` (E4-001).
 
 ### Other fixes in the same pass
 
@@ -972,7 +971,7 @@ a 60,000-key map). It now shifts the stored positions by walking the index when 
 and still re-indexes only the tail when few do, so removing the last key stays O(1) — roughly
 2× faster for removals near the front. It is still O(n) per removal, because a map keeps its keys
 and values in dense, insertion-ordered vectors that a dozen call sites read directly; making
-removal O(1) would mean tombstones and touching all of them (`tests/cases/map_remove_reindex.cuff`
+removal O(1) would mean tombstones and touching all of them (`tests/cases/collections/map_remove_reindex.cuff`
 pins the ordering behavior either way).
 
 ### Regex: a digit run after a literal is text, not a count
@@ -987,7 +986,7 @@ a bracket token or set, `[one:...]`, a group or a named capture. After a plain o
 digit straight after a token reads as part of the count, so four digits then a `5` is
 `[num]4[one:5]`. A pattern that relied on a literal followed by a count (`ab2` for `abb`)
 changes meaning; that form was never documented. Tests: `tests/unit/regex_test.cpp` and
-`tests/cases/regex_literal_digits.cuff`.
+`tests/cases/text/regex_literal_digits.cuff`.
 
 ### Verifying with sanitizers
 
@@ -999,7 +998,7 @@ ASAN_OPTIONS=detect_leaks=0 CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g $SAN" bash tes
 
 With leak detection off the whole suite is clean under ASan + UBSan (no memory errors, no
 undefined behavior). With leak detection on, the only reports are the deliberate reference cycles
-in `tests/cases/value_semantics.cuff` and `tests/unit/limits_test.cpp` (item 11), which is why
+in `tests/cases/values/value_semantics.cuff` and `tests/unit/limits_test.cpp` (item 11), which is why
 the command above sets `detect_leaks=0`.
 
 ## 41. Extension points and portability
@@ -1023,7 +1022,7 @@ six small edits in four files, all compiler-checked.
 `engine/net/HttpClient.h` and its platform headers (`getaddrinfo` is no longer imported). `use
 DLC:network` still loads, and `network_get`/`network_post` fail with `DLCFeatureUnavailable`
 (E5-005), the same error as when a host turns the library off at run time. The four
-`tests/errors/network_*.cuff` cases test the client itself, so they are expected to fail in such a
+`tests/errors/libraries/network_*.cuff` cases test the client itself, so they are expected to fail in such a
 build; everything else passes. The default builds, WASM included, are unchanged. `DLC:filesystem`
 has no such switch: it needs only `std::filesystem`, which module loading uses anyway.
 
@@ -1185,8 +1184,7 @@ take one, and `add 5 to grid[1]` appends to the inner list as `change grid[1][2]
 `replace NAME[i] to value` is removed, because `replace` is now a text function and the statement was a second spelling of
 `change`. The one silent change is `add X to NAME[i]` and `remove X from NAME[i]`: in 3.x the target ended at the name and
 the `[i]` that followed was read as a list by itself, which was never useful; now they apply to the element `NAME[i]`. A
-program that has the old form usually fails with `E4-005` (the element is not a list), and `tools/migrate_3_to_4.py` reports
-every occurrence instead of rewriting it, because only the author knows what was meant.
+program that has the old form usually fails with `E4-005` (the element is not a list), so the mistake shows up at the first run.
 
 A function reaches variables of the program with `global x`, a statement before the names are used, instead of
 `change x to global`, which read as an assignment and could not name several variables. `global` stays a word that may also
@@ -1313,9 +1311,7 @@ because without it a pattern built from user input could not ignore case.
 pattern characters, so `name is "[x]"` meant two different things depending on what the string held. `matches` is the
 pattern test: the left side must be a `str` and the right side a `pattern` (`E4-005` otherwise), and it tests the whole
 text, as the old form did. Two patterns are `is` equal when their source and flags are the same, and objects are `is` equal
-only when they are the same object. The migration tool rewrites `is "pattern-like literal"` to `matches p"..."` when the
-literal has characters that mean something in a pattern; it cannot know about a value that is not a literal, so a program
-that compares a variable holding a pattern with `is` needs a look. `IS` (case-insensitive) is gone; `matches p"..."i` says it.
+only when they are the same object. `IS` (case-insensitive) is gone; `matches p"..."i` says it.
 
 `&&` and `||` are removed because `and` and `or` do the same, and two spellings of one operator only invite the question of
 which one the project prefers.
@@ -1345,13 +1341,13 @@ from the arguments. A deep copy is not offered because the language has no way t
 A program in the old syntax that still runs and does something different is the worst outcome of a syntax change, so every
 removed spelling is an `E2-001` with a hint that says what to write: ``hint: use find(text, p"x")``,
 ``hint: write `func`; return works in every function``, ``hint: write `global x` ``, ``hint: use `matches p"y"i` ``, and so on.
-Each has a case in `tests/errors` that checks the code and the hint, and the migration tool does the same rewrites.
+Each has a case in `tests/errors` that checks the code and the hint.
 
 Three changes cannot be turned into an error without making valid programs invalid, and are listed in the changelog as
 behaviour changes: `add X to NAME[i]` (item 46), `text is "pattern"` meaning equality (item 54), and `E4-016`, which no longer
 covers a `return` with a value in a function that was not `returnable` (there is no such function now) and means a `return
-value` outside any function. The first two are covered by the migration tool's report; the third is a code that used to be
-raised in a case that no longer exists.
+value` outside any function. The third is a code that used to be raised in a case that no longer exists; the changelog lists
+all three so that an upgrader can search for them.
 
 ## 57. v4.0.0: limits for classes
 

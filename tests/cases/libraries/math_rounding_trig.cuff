@@ -1,0 +1,16 @@
+note: rounding and trigonometry, as functions and as methods of a number.
+use DLC:math
+
+print(math_floor(2.7), math_floor(-2.7), math_ceil(2.1), math_ceil(-2.1))
+print(2.7.floor(), (-2.7).trunc(), 2.7.trunc(), (-2.1).ceil())
+print(5.sign(), (-5).sign(), 0.sign())
+print(math_round(math_e(), 5))
+print(math_round(1.exp(), 5), 8.log2(), 1000.log10(), math_round(1.log(), 5))
+
+set number quarter to math_pi() / 4
+print(math_round(math_tan(quarter), 10), math_round(quarter.tan(), 10))
+print(math_round(0.sin(), 10), math_round(0.cos(), 10))
+print(math_round(math_asin(1), 5), math_round(math_acos(1), 5), math_round(math_atan(1), 5))
+print(math_round(1.asin(), 5), math_round(1.acos(), 5), math_round(1.atan(), 5))
+print(math_round(1.atan2(1), 5))
+print(math_round((math_pi() / 2).sin(), 10), math_round(math_pi().cos(), 10))

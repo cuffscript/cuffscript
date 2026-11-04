@@ -125,14 +125,14 @@ for src in tests/unit/*.cpp; do
 done
 
 echo "== tests/cases (output diff) =="
-for f in tests/cases/*.cuff; do
+while IFS= read -r f; do
     run_success_case "$f"
-done
+done < <(find tests/cases -name '*.cuff' ! -path '*/fixtures/*' | LC_ALL=C sort)
 
 echo "== tests/errors (error code check) =="
-for f in tests/errors/*.cuff; do
+while IFS= read -r f; do
     run_error_case "$f"
-done
+done < <(find tests/errors -name '*.cuff' ! -path '*/fixtures/*' | LC_ALL=C sort)
 
 echo "== examples (output diff) =="
 for f in examples/0*.cuff examples/1*.cuff; do

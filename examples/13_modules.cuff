@@ -1,0 +1,5 @@
+note: use <name> from <folder> loads <folder>/<name>.cuff. Its functions and constants become available.
+use greetings from ./lib
+
+print(greet("CuffScript"))
+print(DEFAULT_GREETING)

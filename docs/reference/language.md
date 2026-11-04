@@ -30,7 +30,7 @@ program may contain, what each construct means, and what a script can rely on wh
 - [9. Modules and libraries](#9-modules-and-libraries)
 - [10. Built-in functions and libraries](#10-built-in-functions-and-libraries)
 - [11. Running programs](#11-running-programs)
-- [Appendix A: Comprehensive example](#appendix-a-comprehensive-example)
+- [Appendix A: A complete program](#appendix-a-a-complete-program)
 - [Appendix B: Error catalogue](#appendix-b-error-catalogue)
 
 **Conventions**
@@ -866,10 +866,10 @@ use DLC:string, DLC:list, DLC:json    note: several on one line, comma-separated
 ### 9.2 Your own modules (`use ... from ...`)
 
 ```cuff
-use stage_data from ./maps/core_engine
+use greetings from ./lib
 ```
 
-loads the file `./maps/core_engine/stage_data.cuff`.
+loads the file `./lib/greetings.cuff`.
 
 - The path is relative to the directory of the running script and must stay inside it, or inside the
   directory the host configured as the root. An absolute path or one that escapes is an error
@@ -968,80 +968,51 @@ execution budgets `--max-steps` and `--timeout` are off unless set (`E6-001`, `E
 
 ---
 
-## Appendix A: Comprehensive example
+## Appendix A: A complete program
 
-The same program ships as `examples/02_comprehensive_demo.cuff`.
+A program that counts the words of a text and prints the three most common ones. It uses text patterns, a map, loops and the
+`list` and `map` libraries; it is `examples/16_word_frequency.cuff`, and the [examples](../../examples/README.md) cover the rest of the language.
 
 ```cuff
-note: Step 1: load the official libraries (DLC) and a custom module (one statement per line)
-use DLC:network
-use stage_data from ./maps/core_engine
+note: Count how often each word occurs in a text and print the three most common ones.
+use DLC:string
+use DLC:list
+use DLC:map
 
-note:
-This block is a multi-line comment.
-It is the final end-to-end check covering 1-based indexes, or_else, pattern matching, and global/local variables.
-endnote
+set str text to "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs."
 
-note: Step 2: core variables and fixed constants (constants use only `to`)
-set constant number MAX_LEVEL to 99
-set constant str ENGINE_SIGNATURE to "CUFF_LANG_V1"
+note: find_all gives every run of letters; upper case makes "The" and "the" the same word.
+set list words to find_all(str_upper(text), p"[let]+")
+print(f"{length(words)} words, {length(list_unique(words))} different")
 
-set number current_lvl to 1
-set str user_email to "Player_One@CuffLang.com"
-set list reward_tier_list to ["Gold", "Silver", "Bronze"]
-
-note: Step 3: declare the functions that handle logic checks and text pattern matching
-func audit_and_assess_user(email, lvl) do:
-
-    global MAX_LEVEL
-
-    note: validate the email's structure with pattern matching (the `is` operator)
-    if email matches p"[str]+@[str]2~10" do:
-        print("Pattern matching engine: email structure verified")
-    end
-
-    note: the `!` negation operator combined with a strict, lowercase `is` comparison
-    if !lvl is MAX_LEVEL do:
-        print(f"Current level {lvl} is not the highest level.")
-    end
-
-    if lvl is MAX_LEVEL do:
-        return "epic_rank"
-    else if lvl >= 50 do:
-        return "rare_rank"
+set map counts to {}
+loop each word in words do:
+    if map_has_key(counts, word) do:
+        change counts[word] to counts[word] + 1
     else do:
-        return "common_rank"
+        change counts[word] to 1
     end
 end
 
-note: Step 4: define a standalone async function for background data processing
-async func backup_user_cloud_data() do:
-    print("Sending a snapshot of the virtual machine's internal data to the remote cloud infrastructure.")
-end
-
-note: Step 5: run the main program logic and exercise 1-based collection operations
-set str evaluation_result to audit_and_assess_user(user_email, current_lvl)
-
-note: call a function with the or_else safety net
-await backup_user_cloud_data() or_else do:
-    print("Working around the cloud sync failure caused by the network environment.")
-end
-
-note: with 1-based indexing, index 1 is the first element, "Gold".
-print(f"Data identifying the top-tier reward emblem: {reward_tier_list[1]}")
-
-note: modify list contents with the standalone `add ... to` and `change` statements
-add "None_Tier" to reward_tier_list
-change reward_tier_list[1] to "Platinum_Tier" note: replace the existing word at position 1 with Platinum
-
-note: Step 6: fast repetition using the range operator (~) and the `loop repeat` structure
-loop repeat step to 1 ~ 5 do:
-    if step is 4 do:
-        print("Forcing the loop to stop.")
-        stop
+note: Pick the most frequent word three times, taking it out each time. Ties go to the earlier word.
+set list remaining to list_sort(map_keys(counts))
+loop repeat rank to 1 ~ 3 do:
+    set str best to remaining[1]
+    loop each word in remaining do:
+        if counts[word] > counts[best] do:
+            change best to word
+        end
     end
-    print(f"CuffScript fast VM sync engine running... current loop step: {step}")
+    print(f"{rank}. {best} ({counts[best]})")
+    remove best from remaining
 end
+```
+
+```output
+15 words, 10 different
+1. THE (4)
+2. DOG (2)
+3. FOX (2)
 ```
 
 ---

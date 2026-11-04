@@ -1,0 +1,3 @@
+func shout(word) do:
+    return word + "!"
+end

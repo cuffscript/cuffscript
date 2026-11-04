@@ -9,6 +9,8 @@
 #include <vector>
 #include <unordered_map>
 #include <functional>
+#include <memory>
+#include <type_traits>
 #include <chrono>
 #include <cstddef>
 #include <algorithm>
@@ -83,25 +85,42 @@ namespace cuff::regex
         std::unordered_map<std::string, std::pair<size_t, size_t>> namedSpans_;
         const std::string *text_ = nullptr;
 
-        using Cont = std::function<bool(size_t)>;
+        // The rest of the match, as a callable. It only ever lives for the length of the call it is passed to, so it
+        // refers to the callable instead of owning a copy: a std::function here allocates on every step.
+        class Cont
+        {
+        public:
+            template <typename F, typename = std::enable_if_t<!std::is_same_v<std::decay_t<F>, Cont>>>
+            Cont(F &&f) noexcept
+                : obj_(const_cast<void *>(static_cast<const void *>(std::addressof(f)))),
+                  call_([](void *o, size_t pos) -> bool { return (*static_cast<std::remove_reference_t<F> *>(o))(pos); })
+            {
+            }
+            bool operator()(size_t pos) const { return call_(obj_, pos); }
+
+        private:
+            void *obj_;
+            bool (*call_)(void *, size_t);
+        };
 
         bool tryMatchAt(const std::string &text, size_t startPos, MatchOutcome &out, bool requireFullConsumption)
         {
             text_ = &text;
             steps_ = 0;
             depth_ = 0;
-            deadline_ = std::chrono::steady_clock::now() + limits_.timeLimit;
+            deadline_ = std::chrono::steady_clock::time_point{}; // started at the first clock check of this attempt
             groupSpans_.assign(static_cast<size_t>(groupCount_) + 1, {std::string::npos, std::string::npos});
             namedSpans_.clear();
 
             size_t matchedEnd = std::string::npos;
-            Cont finish = [&](size_t pos) -> bool
+            auto finishFn = [&](size_t pos) -> bool
             {
                 if (requireFullConsumption && pos != text.size())
                     return false;
                 matchedEnd = pos;
                 return true;
             };
+            Cont finish(finishFn);
 
             bool ok = matchSequence(*root_, startPos, finish);
             if (!ok)
@@ -139,6 +158,8 @@ namespace cuff::regex
             if ((++totalSteps_ & 0xFFF) == 0)
             {
                 const auto now = std::chrono::steady_clock::now();
+                if (deadline_ == std::chrono::steady_clock::time_point{})
+                    deadline_ = now + limits_.timeLimit;
                 if (now > deadline_ ||
                     (limits_.operationDeadline != std::chrono::steady_clock::time_point{} && now > limits_.operationDeadline))
                 {

@@ -67,8 +67,10 @@ Extend the `Value` class in `engine/interpreter/Value.h`.
 
 1. Add an entry to `ValueType` and a name to `valueTypeName()` (`Pattern` and `Object` are the most recent additions,
    and show what a reference-like type needs: its data lives behind a `shared_ptr`).
-2. Add the storage type to the `Value::Storage` variant, and add `make*`/`as*`/`is*`
-   helpers. Add the type to `receiverBit()` in `engine/dlc/MethodTable.h` so that methods can be called on it.
+2. Add a member to the `Value::Payload` union and a case to `copyCounted()`, `moveCounted()` and `releaseCounted()` (a type that
+   holds no pointer is also listed in `isPlain()`), and add `make*`/`as*`/`is*` helpers. A `Value` is a tag and a payload that is
+   written by hand rather than a `std::variant`, so that copying, moving and dropping a number costs no call. Add the type to
+   `receiverBit()` in `engine/dlc/MethodTable.h` so that methods can be called on it.
 3. Add a new case to the switches in `truthy()`, `appendDisplay()` and
    `strictEquals()` (`equalsImpl`/`scalarEquals`) — the compiler catches a missing
    case via `-Wswitch`. The same goes for any other switch that branches on
@@ -118,7 +120,7 @@ function, so a new statement of that kind needs no target rule of its own.
    The [error catalogue](../reference/errors.md) is generated from it: run
    `python3 tools/docs.py generate`. A code that nothing raises is listed as reserved
    automatically. Add a `cuff error CODE` example for it to the catalogue by hand; the documentation check runs it.
-6. Add a `tests/errors/` case for the new code.
+6. Add a `tests/errors/<area>/` case for the new code (the areas are listed in `tests/README.md`); `python3 tests/coverage.py` fails until the code has a test.
 
 ## 5. Adding a "freezable" state to a value type (e.g. `isConstant` on `constant list`)
 
@@ -203,8 +205,8 @@ bash tests/run.sh              # the full regression suite (did existing feature
 python3 tools/docs.py check    # are the docs still true? (see "Documentation" below)
 ```
 
-For a new feature, add one test alongside it to `tests/cases/` (success cases) or
-`tests/errors/` (error cases) — see [Testing](testing.md). When you refactor later, that
+For a new feature, add one test alongside it to `tests/cases/<area>/` (success cases) or
+`tests/errors/<area>/` (error cases) — see [Testing](testing.md). When you refactor later, that
 test is your safety net as is. A feature that changes what a user can see also changes a
 page under `docs/`; [Documentation](documentation.md) says which, and what is generated.
 
@@ -260,7 +262,7 @@ as `NetworkDLC.h` does with the HTTP client.
   and its headers (`make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK`, and the same
   variable works for `make wasm` and `Makefile.win`). `use DLC:network` still loads;
   its functions fail with `DLCFeatureUnavailable` (E5-005). The four
-  `tests/errors/network_*.cuff` cases exercise the client itself, so they are
+  `tests/errors/libraries/network_*.cuff` cases exercise the client itself, so they are
   expected to fail in such a build.
 - **Paths from scripts.** Wherever text written in a script becomes a file system
   path, use `std::filesystem::u8path()` rather than `std::filesystem::path(str)`,

@@ -1,0 +1,71 @@
+note: decisions
+func sign_word(n) do:
+    if n < 0 do:
+        return "negative"
+    else if n is 0 do:
+        return "zero"
+    else if n < 10 do:
+        return "small"
+    else do:
+        return "large"
+    end
+end
+print(sign_word(-5), sign_word(0), sign_word(7), sign_word(70))
+
+note: a condition may be any value; empty, 0, "" and empty collections are false
+loop each v in [0, 1, "", "x", [], [0], {}, empty] do:
+    if v do: print("yes") else do: print("no") end
+end
+
+note: loop repeat counts up or down, both ends included
+loop repeat i to 1 ~ 3 do: print(i) end
+loop repeat i to 3 ~ 1 do: print(i) end
+loop repeat i to 2 ~ 2 do: print(i) end
+
+note: loop while checks the condition first
+set number n to 3
+loop while n > 0 do:
+    print(n)
+    change n to n - 1
+end
+loop while false do: print("never") end
+
+note: loop each over a list, a text, and the keys of a map
+loop each x in ["a", "b"] do: print(x) end
+loop each ch in "hi" do: print(ch) end
+set map ages to {"ann": 31, "bo": 27}
+loop each name in ages do: print(name, ages[name]) end
+
+note: skip goes to the next round, stop leaves the loop
+loop repeat i to 1 ~ 10 do:
+    if i % 2 is 0 do: skip end
+    if i > 7 do: stop end
+    print(i)
+end
+
+note: they act on the nearest loop only
+loop repeat row to 1 ~ 3 do:
+    loop repeat col to 1 ~ 3 do:
+        if col is 2 do: stop end
+        print(row, col)
+    end
+end
+
+note: a function that returns nothing gives empty
+func nothing_to_return() do:
+    return
+end
+print(nothing_to_return())
+func no_return_at_all() do: print("ran") end
+print(no_return_at_all())
+
+note: await as a statement and inside an expression
+async func slow(x) do:
+    return x + 1
+end
+async func run() do:
+    await slow(1)
+    set number y to await slow(10)
+    print(y)
+end
+await run()

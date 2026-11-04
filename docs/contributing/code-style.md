@@ -39,5 +39,5 @@ say what code does. Long explanations belong in the [design notes](../internals/
 
 ## Tests with the change
 
-A behaviour change comes with a test that fails without it: a `tests/cases` or `tests/errors` file when it is visible from a
+A behaviour change comes with a test that fails without it: a `tests/cases/<area>` or `tests/errors/<area>` file when it is visible from a
 script, a unit test when it is not. See [Testing](testing.md).

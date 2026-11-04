@@ -1,0 +1,7 @@
+[sync] start
+[async] looking up the score
+[sync] score = 87
+[sync] end of the main program
+[async] A done
+[async] B done
+[async] C done

@@ -428,6 +428,35 @@ int main()
     }
 #endif
 
+    // Modules: how deep they may import each other, and how large one file may be (both are E5-007).
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir = fs::temp_directory_path() / "cuff_limits_test_modules";
+        std::error_code ec;
+        fs::remove_all(dir, ec);
+        fs::create_directories(dir);
+        const int depth = cuff::limits::kMaxImportDepth;
+        for (int i = 0; i < depth + 4; ++i)
+        {
+            std::ofstream f(dir / ("m" + std::to_string(i) + ".cuff"));
+            f << (i + 1 < depth + 4 ? "use m" + std::to_string(i + 1) + " from ./\n" : std::string("set number last to 1\n"));
+        }
+        // m0 is imported at depth 0, m1 at depth 1, and so on: the module imported at depth `depth` is refused.
+        auto r = CuffEngine::execute("use m0 from ./\n", dir.string(), CuffEngine::Options());
+        check(!r.success && r.error.find("[E5-007]") != std::string::npos, "a chain of modules deeper than the limit is E5-007: " + r.error.substr(0, 120));
+        r = CuffEngine::execute("use m" + std::to_string(depth + 4 - 1 - (depth - 1)) + " from ./\n", dir.string(), CuffEngine::Options());
+        check(r.success, "a chain exactly at the limit is accepted: " + r.error.substr(0, 120));
+
+        {
+            std::ofstream big(dir / "big.cuff", std::ios::binary);
+            big << "note: ";
+        }
+        fs::resize_file(dir / "big.cuff", cuff::limits::kMaxSourceBytes + 1);
+        r = CuffEngine::execute("use big from ./\n", dir.string(), CuffEngine::Options());
+        check(!r.success && r.error.find("[E5-007]") != std::string::npos, "a module larger than the source limit is E5-007: " + r.error.substr(0, 120));
+        fs::remove_all(dir, ec);
+    }
+
     std::cout << "\n" << pass << " passed, " << fail << " failed\n";
     return fail == 0 ? 0 : 1;
 }

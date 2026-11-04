@@ -1,0 +1,7 @@
+note: the clock is read twice; only what must always hold is printed.
+use DLC:time
+set number t to time_timestamp()
+print(t > 1700000000)
+print(type_of(t))
+set number later to time_timestamp()
+print(later >= t)

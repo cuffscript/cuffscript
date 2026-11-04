@@ -1,0 +1,18 @@
+note: a module is an ordinary program; what it declares becomes available to the program that uses it.
+use inner from ./fixtures
+
+set constant str GREETING to "hello"
+
+func shout(word) do:
+    return word.upper() + "!"
+end
+
+class Counter do:
+    set number count to 0
+    func bump() do:
+        change self.count to self.count + 1
+        return self.count
+    end
+end
+
+print("helpers loaded")

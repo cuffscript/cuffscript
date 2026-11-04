@@ -1,7 +1,7 @@
 # Known limitations
 
 What CuffScript does not do, and the behaviours that surprise people, collected in one place. Some are decisions the language made on purpose, because it is small and aimed at beginners; others are things a particular build or library
-cannot do yet. Every item links to the page that defines the behaviour. The [design notes](../internals/design-notes.md) say why most of the language decisions were made.
+cannot do yet. Every item links to the page that defines the behaviour. The [design notes](../internals/design-notes.md) say why most of the language decisions were made, and [Phenomena](../guide/phenomena.md) lists the behaviours that follow from how the engine works.
 
 ## The language
 

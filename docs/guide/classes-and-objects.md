@@ -328,4 +328,4 @@ The same handler catches the errors the engine raises, such as a division by zer
 ## Where to go next
 
 - The [classes reference](../reference/classes.md) has every rule, including how objects turn into JSON and how `async` methods work.
-- [`examples/13_classes`](../../examples/README.md) to `16_errors_as_objects` are complete programs that use everything on this page.
+- [`examples/10_classes`](../../examples/README.md) to `12_with_block`, `08_errors_as_objects` and the practical programs `17_inventory` and `18_bank_account` are complete programs that use everything on this page.
