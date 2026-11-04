@@ -2,3 +2,4 @@
 *.sh text eol=lf
 CHANGELOG.md -text
 Makefile.win linguist-language=Makefile
+*.cuff text eol=lf

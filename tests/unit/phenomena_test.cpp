@@ -77,6 +77,14 @@ int main()
         check(!r.success && !has(r.printed, "later"), "a waiting async call is dropped when the program fails: '" + r.printed + "'");
     }
 
+    // A line break inside a string literal is one "\n", whether the file ends its lines with LF or CRLF.
+    {
+        Run lf = run("use DLC:string\nset str s to \"ab\ncd\"\nprint(length(s))\n");
+        Run crlf = run("use DLC:string\r\nset str s to \"ab\r\ncd\"\r\nprint(length(s))\r\n");
+        check(lf.success && lf.printed == "5\n", "LF literal length: '" + lf.printed + "'");
+        check(crlf.success && crlf.printed == "5\n", "CRLF literal length: '" + crlf.printed + "' " + crlf.error.substr(0, 100));
+    }
+
     std::cout << "\n" << pass << " passed, " << fail << " failed\n";
     return fail == 0 ? 0 : 1;
 }

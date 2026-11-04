@@ -70,6 +70,13 @@ namespace cuff
                 return Token(tt, value, start, s.pendingSpaceBefore);
             }
 
+            // A line break inside a literal is one "\n" whatever the file's line endings are.
+            if (c == '\r' && s.peek(1) == '\n')
+            {
+                s.advance();
+                continue;
+            }
+
             value += static_cast<char>(c);
             s.advance();
         }
