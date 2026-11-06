@@ -10,7 +10,14 @@ permissions:
     contents: read
 
 jobs:
+    ignore:
+        uses: ./.github/workflows/ignore-check.yaml
+        with:
+            workflow: docs-check.yaml
+
     docs-check:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 20
 

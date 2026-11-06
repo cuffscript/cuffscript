@@ -10,7 +10,14 @@ permissions:
     contents: read
 
 jobs:
+    ignore:
+        uses: ./.github/workflows/ignore-check.yaml
+        with:
+            workflow: build-and-test.yaml
+
     build-and-test:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
         runs-on: '${{ matrix.os }}'
         timeout-minutes: 45
         strategy:
@@ -43,6 +50,8 @@ jobs:
                 run: python3 tests/coverage.py
 
     build-and-test-windows:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
         runs-on: windows-latest
         timeout-minutes: 45
 

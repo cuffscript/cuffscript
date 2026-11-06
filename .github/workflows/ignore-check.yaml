@@ -1,0 +1,57 @@
+name: Workflow Ignore
+
+# .workflowignore, as it is in the last commit, lists workflow files, one name per line (a * matches any characters,
+# and a line that starts with # is a comment). A workflow that calls this one skips its jobs when its own file is listed.
+
+"on":
+    workflow_call:
+        inputs:
+            workflow:
+                description: File name of the calling workflow, for example docs-check.yaml
+                required: true
+                type: string
+        outputs:
+            skip:
+                description: "'true' when the calling workflow is listed in .workflowignore"
+                value: ${{ jobs.check.outputs.skip }}
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            skip: ${{ steps.decide.outputs.skip }}
+
+        steps:
+            -
+                name: Checkout the last commit
+                uses: actions/checkout@v4
+                with:
+                    ref: ${{ github.event.pull_request.head.sha || github.sha }}
+            -
+                name: Look for the workflow in .workflowignore
+                id: decide
+                shell: bash
+                env:
+                    WORKFLOW: ${{ inputs.workflow }}
+                run: |
+                    skip=false
+                    if [ -f .workflowignore ]; then
+                        while IFS= read -r line || [ -n "$line" ]; do
+                            line="${line%$'\r'}"
+                            line="${line#"${line%%[![:space:]]*}"}"
+                            line="${line%"${line##*[![:space:]]}"}"
+                            line="${line#.github/workflows/}"
+                            case "$line" in ''|'#'*) continue ;; esac
+                            # shellcheck disable=SC2053
+                            if [[ "$WORKFLOW" == $line ]]; then
+                                skip=true
+                                break
+                            fi
+                        done < .workflowignore
+                    fi
+                    echo "skip=$skip" >> "$GITHUB_OUTPUT"
+                    echo "$WORKFLOW: skip=$skip"

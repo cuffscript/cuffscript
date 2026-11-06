@@ -24,7 +24,14 @@ permissions:
     contents: read
 
 jobs:
+    ignore:
+        uses: ./.github/workflows/ignore-check.yaml
+        with:
+            workflow: sanitizers.yaml
+
     address-and-undefined:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
         runs-on: ubuntu-latest
         timeout-minutes: 60
 

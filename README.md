@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/cuffscript/cuffscript/refs/heads/main/assets/cuffscript_horiz.svg" alt="CuffScript" width="360" />
+    <img src="https://raw.githubusercontent.com/cuffscript/cuffscript/refs/heads/main/assets/cuffscript_horiz.svg" alt="CuffScript" width="360" />
 </p>
 
 <h1 align="center">The CuffScript programming language</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white" alt="C++17" />
-  <img src="https://img.shields.io/badge/License-Apache%202.0-red?style=flat" alt="Apache 2.0 license" />
-  <img src="https://github.com/cuffscript/cuffscript/actions/workflows/build-and-test.yaml/badge.svg" alt="Build and Test">
-  <img src="https://github.com/cuffscript/cuffscript/actions/workflows/repl-test.yaml/badge.svg" alt="REPL Build and Test">
-  <img src="https://github.com/cuffscript/cuffscript/actions/workflows/sanitizers.yaml/badge.svg" alt="Sanitizers">
+    <img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white" alt="C++17" />
+    <img src="https://img.shields.io/badge/License-Apache%202.0-red?style=flat" alt="Apache 2.0 license" />
+    <img src="https://github.com/cuffscript/cuffscript/actions/workflows/build-and-test.yaml/badge.svg" alt="Build and Test">
+    <img src="https://github.com/cuffscript/cuffscript/actions/workflows/repl-test.yaml/badge.svg" alt="REPL Build and Test">
+    <img src="https://github.com/cuffscript/cuffscript/actions/workflows/sanitizers.yaml/badge.svg" alt="Sanitizers">
 </p>
 
 CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository includes its language engine, a script runner (`cuffc`), an interactive shell (`cuffsh`), built-in libraries, and runnable examples.

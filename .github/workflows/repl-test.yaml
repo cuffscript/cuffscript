@@ -24,7 +24,14 @@ permissions:
     contents: read
 
 jobs:
+    ignore:
+        uses: ./.github/workflows/ignore-check.yaml
+        with:
+            workflow: repl-test.yaml
+
     repl-test:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         strategy:
@@ -80,6 +87,8 @@ jobs:
     # The interactive suites need a POSIX pseudo-terminal, so on Windows the native checks run: piped scripts, error
     # text, UTF-8 and Korean paths, the flags, the limits, and cuffsh compared with cuffc over every shipped script.
     repl-test-windows:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
         runs-on: windows-latest
         timeout-minutes: 30
 
