@@ -45,7 +45,7 @@ jobs:
 
         steps:
             -   name: Checkout code
-                uses: actions/checkout@v4
+                uses: actions/checkout@v7
 
             # A Python that is not the operating system's own, so pip can install into it directly.
             -   name: Set up Python
@@ -94,7 +94,7 @@ jobs:
 
         steps:
             -   name: Checkout code
-                uses: actions/checkout@v4
+                uses: actions/checkout@v7
 
             -   name: Install MinGW-w64
                 id: msys2

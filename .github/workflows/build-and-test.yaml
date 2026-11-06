@@ -30,7 +30,7 @@ jobs:
         steps:
             -
                 name: Checkout code
-                uses: actions/checkout@v4
+                uses: actions/checkout@v7
             -
                 name: Install Coreutils (macOS only)
                 if: matrix.os == 'macos-latest'
@@ -58,7 +58,7 @@ jobs:
         steps:
             -
                 name: Checkout code
-                uses: actions/checkout@v4
+                uses: actions/checkout@v7
             -
                 name: Install MinGW-w64
                 id: msys2
