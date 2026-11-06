@@ -2,6 +2,7 @@ name: Workflow Ignore
 
 # .workflowignore, as it is in the last commit, lists workflow files, one name per line (a * matches any characters,
 # and a line that starts with # is a comment). A workflow that calls this one skips its jobs when its own file is listed.
+# Without a token (a local run) nothing is checked and the calling workflow runs as usual.
 
 "on":
     workflow_call:
@@ -28,11 +29,13 @@ jobs:
         steps:
             -
                 name: Checkout the last commit
+                if: ${{ github.token != '' }}
                 uses: actions/checkout@v4
                 with:
                     ref: ${{ github.event.pull_request.head.sha || github.sha }}
             -
                 name: Look for the workflow in .workflowignore
+                if: ${{ github.token != '' }}
                 id: decide
                 shell: bash
                 env:
