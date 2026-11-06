@@ -11,6 +11,9 @@
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/repl-test.yaml/badge.svg" alt="REPL Build and Test">
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/sanitizers.yaml/badge.svg" alt="Sanitizers">
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/docs-check.yaml/badge.svg" alt="Documentation Check">
+    <a href="https://npmjs.com/package/cuffscript-wasm/">
+        <img src="https://img.shields.io/badge/npm-WASM%20package-CB3837?style=flat&logo=npm&logoColor=white" alt="npm WASM package" />
+    </a>
 </p>
 
 CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository includes its language engine, a script runner (`cuffc`), an interactive shell (`cuffsh`), built-in libraries, and runnable examples.
