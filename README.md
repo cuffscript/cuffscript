@@ -7,9 +7,7 @@
 <p align="center">
     <img src="https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat&logo=cplusplus&logoColor=white" alt="C++17" />
     <img src="https://img.shields.io/badge/License-Apache%202.0-red?style=flat" alt="Apache 2.0 license" />
-    <a href="https://npmjs.com/package/cuffscript-wasm/">
-        <img src="https://img.shields.io/badge/npm-WASM%20package-CB3837?style=flat&logo=npm&logoColor=white" alt="npm WASM package" />
-    </a>
+    <a href="https://npmjs.com/package/cuffscript-wasm/"><img src="https://img.shields.io/badge/npm-WASM%20package-CB3837?style=flat&logo=npm&logoColor=white" alt="npm WASM package" /></a>
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/build-and-test.yaml/badge.svg" alt="Build and Test">
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/repl-test.yaml/badge.svg" alt="REPL Build and Test">
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/sanitizers.yaml/badge.svg" alt="Sanitizers">
@@ -136,29 +134,29 @@ Ann has 30 points
 
 Everything is under [`docs/`](docs/README.md), organised by what you are trying to do:
 
-| If you want to... | Read |
-| :--- | :--- |
-| Build it and run your first script | [Installation](docs/guide/installation.md), [Getting started](docs/guide/getting-started.md) |
-| Learn the language | [A tour of the language](docs/guide/language-tour.md), [classes and objects](docs/guide/classes-and-objects.md), [the cookbook](docs/guide/cookbook.md), [the FAQ](docs/guide/faq.md) |
-| Look something up | [Language reference](docs/reference/language.md), [classes](docs/reference/classes.md), [grammar](docs/reference/grammar.md), [libraries](docs/reference/dlc/README.md), [patterns](docs/reference/patterns.md), [errors](docs/reference/errors.md), [limits](docs/reference/limits.md) |
-| Use the shell or the runner | [`cuffsh`](docs/reference/cuffsh.md), [`cuffc`](docs/reference/cuffc.md) |
-| Embed the engine in a C++ program | [Embedding the engine](docs/guide/embedding.md), [C++ API](docs/reference/cpp-api.md), [security policy](SECURITY.md) |
-| Understand how it works | [Architecture](docs/internals/architecture.md), [source map](docs/internals/source-map.md) |
-| Contribute | [Contributing](CONTRIBUTING.md) |
+| If you want to...                  | Read                                                                                                                                                                                                                                                                                    |
+| :--------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build it and run your first script | [Installation](docs/guide/installation.md), [Getting started](docs/guide/getting-started.md)                                                                                                                                                                                            |
+| Learn the language                 | [A tour of the language](docs/guide/language-tour.md), [classes and objects](docs/guide/classes-and-objects.md), [the cookbook](docs/guide/cookbook.md), [the FAQ](docs/guide/faq.md)                                                                                                   |
+| Look something up                  | [Language reference](docs/reference/language.md), [classes](docs/reference/classes.md), [grammar](docs/reference/grammar.md), [libraries](docs/reference/dlc/README.md), [patterns](docs/reference/patterns.md), [errors](docs/reference/errors.md), [limits](docs/reference/limits.md) |
+| Use the shell or the runner        | [`cuffsh`](docs/reference/cuffsh.md), [`cuffc`](docs/reference/cuffc.md)                                                                                                                                                                                                                |
+| Embed the engine in a C++ program  | [Embedding the engine](docs/guide/embedding.md), [C++ API](docs/reference/cpp-api.md), [security policy](SECURITY.md)                                                                                                                                                                   |
+| Understand how it works            | [Architecture](docs/internals/architecture.md), [source map](docs/internals/source-map.md)                                                                                                                                                                                              |
+| Contribute                         | [Contributing](CONTRIBUTING.md)                                                                                                                                                                                                                                                         |
 
 Runnable programs are in [`examples/`](examples/README.md), and the WebAssembly package is described in [`npm/README.md`](npm/README.md).
 
 ## Repository layout
 
-| Path | Contents |
-| :--- | :--- |
-| `engine/` | The language engine (header-only C++17) |
+| Path               | Contents                                                        |
+| :----------------- | :-------------------------------------------------------------- |
+| `engine/`          | The language engine (header-only C++17)                         |
 | `main.cpp`, `cli/` | `cuffc`, the script runner, and `cuffsh`, the interactive shell |
-| `wasm/`, `npm/` | The WebAssembly binding and the npm package |
-| `examples/` | Runnable programs, error cases and a C++ embedding example |
-| `tests/` | The engine and language test suite |
-| `tools/` | The documentation generator and checker |
-| `docs/` | The documentation, including the [changelog](docs/CHANGELOG.md) |
+| `wasm/`, `npm/`    | The WebAssembly binding and the npm package                     |
+| `examples/`        | Runnable programs, error cases and a C++ embedding example      |
+| `tests/`           | The engine and language test suite                              |
+| `tools/`           | The documentation generator and checker                         |
+| `docs/`            | The documentation, including the [changelog](docs/CHANGELOG.md) |
 
 ## Getting help and contributing
 
