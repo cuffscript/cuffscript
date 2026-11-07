@@ -1,3 +1,25 @@
+## v4.0.1 - 2026-11-07
+
+## Description
+
+- **Behavior change: the body of a block written on its own lines must be indented.** A line after `if ... do:`, `else do:`, `loop ... do:`, `with ... do:`, `func ... do:`, `class ... do:` or an `or_else` handler that is not one level deeper than the header was accepted before, because `end` alone closes a block; it is a syntax error (`E2-001`) now, and the hint says to indent the body one level deeper. A line indented deeper than the rest of its body is also rejected (`unexpected indentation`). Unchanged: a body that is empty (`end` or `else` right after the `do:` line), the one-line form (`if x is 1 do: print("one") end`), and the lines of a bracketed list, map or argument list. The examples, the tests and the documentation already followed the rule, so nothing in them changed.
+- **Changed: the error report.** The message now sits beside the marks, the line carries its number, and the hint follows after a blank line:
+
+  ```text
+  [E2-001] Syntax Error at line 1, column 5
+    |
+  1 | set returnable func add(number a, number b) do:
+    |     ^^^^^^^^^^ a function declaration does not start with 'set'
+
+    hint: write `func`; return works in every function
+  ```
+
+  The marks cover the whole token the error is about (a name, a number, a string, an operator) instead of one column. `cuffc` and `cuffsh` still print `ERROR: ` before the first line, and the error code stays on the first line. An error with no source line to draw keeps the message on the first line. A program that reads the report (rather than the code) has to expect the new layout; the line and column on the first line are as before.
+- **Fixed: errors that pointed at the wrong place.** A call is reported at the function's name and not at its `(`, a member or method at its name and not at the `.`, an unknown class in `set` at the type, a wrong value or a bad constant name at the variable's name, and `change` of a variable that does not exist at that variable. The same holds inside an f-string.
+- **Added: tests.** `syntax_test.cpp` checks the rule for each kind of block, with tabs, and for the cases that stay allowed; `tests/errors/syntax/block_body_not_indented` is the error case.
+
+---
+
 ## v4.0.0 - 2026-11-04
 
 ## Description
