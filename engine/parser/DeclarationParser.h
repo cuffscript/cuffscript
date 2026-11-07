@@ -100,9 +100,9 @@ namespace cuff
                 else if (p.check(TokenType::DOT))
                 {
                     PlaceStep step;
-                    step.loc = p.current().location;
                     p.advance();
                     const Token name = p.consumeMemberName("expected a field name after '.'");
+                    step.loc = name.location;
                     step.name = name.value;
                     step.nameId = internName(step.name);
                     place.steps.push_back(std::move(step));
@@ -143,6 +143,7 @@ namespace cuff
             if (p.match(TokenType::CONSTANT))
                 isConst = true;
 
+            const SourceLocation typeLoc = p.current().location;
             TypeSpec type = parseDeclaredType(p);
             const Token nameTok = p.consumeName("expected a variable name after the type in 'set' declaration");
             p.consume(TokenType::TO, "expected 'to' in 'set' declaration (CuffScript uses 'to', not '=')");
@@ -155,6 +156,8 @@ namespace cuff
             decl.isConstant = isConst;
             decl.value = std::move(value);
             decl.loc = loc;
+            decl.typeLoc = typeLoc;
+            decl.nameLoc = nameTok.location;
 
             return std::make_unique<Stmt>(StmtKind::Declaration, std::move(decl));
         }

@@ -852,10 +852,12 @@ namespace cuff
             {
                 throw ConstantError(ErrorCode::InvalidConstantName,
                                     "constant name '" + decl.name + "' must be written in ALL CAPS (uppercase letters, digits, underscores only)",
-                                    decl.loc, "for example: " + upperAscii(decl.name));
+                                    decl.nameLoc, "for example: " + upperAscii(decl.name));
             }
 
-            checkDeclaredType(decl.type, v, decl.name, decl.loc);
+            if (decl.type.kind == TypeKind::Class && !findClass(decl.type.classNameId))
+                throwUnknownClass(decl.type.className, decl.typeLoc);
+            checkDeclaredType(decl.type, v, decl.name, decl.nameLoc);
             if (decl.isConstant && v.isList())
                 v = freezeList(v);
             env.declare(decl.nameId, std::move(v), decl.isConstant);
@@ -1190,9 +1192,9 @@ namespace cuff
             if (!r.var)
             {
                 if (use == PlaceUse::Change)
-                    throwUnresolved(pl.nameId, pl.name, "cannot change undefined variable '" + pl.name + "'", loc,
+                    throwUnresolved(pl.nameId, pl.name, "cannot change undefined variable '" + pl.name + "'", pl.loc,
                                     "declare it first with 'set', or bridge a global with 'global " + pl.name + "'");
-                throwUnresolved(pl.nameId, pl.name, "undefined collection '" + pl.name + "'", loc);
+                throwUnresolved(pl.nameId, pl.name, "undefined collection '" + pl.name + "'", pl.loc);
             }
             r.constant = env.isConstantIn(r.owner, pl.nameId);
             return r;
@@ -2790,19 +2792,6 @@ namespace cuff
             ~ImportDepthGuard() { --depth; }
         };
 
-        // Shifts every line of `text` right by four columns (the first line is placed by the caller).
-        static std::string indentLines(const std::string &text)
-        {
-            std::string out;
-            for (char c : text)
-            {
-                out += c;
-                if (c == '\n')
-                    out += "    ";
-            }
-            return out;
-        }
-
         void loadCustomModule(const std::string &moduleName, const std::string &relPath, const SourceLocation &loc, Environment &env)
         {
             namespace fs = std::filesystem;
@@ -2866,10 +2855,12 @@ namespace cuff
             {
                 // Reported at the `use` statement, with the module's own line shown beneath it.
                 ModuleError err(ErrorCode::ModuleParseFailed, "failed to parse module '" + shown + "': " + e.message, loc);
-                err.related = "    in '" + shown + "' [" + errorCodeTag(e.code) + "] at " + e.location.toString() + ":";
-                const std::string snippet = buildCaretSnippet(source->text, e.location);
-                if (!snippet.empty())
-                    err.related += "\n    " + indentLines(snippet);
+                err.related = "  in '" + shown + "' [" + errorCodeTag(e.code) + "] at " + e.location.toString() + ":";
+                Snippet snippet;
+                if (buildSnippet(source->text, e.location, snippet))
+                    err.related += "\n" + formatSnippet(snippet, e.message, "  ");
+                else
+                    err.related += " " + e.message;
                 throw err;
             }
 

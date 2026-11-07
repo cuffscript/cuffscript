@@ -344,7 +344,10 @@ The built-in class `Error` describes what went wrong. Its fields are all public:
 `fail value` raises an error. The value is an `Error` object, or a string, which is wrapped as `Error(string)`. Any other value is an error (`E4-005`). The error is of the category `E7` ("Program errors"); it can be caught like the errors the engine raises, and when nothing catches it the program stops with:
 
 ```text
-ERROR: [E7-001] Program Error at line 3, column 1: negative amount
+ERROR: [E7-001] Program Error at line 3, column 1
+  |
+3 | fail "negative amount"
+  | ^^^^ negative amount
 ```
 
 An error object of a class of your own shows the name of its class before the message.

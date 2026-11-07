@@ -326,10 +326,8 @@ s.send("if 1 is 1 do:\r", 0.4)
 t = s.nonblank()
 check(
     "incomplete input -> engine's own message, no auto-continue",
-    any(
-        l.startswith("ERROR: [E2-001] Syntax Error") and "expected 'end'" in l
-        for l in t
-    ),
+    any(l.startswith("ERROR: [E2-001] Syntax Error") for l in t)
+    and any("expected 'end'" in l for l in t),
     t,
 )
 s.send(":exit\r", 0.3)
@@ -351,7 +349,7 @@ s.send(
     + SHIFT_ENTER.decode()
     + "loop while true do:"
     + SHIFT_ENTER.decode()
-    + "change c to c + 1"
+    + "    change c to c + 1"
     + SHIFT_ENTER.decode()
     + "end\r",
     0.6,
@@ -367,7 +365,7 @@ s.send(
     + SHIFT_ENTER.decode()
     + "loop while true do:"
     + SHIFT_ENTER.decode()
-    + "change c to c + 1"
+    + "    change c to c + 1"
     + SHIFT_ENTER.decode()
     + "end\r",
     1.5,

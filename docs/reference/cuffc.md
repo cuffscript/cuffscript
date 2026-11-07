@@ -63,9 +63,10 @@ What the script prints with `print` goes to standard output. Everything `cuffc` 
 
 ```text
 $ cuffc fail.cuff > out.txt
-ERROR: [E4-006] Runtime Error at line 2, column 9: division by zero
-    print(1 / 0)
-            ^
+ERROR: [E4-006] Runtime Error at line 2, column 9
+  |
+2 | print(1 / 0)
+  |         ^ division by zero
 ```
 
 Output that the script produced before the error has already been written. `input` reads standard input, so a script that reads input cannot also be read from standard input;

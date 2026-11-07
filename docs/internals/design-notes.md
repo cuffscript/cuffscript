@@ -690,7 +690,8 @@ than parsing `what()`'s already-flattened string. The caret's horizontal offset 
 counted in **codepoints**, not bytes, because `column` was then byte-based (one UTF-8
 continuation byte = one column) and a Korean/emoji/etc. string literal earlier on the
 same line would otherwise push the caret roughly 3x too far right. (Superseded in v3.4.0:
-`column` now counts characters and the caret is placed by display width; see item 42.) Regression test:
+`column` now counts characters and the caret is placed by display width; see item 42. And in v4.0.1 the report is drawn
+as item 61 describes, with `buildSnippet()` in place of `buildCaretSnippet()`.) Regression test:
 `tests/unit/error_snippet_test.cpp` (ASCII, UTF-8-alignment, and a runtime-error case).
 
 An error inside an f-string's `{...}` used to report line 1 of the *fragment* (the
@@ -1383,3 +1384,40 @@ In a session each line is a program of its own and variables, functions and clas
 because the usual way to change a class in a session is to type the new version; the new declaration applies to objects
 made from then on, and objects made earlier keep the version they were made from. Declaring the same name twice in one file
 is still `E4-038`. The editor treats `class`, `with` and `loop each` as blocks when it decides whether an entry is complete.
+
+## 60. v4.0.1: the body of a block is indented
+
+`end` closes every block, so the tokenizer's indentation tokens were not needed to find where a block stops, and 4.0.0 let a
+body start at the level of its header. The parser now requires the first line of a body that begins on a new line to be
+preceded by an indent (`ParserCore::openBody`), and rejects a line indented deeper than the lines around it where no block
+was opened (`skipBodyBreaks`). Both are reported as `E2-001`, like every syntax problem; `E1-004` stays reserved, because the
+tokenizer's own check (`inconsistent indentation`) already uses `E2-001` and one code for all of them is simpler to look up.
+
+Left alone on purpose: an empty body (`end` or `else` comes next), the one-line form, the lines of a bracketed list, map or
+argument list (this rule does not look at them), and where `end` stands: it is not required to line up with its header.
+
+## 61. v4.0.1: the shape of an error report
+
+The report puts the message where the eye is, beside the marks, as `rustc` does:
+
+```text
+[E2-001] Syntax Error at line 1, column 5
+  |
+1 | set returnable func add(number a, number b) do:
+  |     ^^^^^^^^^^ a function declaration does not start with 'set'
+
+  hint: write `func`; return works in every function
+```
+
+The headline names the place and not the message; the gutter is as wide as the line number; `^` is written once per display
+column of the token the error starts at, so the report needs no length from the code that raises the error. `tokenEnd` finds it
+from the text: a name or number, a string with its `f` or `p` prefix, a two-character operator, or one character. The cost is
+that an error about a whole expression is marked at its first token only.
+
+The front ends still print `ERROR: ` in front of the first line, and nothing else changed for them. An error with no source line to
+draw (one the host never gave text for) keeps the old single-line headline, message included, because the message has nowhere
+else to go.
+
+The same release put some locations on the part that is wrong instead of the start of the statement or the `(` of a call:
+a call and a member access are reported at the name, an unknown class in `set` at the type word, a wrong value or a bad constant
+name at the variable's name, and `change` of a variable that does not exist at that variable.

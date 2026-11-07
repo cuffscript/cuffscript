@@ -79,12 +79,13 @@ next line. Everything about the shell is in the [`cuffsh` reference](../referenc
 
 ## When something goes wrong
 
-A program that fails prints a report with the line, a caret under the position, and often a hint:
+A program that fails prints a report with the line, marks under the place that went wrong with the message beside them, and often a hint:
 
 ```text
-ERROR: [E4-006] Runtime Error at line 2, column 9: division by zero
-    print(1 / 0)
-            ^
+ERROR: [E4-006] Runtime Error at line 2, column 9
+  |
+2 | print(1 / 0)
+  |         ^ division by zero
 ```
 
 [Reading an error report](errors-and-debugging.md) explains each part and what to do about the common ones.
