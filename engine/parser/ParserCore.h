@@ -285,6 +285,36 @@ namespace cuff
             return false;
         }
 
+        // The start of a block whose `do:` ends its line. The lines of the body are indented one level deeper than the
+        // header; a body with nothing in it (`end`, `else` or the end of the text comes next) needs no indentation.
+        void openBody()
+        {
+            skipNewlinesOnly();
+            if (check(TokenType::INDENT))
+            {
+                advance();
+                return;
+            }
+            if (peekTerminator({TokenType::END, TokenType::ELSE, TokenType::EOF_TOKEN}))
+                return;
+            size_t idx = pos;
+            while (tokens[idx].is(TokenType::DEDENT))
+                ++idx;
+            throw SyntaxError(ErrorCode::UnexpectedToken, "expected the lines of the block to be indented (got " + describeToken(tokens[idx]) + ")",
+                              tokens[idx].location, "indent the body one level deeper than the line that ends with 'do:'");
+        }
+
+        // Between the lines of a block body: line breaks, and the end of a deeper level. A line indented deeper than the
+        // one before it, where no block was opened, does not belong to the body.
+        void skipBodyBreaks()
+        {
+            while (check(TokenType::NEWLINE) || check(TokenType::DEDENT))
+                advance();
+            if (check(TokenType::INDENT))
+                throw SyntaxError(ErrorCode::UnexpectedToken, "unexpected indentation", current().location,
+                                  "every line of a block is indented the same, one level deeper than the line that ends with 'do:'");
+        }
+
         // Whether the statement just parsed is complete: a statement ends at the end of its line, or where the
         // construct around a one-line form ends.
         bool atStatementEnd() const

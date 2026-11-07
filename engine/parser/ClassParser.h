@@ -45,10 +45,13 @@ namespace cuff
             p.consume(TokenType::DO, "expected 'do' after the class header");
             p.consume(TokenType::COLON, "expected ':' after 'do'");
 
+            if (p.check(TokenType::NEWLINE))
+                p.openBody();
+
             ++p.ctx.blockDepth;
             while (true)
             {
-                p.skipNewlines();
+                p.skipBodyBreaks();
                 if (p.atEnd() || p.check(TokenType::END))
                     break;
                 parseMember(p, decl);

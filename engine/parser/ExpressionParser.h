@@ -271,7 +271,7 @@ namespace cuff
                 if (base->kind == ExprKind::Identifier)
                 {
                     const auto &id = std::get<IdentifierExpr>(base->data);
-                    FunctionCall call(id.name, std::move(args), loc);
+                    FunctionCall call(id.name, std::move(args), id.loc); // the error points at the name, not at the "("
                     call.inWith = id.inWith;
                     base = std::make_unique<Expr>(ExprKind::FunctionCall, std::move(call));
                 }
@@ -284,10 +284,9 @@ namespace cuff
             }
             else if (p.check(TokenType::DOT))
             {
-                SourceLocation loc = p.current().location;
                 p.advance();
                 const Token name = p.consumeMemberName("expected a member name after '.'");
-                base = std::make_unique<Expr>(ExprKind::Member, MemberAccess(std::move(base), name.value, loc));
+                base = std::make_unique<Expr>(ExprKind::Member, MemberAccess(std::move(base), name.value, name.location));
             }
             else
             {

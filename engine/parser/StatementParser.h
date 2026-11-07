@@ -148,18 +148,18 @@ namespace cuff
 
         while (!p.atEnd())
         {
-            p.skipNewlines();
+            p.skipBodyBreaks();
             if (p.atEnd())
                 break;
 
-            if (p.check(TokenType::END) || p.check(TokenType::ELSE) || p.check(TokenType::DEDENT))
+            if (p.check(TokenType::END) || p.check(TokenType::ELSE))
                 break;
 
             auto stmt = StatementParser::parseStatement(p);
             if (stmt)
                 body.push_back(std::move(stmt));
 
-            p.skipNewlines();
+            p.skipBodyBreaks();
         }
 
         return body;
@@ -169,9 +169,7 @@ namespace cuff
     {
         if (p.check(TokenType::NEWLINE))
         {
-            p.skipNewlines();
-            if (p.check(TokenType::INDENT))
-                p.advance();
+            p.openBody();
             return parseLines(p);
         }
 

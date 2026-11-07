@@ -19,9 +19,10 @@ It prints:
 ```text
 captured: 42
 success: false
-[E4-006] Runtime Error at line 1, column 9: division by zero
-    print(1 / 0)
-            ^
+[E4-006] Runtime Error at line 1, column 9
+  |
+1 | print(1 / 0)
+  |         ^ division by zero
 10
 piece ok: true
 after reset ok: false

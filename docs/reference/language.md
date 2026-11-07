@@ -70,12 +70,12 @@ else do:
 end
 ```
 
-- Write each body line one level deeper than its header. Indent with spaces or tabs (a tab counts
-  as four columns) and use one style within a file.
-- A line that returns to an indentation level which no enclosing block uses is rejected
-  (`inconsistent indentation`, a syntax error).
-- A body that is not indented is currently accepted, because `end` alone closes the block. Do not
-  write programs that rely on it; a later revision may reject it.
+- Write each body line one level deeper than its header, and every line of the body at the same level. Indent with spaces or
+  tabs (a tab counts as four columns) and use one style within a file.
+- A body on its own lines that is not indented is a syntax error (`expected the lines of the block to be indented`), and so is a
+  line indented deeper than the rest of the body (`unexpected indentation`). A line that returns to an indentation level which no
+  enclosing block uses is rejected too (`inconsistent indentation`). `end` still closes the block; indentation does not.
+- An empty body needs no indentation: `end` (or `else`) may follow the `do:` line directly.
 - *One-line form:* when a block's body and its `end` fit on the header's line, no indentation is
   needed (`if x is 1 do: print("one") end`, `func twice(x) do: return x * 2 end`). Only a class may have an empty body on one line
   (`class Oops extends Error do: end`).
@@ -754,14 +754,15 @@ a variable its module defined at the top level, it bridges the name first.
 ### 8.1 What an error report contains
 
 ```text
-ERROR: [E4-006] Runtime Error at line 3, column 9: division by zero
-    print(a / b)
-            ^
+ERROR: [E4-006] Runtime Error at line 3, column 9
+  |
+3 | print(a / b)
+  |         ^ division by zero
 ```
 
-The tag has the form `E<category>-<nnn>`. The report gives the line and column, the source line with a
-caret under the position (counted in characters, not bytes), and for some errors a `hint:` line. A
-program that ends with an error exits with a non-zero status.
+The tag has the form `E<category>-<nnn>`. The report gives the line and column (counted in characters, not bytes), the
+numbered source line with `^` marks under the place that went wrong and the message beside them, and for some errors a
+`hint:` after a blank line. A program that ends with an error exits with a non-zero status.
 
 | Category | Meaning | Caught by `or_else` |
 | :--- | :--- | :---: |

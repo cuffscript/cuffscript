@@ -543,6 +543,8 @@ namespace cuff
         bool isConstant = false;
         std::unique_ptr<Expr> value;
         SourceLocation loc;
+        SourceLocation typeLoc; // the type word, where an unknown class is reported
+        SourceLocation nameLoc; // the variable's name, where a wrong value or a bad constant name is reported
     };
 
     // Where a `change`, `add` or `remove` writes: a variable, `self`, or a member of the innermost `with` object,

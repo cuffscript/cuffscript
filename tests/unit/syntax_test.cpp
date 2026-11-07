@@ -106,6 +106,20 @@ int main()
     rejects("or_else as without a name", "print(1) or_else as do:\n    print(2)\nend\n");
     accepts("as is an ordinary name", "set number as to 1\nprint(as)\n");
 
+    // ---- indentation: the body of a block on its own lines is one level deeper than the header --------------------
+    const std::string indentHint = "indent the body one level deeper than the line that ends with 'do:'";
+    rejects("if body not indented", "if true do:\nprint(1)\nend\n", "E2-001", indentHint);
+    rejects("else body not indented", "if true do:\n    print(1)\nelse do:\nprint(2)\nend\n", "E2-001", indentHint);
+    rejects("loop body not indented", "loop while false do:\nprint(1)\nend\n", "E2-001", indentHint);
+    rejects("func body not indented", "func f() do:\nreturn 1\nend\n", "E2-001", indentHint);
+    rejects("class body not indented", "class A do:\nset number n to 1\nend\n", "E2-001", indentHint);
+    rejects("or_else body not indented", "print(1) or_else do:\nprint(2)\nend\n", "E2-001", indentHint);
+    rejects("nested body at the level of its header", "if true do:\n    if true do:\n    print(1)\n    end\nend\n", "E2-001", indentHint);
+    rejects("a line indented deeper than the body", "if true do:\n    print(1)\n        print(2)\nend\n", "E2-001",
+            "every line of a block is indented the same, one level deeper than the line that ends with 'do:'");
+    accepts("empty bodies need no indentation", "if true do:\nend\nif false do:\nelse do:\nend\nfunc f() do:\nend\nclass A do:\nend\n");
+    accepts("tabs indent too", "if true do:\n\tprint(1)\nend\n");
+
     // ---- functions ------------------------------------------------------------------------------------------------
     accepts("func", "func f(a, b) do:\n    return a + b\nend\n");
     accepts("func modifiers", "async func a() do:\n    print(1)\nend\npure func b() do:\n    return 1\nend\nasync pure func c() do:\n    return 1\nend\npure async func d() do:\n    return 1\nend\n");

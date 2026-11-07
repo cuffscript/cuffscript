@@ -43,14 +43,15 @@ using CuffEngine::Options = EngineOptions;
 
 `execute` creates a `Session` for the call and discards it afterwards, so nothing a program declares outlives the call.
 
-A failing script does not throw. `success` is `false` and `error` holds the report: the headline `[E4-006] Runtime Error at line 1, column 9: division by zero`,
-the source line with a caret, and a hint when there is one. It carries no `ERROR: ` prefix; `cuffc` adds that when it prints. A report has this
+A failing script does not throw. `success` is `false` and `error` holds the report: the headline `[E4-006] Runtime Error at line 1, column 9`,
+the source line with marks under the place and the message beside them, and a hint when there is one. It carries no `ERROR: ` prefix; `cuffc` adds that when it prints. A report has this
 shape (see [errors and debugging](../guide/errors-and-debugging.md)):
 
 ```text
-[E4-006] Runtime Error at line 1, column 9: division by zero
-    print(1 / 0)
-            ^
+[E4-006] Runtime Error at line 1, column 9
+  |
+1 | print(1 / 0)
+  |         ^ division by zero
 ```
 
 `execute` and `Session::run` catch every exception a script can cause, so a host needs no `try` block around them.
@@ -113,10 +114,12 @@ for the program you pass to `run`).
 
 | Function (`engine/common/ErrorFormat.h`) | Behaviour |
 | :--- | :--- |
-| `std::string errorHeadline(const CuffError& e)` | The first line: `[E4-006] Runtime Error at line 3, column 9: division by zero`, or `... in 'lib/helper.cuff' at line 3 ...` when the error came from another file. |
-| `std::string renderErrorWithSnippet(const CuffError& e, const std::string& fallbackSource)` | The full report: headline, the source line with a caret, any related block, then the hint. The line comes from the text the error points into, and only falls back to `fallbackSource` for an error that carries none. |
+| `std::string errorHeadlineOnly(const CuffError& e)` | The first line of a report: `[E4-006] Runtime Error at line 3, column 9`, or `... in 'lib/helper.cuff' at line 3 ...` when the error came from another file. |
+| `std::string errorHeadline(const CuffError& e)` | The same with the message after it (`...column 9: division by zero`), for an error that has no source line to draw. |
+| `std::string renderErrorWithSnippet(const CuffError& e, const std::string& fallbackSource)` | The full report: headline, the numbered source line with marks and the message beside them, any related block, then the hint. The line comes from the text the error points into, and only falls back to `fallbackSource` for an error that carries none. With no line to draw at all, the message goes on the headline. |
 | `std::string renderCurrentException(const SourceRef& source)` | The full report for the exception being handled. Call it from inside a `catch` block; it is what `Session::run` uses. |
-| `std::string buildCaretSnippet(const std::string& source, const SourceLocation& loc)` | Just the source line and caret. The caret is placed by display width (a tab is copied, a Hangul character takes two columns). Empty when there is no source to draw. |
+| `bool buildSnippet(const std::string& source, const SourceLocation& loc, Snippet& out)` | Finds the line `loc` points at: its number, text, the padding and the `^` marks. The padding is placed by display width (a tab is copied, a Hangul character takes two columns) and the marks cover the whole token. Returns `false` when there is no source to draw. |
+| `std::string formatSnippet(const Snippet& s, const std::string& label, const std::string& indent)` | The three lines (blank gutter, numbered line, marks with `label` beside them), each starting with `indent`. |
 
 A host that calls `parseProgram` directly and catches the exception itself can use these to produce the same report as the engine.
 

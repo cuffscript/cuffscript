@@ -41,8 +41,8 @@ Two kinds of error become one:
   message, location and hint, so a handler can read the same fields whichever kind it caught. `fail e` of such an object raises
   the original error again, so its report is unchanged.
 
-A `ProgramError` that nothing catches is reported like any error, as `[E7-001] Program Error at line N, column M: message`, with the
-class name before the message when the object is not a plain `Error`.
+A `ProgramError` that nothing catches is reported like any error, as `[E7-001] Program Error at line N, column M` with the message beside
+the marks, and the class name before the message when the object is not a plain `Error`.
 
 ## Who catches what
 
@@ -57,14 +57,19 @@ class name before the message when the object is not a plain `Error`.
 `renderErrorWithSnippet` is the only function that formats an error for a person:
 
 ```text
-[E4-006] Runtime Error in './lib/ratio.cuff' at line 3, column 17: division by zero
-        return base / n
-                    ^
-    hint: ...
+[E4-006] Runtime Error in './lib/ratio.cuff' at line 3, column 17
+  |
+3 |     return base / n
+  |                 ^ division by zero
+
+  hint: ...
 ```
 
-`in '...'` appears only for an error from another file. `CuffError::what()` is a shorter form without the source line,
-for logs. Front ends print the rendered text, prefixed with `ERROR: `, and nothing else; they do not look inside it.
+`in '...'` appears only for an error from another file. The marks cover the token the location starts at (`tokenEnd` in
+`ErrorFormat.h` finds where a name, number, string or operator ends), so an error is placed by where it starts and the
+report works out how wide it is. When there is no source line to draw, the message goes on the headline instead.
+`CuffError::what()` is a shorter form without the source line, for logs. Front ends print the rendered text, prefixed
+with `ERROR: `, and nothing else; they do not look inside it.
 
 ## Adding an error code
 

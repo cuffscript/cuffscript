@@ -192,7 +192,7 @@ comment        = "note" ":" { any character up to the end of the line }
 - Inside an f-string, `{` begins an expression that runs to the matching `}`, and `{{` and `}}` are literal braces. The expression cannot contain a double quote, and there is no format specifier: `{x:2}` is a syntax error.
 - A pattern literal is raw: the text between the quotes goes to the [pattern parser](patterns.md) as written, except that `\"` stands for a quote. Any other backslash and the character after it are both kept, and a backslash always takes the character after it, so `p"a\\"` is the pattern `a\\` and the literal ends at the next quote. A literal may span lines. The flags `i` (ignore case) and `m` (lines) follow the closing quote with no space, each at most once. `p` and the quote must touch: `p "a"` is a variable `p` followed by a string.
 - A comment's colon follows `note` with no space.
-- Indentation (spaces or tabs, a tab counting as four columns) must be consistent within a block, but blocks are closed by `end`, not by indentation.
+- The body of a block written on its own lines is indented one level deeper than its header, every line at the same level (spaces or tabs, a tab counting as four columns); a body that is empty, or written on the header's line, needs no indentation. Blocks are closed by `end`, not by indentation.
 
 ## Patterns
 

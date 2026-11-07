@@ -40,9 +40,9 @@ check(
     s.nonblank()[:2]
     == [
         ">> a",
-        "ERROR: [E4-001] Runtime Error at line 1, column 1: undefined variable 'a'",
+        "ERROR: [E4-001] Runtime Error at line 1, column 1",
     ]
-    or "undefined variable" in " ".join(s.nonblank()),
+    and "undefined variable 'a'" in " ".join(s.nonblank()),
     s.nonblank(),
 )
 s.send(b"\x1b\rx", 0.2)

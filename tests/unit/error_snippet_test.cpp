@@ -1,8 +1,9 @@
-// Tests for the error report: the headline, the source line with its "^" caret, and which text that line is
-// taken from (see common/ErrorFormat.h and common/SourceText.h).
+// Tests for the error report: the headline, the source line with its "^" marks and the message beside them, and
+// which text that line is taken from (see common/ErrorFormat.h and common/SourceText.h).
 //
 // What is pinned down here:
-//  - the caret is placed by display width (tabs kept, Hangul two columns), not by byte count;
+//  - the marks are placed by display width (tabs kept, Hangul two columns), not by byte count, and cover the
+//    whole token the error is about;
 //  - an incomplete statement is reported on its own line, and an unclosed block at the end of the code;
 //  - a byte order mark at the start of the file changes nothing;
 //  - an error that comes from an imported module, or from a function an earlier piece of a Session declared,
@@ -39,15 +40,31 @@ namespace
         return CuffEngine::execute(src, ".", CuffEngine::Options());
     }
 
-    // Asserts the error output contains exactly this source line followed by
-    // exactly this caret line (both on their own, "    "-indented lines).
+    // Whether the report draws this source line, numbered, with these marks (the padding and the "^"s) under it:
+    //
+    //       |
+    //     3 | print(a / b)
+    //       |         ^ division by zero
+    bool hasSnippet(const std::string &error, const std::string &sourceLine, const std::string &marks)
+    {
+        const std::string head = " | " + sourceLine + "\n";
+        for (size_t at = error.find(head); at != std::string::npos; at = error.find(head, at + 1))
+        {
+            const size_t lineStart = error.rfind('\n', at) == std::string::npos ? 0 : error.rfind('\n', at) + 1;
+            const std::string under = std::string(at - lineStart, ' ') + " | " + marks;
+            if (error.compare(at + head.size(), under.size(), under) == 0)
+                return true;
+        }
+        return false;
+    }
+
+    // Asserts the error output draws this source line with these marks under it.
     void expectSnippet(const std::string &name, const std::string &src,
-                       const std::string &expectedSourceLine, const std::string &expectedCaretLine)
+                       const std::string &expectedSourceLine, const std::string &expectedMarks)
     {
         auto r = runSource(src);
-        std::string needle = "    " + expectedSourceLine + "\n    " + expectedCaretLine;
-        check(!r.success && contains(r.error, needle),
-              name + ": expected to find:\n" + needle + "\ngot:\n" + r.error);
+        check(!r.success && hasSnippet(r.error, expectedSourceLine, expectedMarks),
+              name + ": expected to find:\n" + expectedSourceLine + "\n" + expectedMarks + "\ngot:\n" + r.error);
     }
 
     // The line and column (counted in characters) the offset really is at: what a SourceLocation must agree with.
@@ -120,7 +137,7 @@ int main()
 {
     // ---- placement of the caret ---------------------------------------------------------------------------
 
-    // Plain ASCII: caret lands directly under the offending ')'.
+    // Plain ASCII: the mark lands directly under the offending ')'.
     expectSnippet("ascii caret", "set number x to 5\nprint(x +)\n",
                   "print(x +)", "         ^");
 
@@ -143,18 +160,18 @@ int main()
 
     // An error inside an f-string's {...} is reported where it really is: on the f-string's own line, and at the
     // character inside the braces, not at line 1 of the fragment it was parsed from and not at the start of the
-    // literal. (A call is reported at its opening parenthesis, as it is outside an f-string.)
+    // literal. (A call is reported at its name, as it is outside an f-string, and the marks cover the whole name.)
     expectSnippet("f-string runtime error", "print(\"ok\")\nprint(f\"v: {nope(1)}\")\n",
-                  "print(f\"v: {nope(1)}\")", "                ^");
+                  "print(f\"v: {nope(1)}\")", "            ^^^^");
     expectSnippet("f-string syntax error", "print(\"ok\")\nprint(f\"v: {1 +}\")\n",
                   "print(f\"v: {1 +}\")", "               ^");
-    expectSnippet("f-string, same error outside the f-string", "print(nope(1))\n", "print(nope(1))", "          ^");
+    expectSnippet("f-string, same error outside the f-string", "print(nope(1))\n", "print(nope(1))", "      ^^^^");
 
     // The case that was reported: a call inside an f-string that fails when its argument is checked.
     {
         auto r = runSource("func fib(str n) do:\n    return n\nend\nprint(f\"fib(10) = {fib(10)}\")\n");
-        check(!r.success && contains(r.error, "[E4-030] Runtime Error at line 4, column 23") &&
-                  contains(r.error, "    print(f\"fib(10) = {fib(10)}\")\n                          ^\n"),
+        check(!r.success && contains(r.error, "[E4-030] Runtime Error at line 4, column 20") &&
+                  hasSnippet(r.error, "print(f\"fib(10) = {fib(10)}\")", std::string(19, ' ') + "^^^"),
               "a failing call inside an f-string is reported at the call:\n" + r.error);
     }
 
@@ -170,7 +187,7 @@ int main()
     {
         auto r = runSource("print(f\"\xED\x95\x9C\xEA\xB8\x80 {1 / 0}\")\n");
         check(!r.success && contains(r.error, "line 1, column 15") &&
-                  contains(r.error, "    print(f\"\xED\x95\x9C\xEA\xB8\x80 {1 / 0}\")\n" + std::string(20, ' ') + "^"),
+                  hasSnippet(r.error, "print(f\"\xED\x95\x9C\xEA\xB8\x80 {1 / 0}\")", std::string(16, ' ') + "^"),
               "f-string after Hangul:\n" + r.error);
     }
 
@@ -210,8 +227,10 @@ int main()
 
     // An error on the very first character of the file (offset 0) must show the whole line, not drop
     // its first character.
-    expectSnippet("error at offset 0", "change nothing to 1\n",
-                  "change nothing to 1", "^");
+    expectSnippet("error at offset 0", "print(nothing)\n",
+                  "print(nothing)", "      ^^^^^^^");
+    expectSnippet("a statement that fails on its first character", "change nothing to 1\n",
+                  "change nothing to 1", "       ^^^^^^^");
 
     // A non-ASCII character where a token must start is reported whole, so the message stays valid UTF-8.
     {
@@ -224,6 +243,42 @@ int main()
     {
         auto r = runSource("set str s to \"\xED\x95\x9C\xEA\xB8\x80\" + 5\n");
         check(!r.success && contains(r.error, "column 19"), "column is counted in characters:\n" + r.error);
+    }
+
+    // ---- the shape of the report ------------------------------------------------------------------------------
+
+    {
+        // The headline names the place, the message sits beside the marks, the hint follows after a blank line.
+        auto r = runSource("set returnable func add(number a, number b) do:\n    return a + b\nend\n");
+        check(!r.success &&
+                  r.error == "[E2-001] Syntax Error at line 1, column 5\n"
+                             "  |\n"
+                             "1 | set returnable func add(number a, number b) do:\n"
+                             "  |     ^^^^^^^^^^ a function declaration does not start with 'set'\n"
+                             "\n"
+                             "  hint: write `func`; return works in every function",
+              "the report has the headline, the line, the marks with the message, and the hint:\n" + r.error);
+    }
+    {
+        // The line number sets the width of the gutter.
+        std::string src;
+        for (int i = 0; i < 11; ++i)
+            src += "set number n" + std::to_string(i) + " to " + std::to_string(i) + "\n";
+        auto r = runSource(src + "print(\"abc\" + 12.5)\n");
+        check(!r.success && contains(r.error, "\n   |\n12 | print(\"abc\" + 12.5)\n   | ") &&
+                  hasSnippet(r.error, "print(\"abc\" + 12.5)", "            ^"),
+              "a two-digit line number widens the gutter:\n" + r.error);
+    }
+    expectSnippet("the marks cover the whole name of an unknown function", "print(undefined_function(1))\n",
+                  "print(undefined_function(1))", "      ^^^^^^^^^^^^^^^^^^");
+    expectSnippet("the marks cover a whole method name", "set str s to \"a\"\nprint(s.nomethod())\n",
+                  "print(s.nomethod())", "        ^^^^^^^^");
+    expectSnippet("an unknown class is reported at its name", "set numbr x to 1\n", "set numbr x to 1", "    ^^^^^");
+    {
+        // An error with no source to draw keeps the message on the headline.
+        cuff::CuffError e(cuff::ErrorCode::DivisionByZero, "division by zero", cuff::SourceLocation(3, 9, -1));
+        check(cuff::renderErrorWithSnippet(e, "") == "[E4-006] Runtime Error at line 3, column 9: division by zero",
+              "without a source line the message stays on the headline: " + cuff::renderErrorWithSnippet(e, ""));
     }
 
     // ---- which line an error is on --------------------------------------------------------------------------
@@ -240,7 +295,7 @@ int main()
     // A block with no 'end' is reported where the code stops, and says where the block was opened.
     {
         auto r = runSource("set number x to 1\nif x is 1 do:\n    print(x)\n");
-        check(!r.success && contains(r.error, "at line 3") && contains(r.error, "    print(x)\n") &&
+        check(!r.success && contains(r.error, "at line 3") && contains(r.error, " |     print(x)\n") &&
                   contains(r.error, "hint: the block opened at line 2, column 1 has no matching 'end'"),
               "missing 'end' is reported at the last line, naming the block's start:\n" + r.error);
     }
@@ -263,7 +318,7 @@ int main()
     }
     {
         auto r = runSource("set number a to 1\r\nprint(a / 0)\r\n");
-        check(!r.success && contains(r.error, "    print(a / 0)\n    ") && !contains(r.error, "\r"),
+        check(!r.success && hasSnippet(r.error, "print(a / 0)", "        ^") && !contains(r.error, "\r"),
               "CRLF source: the snippet has no carriage return:\n" + r.error);
     }
 
@@ -275,20 +330,20 @@ int main()
         const std::string main = "set number a to 1\nset number b to 2\nuse boom from ./lib\nprint(boom(5))\n";
         auto r = CuffEngine::execute(main, dir.path.string());
         check(!r.success && contains(r.error, "Runtime Error in './lib/boom.cuff' at line 3, column 14") &&
-                  contains(r.error, "    return n / 0\n"),
+                  contains(r.error, " |     return n / 0\n"),
               "an error inside a module's function is drawn from the module:\n" + r.error);
         check(!contains(r.error, "print(boom(5))"), "...and not from the importing file:\n" + r.error);
 
         dir.write("lib/top.cuff", "note: one\nnote: two\nset number t to 1 / 0\n");
         r = CuffEngine::execute("use top from ./lib\n", dir.path.string());
-        check(!r.success && contains(r.error, "in './lib/top.cuff' at line 3") && contains(r.error, "    set number t to 1 / 0\n"),
+        check(!r.success && contains(r.error, "in './lib/top.cuff' at line 3") && contains(r.error, " | set number t to 1 / 0\n"),
               "an error in a module's top-level code is drawn from the module:\n" + r.error);
 
         dir.write("lib/bad.cuff", "set number z to 1 +\nprint(1)\n");
         r = CuffEngine::execute("use bad from ./lib\n", dir.path.string());
-        check(!r.success && contains(r.error, "[E5-002]") && contains(r.error, "    use bad from ./lib\n    ^") &&
+        check(!r.success && contains(r.error, "[E5-002]") && hasSnippet(r.error, "use bad from ./lib", "^^^") &&
                   contains(r.error, "in './lib/bad.cuff' [E2-001] at line 1, column 20:") &&
-                  contains(r.error, "set number z to 1 +\n"),
+                  contains(r.error, " | set number z to 1 +\n"),
               "a module that does not parse shows the use statement and the module's own line:\n" + r.error);
     }
 
@@ -300,7 +355,7 @@ int main()
         check(first.success, "declaring the function works:\n" + first.error);
         auto second = session.run("print(half(2))\n");
         check(!second.success && contains(second.error, "at line 3, column 14") &&
-                  contains(second.error, "    return n / 0\n") && !contains(second.error, "print(half(2))"),
+                  contains(second.error, " |     return n / 0\n") && !contains(second.error, "print(half(2))"),
               "an error in a function from an earlier entry is drawn from that entry:\n" + second.error);
         auto third = session.run("print(1 + 1)\n");
         check(third.success, "the session is still usable after an error:\n" + third.error);

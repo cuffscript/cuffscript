@@ -6,9 +6,10 @@ recover from the errors a program can recover from, and what to reach for when y
 ## Reading an error report
 
 ```text
-ERROR: [E4-006] Runtime Error at line 3, column 9: division by zero
-    print(a / b)
-            ^
+ERROR: [E4-006] Runtime Error at line 3, column 9
+  |
+3 | print(a / b)
+  |         ^ division by zero
 ```
 
 | Part | Meaning |
@@ -16,10 +17,11 @@ ERROR: [E4-006] Runtime Error at line 3, column 9: division by zero
 | `ERROR:` | Written by the program that ran the script (`cuffc` or `cuffsh`). |
 | `[E4-006]` | The error code. The first digit is the kind of error; every code is described in the [catalogue](../reference/errors.md). |
 | `Runtime Error` | The kind of error. |
-| `at line 3, column 9` | Where it happened. Both start at 1, and the column counts characters, so it agrees with the caret even on a line with Korean text. |
-| `division by zero` | What went wrong. |
-| the source line and `^` | The line itself, with a caret under the position. Tabs are kept and wide characters take two columns, so the caret lines up in a terminal. |
-| `hint:` | When there is one, a suggestion. It is the last line. |
+| `at line 3, column 9` | Where it happened. Both start at 1, and the column counts characters, so it agrees with the marks even on a line with Korean text. |
+| `3 \| print(a / b)` | The line itself, with its number. Tabs are kept and wide characters take two columns, so the marks line up in a terminal. |
+| `^` | The part of the line the error is about: one `^` for a single character such as `/`, one for each character of a name, a number or a string. |
+| `division by zero` | What went wrong, written beside the marks. |
+| `hint:` | When there is one, a suggestion after a blank line. It is the last part. |
 
 An error is written to standard error, and `cuffc` exits with status 1.
 
@@ -28,19 +30,22 @@ An error is written to standard error, and `cuffc` exits with status 1.
 A statement that stops too early is reported on **its own line**, at the point where it ends, not on the line after:
 
 ```text
-ERROR: [E2-001] Syntax Error at line 1, column 20: unexpected end of line in expression
-    set number total to
-                       ^
+ERROR: [E2-001] Syntax Error at line 1, column 20
+  |
+1 | set number total to
+  |                    ^ unexpected end of line in expression
 ```
 
 A block that is never closed is reported at the end of the code, and the hint names the line that opened it, which is
 usually where the mistake is:
 
 ```text
-ERROR: [E2-001] Syntax Error at line 3, column 13: expected 'end' to close if statement (got end of file)
-        print(x)
-                ^
-    hint: the block opened at line 2, column 1 has no matching 'end'
+ERROR: [E2-001] Syntax Error at line 3, column 13
+  |
+3 |     print(x)
+  |             ^ expected 'end' to close if statement (got end of file)
+
+  hint: the block opened at line 2, column 1 has no matching 'end'
 ```
 
 ### Errors inside an imported file
@@ -48,20 +53,24 @@ ERROR: [E2-001] Syntax Error at line 3, column 13: expected 'end' to close if st
 An error in a function or statement that came from another file is drawn from **that file**, and the report names it:
 
 ```text
-ERROR: [E4-006] Runtime Error in './lib/ratio.cuff' at line 3, column 17: division by zero
-        return base / n
-                    ^
+ERROR: [E4-006] Runtime Error in './lib/ratio.cuff' at line 3, column 17
+  |
+3 |     return base / n
+  |                 ^ division by zero
 ```
 
 If a module cannot be parsed, the report shows the `use` statement that loaded it and then the module's own line:
 
 ```text
-ERROR: [E5-002] Module Error at line 1, column 1: failed to parse module './lib/bad.cuff': unexpected end of line in expression
-    use bad from ./lib
-    ^
-    in './lib/bad.cuff' [E2-001] at line 1, column 20:
-        set number z to 1 +
-                           ^
+ERROR: [E5-002] Module Error at line 1, column 1
+  |
+1 | use bad from ./lib
+  | ^^^ failed to parse module './lib/bad.cuff': unexpected end of line in expression
+
+  in './lib/bad.cuff' [E2-001] at line 1, column 20:
+    |
+  1 | set number z to 1 +
+    |                    ^ unexpected end of line in expression
 ```
 
 The report names the file and line where the error happened, but not who called it; it is not a stack trace.
