@@ -1,3 +1,39 @@
+## v5.0.0 - 2026-11-09
+
+## Description
+
+- **Behavior change: a name is bound in one shape everywhere, `TYPE NAME`, and `=` stores.** A declaration is `[constant] TYPE NAME = value`, and an assignment is `NAME = value` (also `items[2] = 0`, `player.score = 10`, `.x = 1` in a `with` block). `set` and `change` are removed, and `to` is left only in `add x to place`. The same shape is used by the other places that give a name a value: `loop repeat number i = 1 ~ 3 do:`, `loop each str word in words do:`, `or_else as Error e do:`, parameters (`func f(number a, str greeting = "Hello")`) and class fields (`private constant number MAX = 10`). `loop repeat` takes a type that accepts numbers and checks it once before the first pass; `loop each` checks every element it takes. Every old form is a syntax error (`E2-001`) whose hint says what to write, and `E1-007` (`=` where `to` was needed) is removed.
+- **Behavior change: a variable keeps the type it was declared with.** A store into a variable, parameter, field or loop variable checks the value against the declared type (`E4-020`; a field is checked on every store and not only when the object is made, and `phenomena.md` loses the entry that said otherwise). A class accepts its own objects and those of its children, and `object` any object. The new type **`any`** accepts every value and is how a variable that holds different types is declared. **`empty` is a type with one value, `empty`**; the rule that every type accepts `empty` is removed. So the result of `find`, `match` or `file_read`, which may be `empty`, is stored in an `any` variable (`any hit = find(text, p"[num]+")`), and so is a field that is `empty` until it is set (`any next = empty`). The one exception: a declaration whose expression fails and is recovered by `or_else` binds its name to `empty` before the handler runs, and the handler may assign it.
+- **Behavior change: every parameter has a type**, written before its name (`any` takes every value), and a default is `= value` and no longer `to value`.
+- **Behavior change: a name is declared once per function (`E2-010`).** Declaring it again in the same block, in a block inside it, or as a parameter, loop variable or `or_else` name is a syntax error that is found when the program is read; assign to the first variable instead. A name declared in a block can be declared again after the block, two blocks side by side may use the same name, and every function, method, module and `cuffsh` entry starts with no names. How a variable is found at run time is unchanged.
+- **Behavior change: every reserved word is reserved, and there are 43.** `add`, `to`, `in`, `global`, `not` and `from` can no longer be names of variables, functions, parameters or loop variables. `set` and `change` are no longer keywords and can be names. `at` is new.
+- **Behavior change, and the only one that does not fail by itself: `remove at N from xs` removes by position, and `remove V from xs` removes by value for every type.** In 4.x a number meant a position, so `remove 2 from items` removed the second element; it now removes the first element equal to `2`, or fails with `E4-015` if there is none. Search a program for `remove` followed by a number or a number variable.
+- **Added: hints for the removed forms.** `set number x to 1`, `change x to 2`, `loop repeat i to 1 ~ 3`, `loop each x in xs`, `or_else as e` and `func f(a)` each fail with a hint that shows the new spelling (`tests/errors/syntax/`, `syntax_test.cpp`).
+- **Changed: documentation, examples and tests are written in the new syntax.** The documentation check runs 217 examples. `language.md`, `grammar.md`, `classes.md`, `errors.md` (with `E2-010`), the glossary and the design notes (items 62 to 64) describe the new rules, and `cuffsh.md` says that a later entry may declare a name again.
+- **Changed: cost.** Stores into a variable or field in a hot loop are 4% to 7% slower on the benchmark programs; the others are within ±3%. The engine source grew by 8.7 KB (1.5%) and the stripped `cuffc` by 8 KB (1%). A variable takes no more memory: its type is kept in padding of its slot.
+
+How to rewrite a 4.x program:
+
+| 4.x | 5.0.0 |
+| :--- | :--- |
+| `set number n to 5` | `number n = 5` |
+| `set constant number MAX to 10` | `constant number MAX = 10` |
+| `change n to n + 1` | `n = n + 1` |
+| `change items[2] to 0`, `change player.score to 10`, `change .x to 1` | `items[2] = 0`, `player.score = 10`, `.x = 1` |
+| a field `set number x to 0` in a class | `number x = 0` |
+| `loop repeat i to 1 ~ 10 do:` | `loop repeat number i = 1 ~ 10 do:` |
+| `loop each word in words do:` | `loop each str word in words do:` |
+| `or_else as e do:` | `or_else as Error e do:` |
+| `func f(a, list b, c to 1)` | `func f(any a, list b, any c = 1)` |
+| `set str hit to find(text, p"[num]+")` | `any hit = find(text, p"[num]+")` |
+| `set Node next to empty` in a class | `any next = empty` |
+| `remove 2 from items` (the second element) | `remove at 2 from items` |
+| a variable that is given values of different types | declare it `any` |
+| the same name declared twice in one function | declare it once, then `name = value` |
+| a variable, function or parameter named `add`, `to`, `in`, `global`, `not` or `from` | another name |
+
+---
+
 ## v4.0.1 - 2026-11-07
 
 ## Description
