@@ -539,7 +539,7 @@ if (-not $NoChecklist) {
             tall, then move the cursor - the screen must not fill with repeated copies of your code
             [ ] resize the window while typing, then keep typing
             [ ] Git Bash / mintty: running cuffsh.exe says to use winpty instead of hanging
-            '@
+'@
 }
 
 if ($anyFail) { Write-Host ''; Write-Host 'Some checks FAILED.' -ForegroundColor Red; exit 1 }
