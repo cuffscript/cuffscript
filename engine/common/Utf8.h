@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <vector>
 #include <cstddef>
 
 namespace cuff::utf8
@@ -15,22 +14,6 @@ namespace cuff::utf8
         if ((c & 0xF0) == 0xE0) return 3;
         if ((c & 0xF8) == 0xF0) return 4;
         return 1;
-    }
-
-    inline std::vector<size_t> boundaries(const std::string &s)
-    {
-        std::vector<size_t> b;
-        size_t i = 0;
-        while (i < s.size())
-        {
-            b.push_back(i);
-            size_t len = seqLen(static_cast<unsigned char>(s[i]));
-            i += len;
-            if (i > s.size())
-                i = s.size();
-        }
-        b.push_back(s.size());
-        return b;
     }
 
     inline size_t length(const std::string &s)

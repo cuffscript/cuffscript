@@ -107,11 +107,13 @@ namespace cuff
                 e->globalDeclared_.push_back(nameId);
         }
 
+        // Two pointers, so a lookup comes back in registers.
         struct Lookup
         {
-            Value *value = nullptr;
+            Slot *slot = nullptr;
             Environment *owner = nullptr;
-            uint32_t type = 0; // what the variable was declared as
+            Value *value() const { return slot ? &slot->second : nullptr; }
+            uint32_t type() const { return slot ? slot->type : 0; } // what the variable was declared as
         };
 
         // Local bindings win over a `global x` bridge. A function scope sees nothing outside itself
@@ -122,16 +124,16 @@ namespace cuff
             while (true)
             {
                 if (Slot *s = e->findSlot(nameId))
-                    return {&s->second, e, s->type};
+                    return {s, e};
                 if (e->isFunctionScope_)
                 {
                     if (!e->globalDeclared_.empty() &&
                         std::find(e->globalDeclared_.begin(), e->globalDeclared_.end(), nameId) != e->globalDeclared_.end())
                     {
                         if (Slot *s = e->global_->findSlot(nameId))
-                            return {&s->second, e->global_, s->type};
+                            return {s, e->global_};
                     }
-                    return {nullptr, nullptr, 0};
+                    return {nullptr, nullptr};
                 }
                 e = e->parent_;
             }

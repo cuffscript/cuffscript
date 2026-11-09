@@ -1094,9 +1094,9 @@ namespace cuff
                 if (e->isFunctionScope())
                 {
                     Environment::Lookup look = e->resolve(id);
-                    found.var = look.value;
+                    found.var = look.value();
                     found.owner = look.owner;
-                    found.type = look.type;
+                    found.type = look.type();
                     return found;
                 }
             }
@@ -1229,9 +1229,9 @@ namespace cuff
             else
             {
                 Environment::Lookup look = env.resolve(pl.nameId);
-                r.var = look.value;
+                r.var = look.value();
                 r.owner = look.owner;
-                r.type = look.type;
+                r.type = look.type();
             }
             if (!r.var)
             {
@@ -1351,11 +1351,11 @@ namespace cuff
             if (pl.steps.empty() && pl.root == Place::Root::Name && !pl.inWith)
             {
                 const Environment::Lookup look = env.resolve(pl.nameId);
-                if (look.value && !env.isConstantIn(look.owner, pl.nameId))
+                if (look.slot && !env.isConstantIn(look.owner, pl.nameId))
                 {
                     Value v = evalExpr(*c.value, env);
-                    checkAssigned(look.type, v, pl.name, pl.loc);
-                    *look.value = std::move(v);
+                    checkAssigned(look.slot->type, v, pl.name, pl.loc);
+                    look.slot->second = std::move(v);
                     return;
                 }
             }
@@ -1368,8 +1368,8 @@ namespace cuff
                 else if (pl.root == Place::Root::Name && !pl.inWith)
                 {
                     const Environment::Lookup look = env.resolve(pl.nameId);
-                    if (look.value && !env.isConstantIn(look.owner, pl.nameId))
-                        holder = look.value;
+                    if (look.slot && !env.isConstantIn(look.owner, pl.nameId))
+                        holder = &look.slot->second;
                 }
                 if (holder && holder->isObject())
                 {
@@ -1919,9 +1919,9 @@ namespace cuff
                 if (id.inWith)
                     return evalWithIdentifier(id, env);
                 auto look = env.resolve(id.nameId);
-                if (!look.value)
+                if (!look.slot)
                     throwUnresolved(id.nameId, id.name, "undefined variable '" + id.name + "'", id.loc);
-                return *look.value;
+                return look.slot->second;
             }
             case ExprKind::Self:
                 return selfValue(exprAs<SelfExpr>(expr).loc);
@@ -2497,8 +2497,8 @@ namespace cuff
                 return instantiate(*cls, args, fc.loc);
             if (const NativeFn *native = findNative(fc.functionName, fc.functionNameId))
                 return (*native)(args, fc.loc);
-            if (Environment::Lookup notFn = env.resolve(fc.functionNameId); notFn.value)
-                throwNotCallable(fc.functionName, *notFn.value, fc.loc);
+            if (Environment::Lookup notFn = env.resolve(fc.functionNameId); notFn.slot)
+                throwNotCallable(fc.functionName, notFn.slot->second, fc.loc);
             throwUndefinedFunction(fc.functionName, fc.loc);
         }
 
@@ -2552,8 +2552,8 @@ namespace cuff
             }
             if (const NativeFn *native = findNative(call.functionName, call.functionNameId))
                 return (*native)(args, loc);
-            if (Environment::Lookup notFn = env.resolve(call.functionNameId); notFn.value)
-                throwNotCallable(call.functionName, *notFn.value, loc);
+            if (Environment::Lookup notFn = env.resolve(call.functionNameId); notFn.slot)
+                throwNotCallable(call.functionName, notFn.slot->second, loc);
             throwUndefinedFunction(call.functionName, loc);
         }
 

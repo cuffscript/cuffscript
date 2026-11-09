@@ -367,14 +367,6 @@ namespace cuff
             return &values_[it->second];
         }
 
-        Value *getMutable(const std::string &key)
-        {
-            auto it = index_.find(key);
-            if (it == index_.end())
-                return nullptr;
-            return &values_[it->second];
-        }
-
         bool remove(const std::string &key)
         {
             auto it = index_.find(key);

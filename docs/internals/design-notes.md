@@ -1489,10 +1489,9 @@ be a comment. 5.0.0 makes the type mean what it says:
   assignment an error and the code after the handler fail with an unrelated "undefined variable".
 
 **Cost.** The type is a code (`any` is 0, a class is 16 plus its name id) kept in padding that the slot of a variable already
-has, so a variable takes no more memory, and the check on a store is one comparison that `any` skips. Measured on the
-benchmark programs, best of 31 runs: programs that store into a field or a variable in a hot loop are 4% to 7% slower
-(`field`, `random`), the others are within the noise of ±3%. The engine source grew by 8.7 KB (1.5%) and the stripped binary
-by 8 KB (1%).
+has, so a variable takes no more memory, and the check on a store is one comparison that `any` skips. Item 65 has the cost as
+measured: 0% to 3.5% more instructions than 4.0.1 on the benchmark programs. The engine source grew by 8.9 KB (1.5%) and the
+stripped binary by 8 KB (1%).
 
 ## 64. v5.0.0: one name, one declaration per function (`E2-010`)
 
@@ -1513,3 +1512,31 @@ declaration may still share its name with a `global` bridge, and the local wins,
 Block scopes were considered and refused. They would change what an existing program means (a variable made in a loop would
 disappear after it), cost a scope per loop pass, and add a second set of rules to the guide, to solve a problem, the
 accidental redeclaration, that a check on the text solves without touching the run.
+
+## 65. v5.0.1: cost counted in instructions, and what a performance pass did not find
+
+The first cost figures of item 63 were wall-clock times, best of 31 runs. The same binary run twice against itself differs by up
+to 5% on a benchmark program, so a 4% to 7% difference between two builds says little, and it hid the real figure. Cost is now
+counted in instructions executed (`valgrind --tool=callgrind`, each benchmark program at a tenth of its size; start-up is 2.9 M
+instructions and a program is 9 M to 415 M), which gives the same number on every run.
+
+Counted that way, 5.0.0 ran 8.5% more instructions than 4.0.1 on `field`, 8.4% on `loop`, 4.7% on `objects`, 4.5% on `funccall` and
+0% to 2.7% on the others. The profile is flat (no function above 17%), but one cost was in plain sight: `Environment::Lookup` had
+grown from two pointers to two pointers and the declared type, 24 bytes, which the calling convention returns through memory, where
+two pointers come back in registers. It now holds the slot and the owner, and the value and the type are read from the slot. That
+took 4.6% off `field` and `loop` and 2.2% off `funccall` and `objects`. Against 4.0.1 the cost is now 3.5% on `field` and `loop`,
+2.3% on `objects`, 2.2% on `funccall` and 1.4% or less on the rest, with the same stripped binary as 5.0.0.
+
+Tried and **not adopted**, counted the same way: a sorted vector in place of the hash table from a field name to its position (within
+0.5% on most programs, 0.9% worse on `objects`); forcing `Environment::resolve` inline (0.2% to 1.5% worse, 4 KB more binary); `-O2`
+for `-O3` (6% smaller, and anywhere from 7% fewer to 7% more instructions, depending on the program); `-Os` (34% smaller, but 24% to
+49% more instructions); `-ffunction-sections` with `--gc-sections` (no change) and hidden symbol visibility (1% larger). Looking for
+dead code by listing every function, type and constant named once in the whole tree found two functions, `utf8::boundaries` and
+`ValueMap::getMutable`, which were removed (the engine source is 0.5 KB smaller).
+
+Stability was checked by running about 146,000 programs under AddressSanitizer and UndefinedBehaviorSanitizer with `--timeout 3000`:
+71,000 copies of the examples, test cases and documentation examples with token and byte edits, truncations, shuffled lines, deep
+nesting and boundary numbers, and 75,000 calls of every built-in and DLC function with extreme arguments, random patterns and random
+JSON text. None crashed, none ran past its timeout and none drew a sanitizer report. A pattern that would backtrack for a very long
+time, such as `[any]*[any]*[any]*c` over 3,000 characters, is stopped by the match budget and answers in about 10 ms. The threads
+test is clean under ThreadSanitizer.
