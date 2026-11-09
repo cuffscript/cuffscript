@@ -30,10 +30,10 @@ An error is written to standard error, and `cuffc` exits with status 1.
 A statement that stops too early is reported on **its own line**, at the point where it ends, not on the line after:
 
 ```text
-ERROR: [E2-001] Syntax Error at line 1, column 20
+ERROR: [E2-001] Syntax Error at line 1, column 15
   |
-1 | set number total to
-  |                    ^ unexpected end of line in expression
+1 | number total =
+  |               ^ unexpected end of line in expression
 ```
 
 A block that is never closed is reported at the end of the code, and the hint names the line that opened it, which is
@@ -67,10 +67,10 @@ ERROR: [E5-002] Module Error at line 1, column 1
 1 | use bad from ./lib
   | ^^^ failed to parse module './lib/bad.cuff': unexpected end of line in expression
 
-  in './lib/bad.cuff' [E2-001] at line 1, column 20:
+  in './lib/bad.cuff' [E2-001] at line 1, column 15:
     |
-  1 | set number z to 1 +
-    |                    ^ unexpected end of line in expression
+  1 | number z = 1 +
+    |               ^ unexpected end of line in expression
 ```
 
 The report names the file and line where the error happened, but not who called it; it is not a stack trace.
@@ -81,9 +81,9 @@ Errors raised while the program runs can be caught: the run-time errors (`E4-`),
 while matching (`E3-1`) and the errors the program raises itself with `fail` (`E7-`). Put an `or_else` block after the statement that may fail:
 
 ```cuff
-set number port to to_number("80a") or_else do:
+number port = to_number("80a") or_else do:
     print("port is not a number, using 80")
-    change port to 80
+    port = 80
 end
 print(port)
 ```
@@ -98,10 +98,10 @@ is not caught by the same `or_else`.
 
 ### Looking at the error
 
-`or_else as err do:` gives the handler the error as an object with a `message`, a `code`, the `line` and `column` where it happened, and a `hint`:
+`or_else as Error err do:` gives the handler the error as an object with a `message`, a `code`, the `line` and `column` where it happened, and a `hint`:
 
 ```cuff
-print(10 / 0) or_else as err do:
+print(10 / 0) or_else as Error err do:
     print(f"{err.code} at line {err.line}: {err.message}")
 end
 ```
@@ -123,11 +123,12 @@ An error can also be *prevented*: check `length` before indexing, `map_has_key` 
 
 | Code | What it usually means | What to do |
 | :--- | :--- | :--- |
-| [`E2-001`](../reference/errors.md#e2-001) | The program does not parse. | Read the message and the caret. Check for a missing `end`, a missing `do:`, `=` instead of `to`, or a string with no closing quote. |
-| [`E4-001`](../reference/errors.md#e4-001) | A variable that does not exist (yet). | Check the spelling, and that it was declared with `set` before this line, in a scope that can see it. |
+| [`E2-001`](../reference/errors.md#e2-001) | The program does not parse. | Read the message and the caret. Check for a missing `end`, a missing `do:`, a body that is not indented, a declaration without its `=` and value, or a string with no closing quote. |
+| [`E2-010`](../reference/errors.md#e2-010) | A name declared a second time in the same function. | Assign to the first variable (`total = 2`) or choose another name. |
+| [`E4-001`](../reference/errors.md#e4-001) | A variable that does not exist (yet). | Check the spelling, and that it was declared before this line, in a scope that can see it. |
 | [`E4-002`](../reference/errors.md#e4-002) | A function that does not exist. | A library function needs its `use DLC:...` line first. |
 | [`E4-005`](../reference/errors.md#e4-005) | A value of the wrong type, such as `"a" + 1`. | Convert explicitly with `to_str` or `to_number`. |
-| [`E4-003`](../reference/errors.md#e4-003) | A change to a constant, or to a read-only list. | Use `set` for a value that changes; make a copy of a constant list with `copy(...)` before changing it. |
+| [`E4-003`](../reference/errors.md#e4-003) | A change to a constant, or to a read-only list. | Declare the value without `constant` if it changes; make a copy of a constant list with `copy(...)` before changing it. |
 | [`E4-004`](../reference/errors.md#e4-004) | A constant whose name is not in capitals. | Write the name in capitals, digits and underscores: `MAX_USERS`. |
 | [`E4-006`](../reference/errors.md#e4-006) | Division or remainder by zero, or zero to a negative power. | Test the divisor first. |
 | [`E4-007`](../reference/errors.md#e4-007) | Position `0`. | Positions start at 1; the last element is `-1`. |
@@ -139,7 +140,7 @@ An error can also be *prevented*: check `length` before indexing, `map_has_key` 
 | [`E4-034`](../reference/errors.md#e4-034) | A `private` member used outside its class. | Use it from a method of the class, or remove `private`. |
 | [`E7-001`](../reference/errors.md#e7-001) | The program raised an error with `fail`. | Read the message it gave, and fix the condition that led to it, or catch it with `or_else`. |
 | [`E4-017`](../reference/errors.md#e4-017) | Recursion that went too deep. | Make sure the recursion has a base case. |
-| [`E4-020`](../reference/errors.md#e4-020) | The value does not have the type `set` declared. | Declare the type the value really has: `find` gives a `str`, `match` gives a `match`. |
+| [`E4-020`](../reference/errors.md#e4-020) | The value does not have the type the variable was declared with. | Store a value of that type, or declare the variable `any`; a failed `find` or `match` gives `empty`, which only an `any` variable holds. |
 | [`E4-024`](../reference/errors.md#e4-024) | A position or count that is not a whole number, such as `list[1.5]`. | Round it first with `math_floor` or `math_round`. |
 | [`E4-025`](../reference/errors.md#e4-025) | A value of the right type that a function does not accept, such as `to_number("abc")` or `math_sqrt(-1)`. | Check the value first, or recover with `or_else`. |
 | [`E4-028`](../reference/errors.md#e4-028) | A network request that could not be completed. | The message says why (blocked address, no TLS, timeout). Catch it with `or_else`. |

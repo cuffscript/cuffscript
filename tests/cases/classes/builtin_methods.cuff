@@ -5,16 +5,16 @@ use DLC:map
 use DLC:math
 use DLC:json
 
-set str text to "  Hello, World  "
+str text = "  Hello, World  "
 print(text.trim().upper(), text.trim().lower(), text.trim().length())
 print("abc".repeat(3), "abc".starts_with("ab"), "abc".ends_with("bc"), "abc".contains("b"), "abc".index_of("c"))
 
-set list nums to [3, 1, 2]
+list nums = [3, 1, 2]
 print(nums.sort(), nums.reverse(), nums.sum(), nums.average(), nums.length())
 print(nums.contains(2), nums.index_of(2), [1, [2, 3]].flatten(), [1, 1, 2].unique())
 print(["a", "b"].join("-"))
 
-set map m to {"a": 1, "b": 2}
+map m = {"a": 1, "b": 2}
 print(m.keys(), m.values(), m.length(), m.has_key("a"), m.entries())
 print(m.merge({"c": 3}))
 
@@ -23,12 +23,12 @@ print(9.sqrt(), (-4).abs(), 2.pow(10), 3.14159.round(2), 2.5.floor(), 2.1.ceil()
 print(nums.to_json(), "[1, 2]".from_json(), 42.to_str() + "!", "12".to_number() + 1, 0.to_boolean())
 
 note: copy makes a new list or map
-set list original to [1, [2]]
-set list dup to original.copy()
+list original = [1, [2]]
+list dup = original.copy()
 add 3 to dup
 print(original, dup)
-set map mcopy to m.copy()
-change mcopy["a"] to 100
+map mcopy = m.copy()
+mcopy["a"] = 100
 print(m["a"], mcopy["a"])
 
 note: both forms run the same function

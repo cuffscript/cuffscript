@@ -1,7 +1,7 @@
 note: E4-027
-set number x to 1
+number x = 1
 pure func f() do:
     global x
-    change x to 2
+    x = 2
 end
 f()

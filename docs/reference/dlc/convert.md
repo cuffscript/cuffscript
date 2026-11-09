@@ -48,8 +48,8 @@ print(to_number(" 42 "), to_number(".5"), to_number("1e3"), to_number(true))
 A string that is not a number is an error you can catch:
 
 ```cuff
-set number n to to_number("abc") or_else do:
-    change n to 0
+number n = to_number("abc") or_else do:
+    n = 0
 end
 print(n)
 ```

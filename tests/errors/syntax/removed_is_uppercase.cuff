@@ -1,2 +1,2 @@
-set str answer to "yes"
+str answer = "yes"
 print(answer IS "YES")

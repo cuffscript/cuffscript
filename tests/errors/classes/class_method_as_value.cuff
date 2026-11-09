@@ -3,5 +3,5 @@ class Box do:
         print(1)
     end
 end
-set Box b to Box()
+Box b = Box()
 print(b.open)

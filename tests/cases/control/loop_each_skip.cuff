@@ -1,28 +1,28 @@
 note: loop each walks a list, a map's keys or a str's characters; skip goes to the next round.
-loop each n in [10, 20, 30] do:
+loop each number n in [10, 20, 30] do:
     print(n)
 end
 
-set map ages to {"Ann": 31, "Bob": 25, "Cy": 40}
-loop each name in ages do:
+map ages = {"Ann": 31, "Bob": 25, "Cy": 40}
+loop each str name in ages do:
     print(name, ages[name])
 end
 
-loop each ch in "héllo" do:
+loop each str ch in "héllo" do:
     print(ch)
 end
 
-loop each x in [] do:
+loop each any x in [] do:
     print("never")
 end
-loop each x in {} do:
+loop each any x in {} do:
     print("never")
 end
-loop each x in "" do:
+loop each str x in "" do:
     print("never")
 end
 
-loop each n in [1, 2, 3, 4, 5, 6] do:
+loop each number n in [1, 2, 3, 4, 5, 6] do:
     if n % 2 is 0 do:
         skip
     end
@@ -33,8 +33,8 @@ loop each n in [1, 2, 3, 4, 5, 6] do:
 end
 
 note: skip and stop belong to the nearest loop
-loop each row in [[1, 2, 3], [4, 5, 6]] do:
-    loop each v in row do:
+loop each list row in [[1, 2, 3], [4, 5, 6]] do:
+    loop each any v in row do:
         if v is 2 do:
             skip
         end
@@ -46,27 +46,27 @@ loop each row in [[1, 2, 3], [4, 5, 6]] do:
 end
 
 note: the loop sees the collection as it was when it started
-set list items to [1, 2, 3]
-loop each i in items do:
+list items = [1, 2, 3]
+loop each number i in items do:
     add i * 10 to items
 end
 print(items)
 
-set number round to 0
+number round = 0
 loop while round < 5 do:
-    change round to round + 1
+    round = round + 1
     if round is 2 do:
         skip
     end
     print("round", round)
 end
 
-loop repeat i to 1 ~ 6 do:
+loop repeat number i = 1 ~ 6 do:
     if i % 3 is 0 do:
         skip
     end
     print("i", i)
 end
-loop repeat i to 3 ~ 1 do:
+loop repeat number i = 3 ~ 1 do:
     print("down", i)
 end

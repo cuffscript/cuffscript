@@ -1,10 +1,10 @@
 note: extends, overriding, super, constructors and polymorphism.
 class Animal do:
-    set str name to "animal"
-    set number legs to 4
+    str name = "animal"
+    number legs = 4
 
     func init(str name) do:
-        change self.name to name
+        self.name = name
         print(f"Animal.init {name}")
     end
 
@@ -18,11 +18,11 @@ class Animal do:
 end
 
 class Dog extends Animal do:
-    set str trick to "sit"
+    str trick = "sit"
 
-    func init(str name, str trick to "sit") do:
+    func init(str name, str trick = "sit") do:
         super.init(name)
-        change self.trick to trick
+        self.trick = trick
         print("Dog.init")
     end
 
@@ -40,7 +40,7 @@ end
 class Bird extends Animal do:
     func init(str name) do:
         super.init(name)
-        change self.legs to 2
+        self.legs = 2
     end
 
     func speak() do:
@@ -48,9 +48,9 @@ class Bird extends Animal do:
     end
 end
 
-set Dog rex to Dog("Rex", "roll")
-set Puppy pup to Puppy("Pip")
-set Bird tweety to Bird("Tweety")
+Dog rex = Dog("Rex", "roll")
+Puppy pup = Puppy("Pip")
+Bird tweety = Bird("Tweety")
 print(rex.intro())
 print(pup.intro(), pup.trick)
 print(tweety.intro(), tweety.legs)
@@ -66,8 +66,8 @@ present(rex)
 present(pup)
 present(tweety)
 
-set list zoo to [rex, pup, tweety]
-loop each a in zoo do:
+list zoo = [rex, pup, tweety]
+loop each any a in zoo do:
     print(a.speak(), a isa Animal, a isa Dog, a isa Puppy, a isa Bird)
 end
 

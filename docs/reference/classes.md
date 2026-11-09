@@ -7,13 +7,13 @@ A class describes a kind of thing: the values it holds (its *fields*) and what i
 
 ```cuff
 class Player do:
-    set str name to "unknown"
-    set number x to 0
-    private set number steps to 0
+    str name = "unknown"
+    number x = 0
+    private number steps = 0
 
-    func init(str name, number x to 0) do:
-        change self.name to name
-        change self.x to x
+    func init(str name, number x = 0) do:
+        self.name = name
+        self.x = x
     end
 
     func sayhello() do:
@@ -21,11 +21,11 @@ class Player do:
     end
 
     func turnleft() do:
-        change self.steps to self.steps + 1
+        self.steps = self.steps + 1
     end
 end
 
-set Player player1 to Player("Ann")
+Player player1 = Player("Ann")
 player1.sayhello()
 ```
 
@@ -41,14 +41,14 @@ Hello, I am Ann
 
 ## Fields
 
-A field is declared with the same words as a variable: `set [constant] TYPE NAME to value`.
+A field is declared with the same words as a variable: `[constant] TYPE NAME = value`, with `private` in front for a private field.
 
 - The default value is worked out **again for every object**, so each object gets its own list or map. The default cannot use `self`.
 - The set of fields is fixed. Reading or writing a field the class does not have is an error that names the fields it does have (`E4-033`), which catches a misspelt name.
-- The declared type is checked on the default value only. `change` does not check the type of the new value, in a field or in a variable.
-- A `constant` field is written in capitals like any constant (`E4-004` otherwise). It can be set while `init` runs and cannot be changed afterwards (`E4-003`).
-- A field is read and written with a dot: `player1.name`, `change player1.x to 5`. Inside a method it is always reached through `self`.
-- Fields are places, so `add`, `change` and `remove` work on them and on what they hold: `add item to self.items`, `change self.grid[2][3] to 0`.
+- A field keeps its declared type. The default value is checked as the object is made, and every later assignment is checked against the type (`E4-020`), whether it is written in `init`, in another method or outside the class. A field that holds values of different types is declared `any`, and so is a field that is `empty` until it is set, such as the `next` of a linked list (`any next = empty`).
+- A `constant` field is written in capitals like any constant (`E4-004` otherwise). It can be assigned while `init` runs and cannot be changed afterwards (`E4-003`).
+- A field is read and written with a dot: `player1.name`, `player1.x = 5`. Inside a method it is always reached through `self`.
+- Fields are places, so assignment, `add` and `remove` work on them and on what they hold: `add item to self.items`, `self.grid[2][3] = 0`.
 
 ## Methods
 
@@ -75,10 +75,10 @@ A class without an `init` takes no arguments (`E4-010` otherwise). If `init` rai
 
 ```cuff
 class Animal do:
-    set str name to "animal"
+    str name = "animal"
 
     func init(str name) do:
-        change self.name to name
+        self.name = name
     end
 
     func speak() do:
@@ -87,11 +87,11 @@ class Animal do:
 end
 
 class Dog extends Animal do:
-    set number tricks to 0
+    number tricks = 0
 
-    func init(str name, number tricks to 0) do:
+    func init(str name, number tricks = 0) do:
         super.init(name)
-        change self.tricks to tricks
+        self.tricks = tricks
     end
 
     func speak() do:
@@ -100,7 +100,7 @@ class Dog extends Animal do:
     end
 end
 
-set Dog rex to Dog("Rex", 3)
+Dog rex = Dog("Rex", 3)
 rex.speak()
 print(rex.tricks)
 ```
@@ -123,10 +123,10 @@ Rex barks
 
 ```cuff
 class Account do:
-    private set number balance to 0
+    private number balance = 0
 
     func deposit(number amount) do:
-        change self.balance to self.balance + amount
+        self.balance = self.balance + amount
     end
 
     func report() do:
@@ -134,7 +134,7 @@ class Account do:
     end
 end
 
-set Account a to Account()
+Account a = Account()
 a.deposit(40)
 print(a.report())
 ```
@@ -152,7 +152,7 @@ Writing `a.balance` outside the class is an error (`E4-034`).
 
 ## Types and `isa`
 
-A class name can be written wherever a type can: in `set Player p to ...`, in a parameter (`func f(Player p)`) and in a field. A value of a child class is accepted where its parent is wanted. A mismatch is `E4-020` for a variable and `E4-030` for a parameter. The type `object` accepts any object.
+A class name can be written wherever a type can: in `Player p = ...`, in a parameter (`func f(Player p)`) and in a field. A value of a child class is accepted where its parent is wanted. A mismatch is `E4-020` for a variable and `E4-030` for a parameter. The type `object` accepts any object.
 
 `value isa ClassName` tells whether an object is an instance of the class or of one of its descendants. It compares like `is` does, so `!` negates it: `!animal isa Dog`. `type_of(object)` is the name of its class, as text.
 
@@ -163,7 +163,7 @@ end
 class Dog extends Animal do:
 end
 
-set Animal pet to Dog()
+Animal pet = Dog()
 print(pet isa Animal, pet isa Dog, type_of(pet))
 print(1 isa Animal, Animal() isa Dog)
 ```
@@ -188,14 +188,14 @@ An object is held by reference, like a list or a map: giving it a second name do
 
 ```cuff
 class Point do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 end
 
-set Point a to Point()
-set Point b to a
-set Point c to a.copy()
-change b.x to 5
+Point a = Point()
+Point b = a
+Point c = a.copy()
+b.x = 5
 print(a.x, c.x, a is b, a is c)
 ```
 
@@ -209,8 +209,8 @@ print(a.x, c.x, a is b, a is c)
 
 ```cuff
 class Point do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 
     func to_str() do:
         return f"({self.x}, {self.y})"
@@ -237,12 +237,12 @@ print(Point(), f"at {Point()}", Blank())
 use DLC: json
 
 class Item do:
-    set str name to "pen"
-    private set number cost to 3
+    str name = "pen"
+    private number cost = 3
 end
 
 class Box extends Item do:
-    set list tags to ["new"]
+    list tags = ["new"]
 end
 
 print(to_json(Box()))
@@ -258,7 +258,7 @@ An `async` method is queued like an `async` function: the call returns at once a
 
 ```cuff
 class Job do:
-    set str label to "job"
+    str label = "job"
 
     async func run(number n) do:
         print(f"{self.label} {n}")
@@ -266,7 +266,7 @@ class Job do:
     end
 end
 
-set Job j to Job()
+Job j = Job()
 j.run(1)
 print("queued")
 print(await j.run(2))
@@ -287,11 +287,11 @@ The calls that were queued and not awaited run when the main program ends.
 
 ```cuff
 class Robot do:
-    set str name to "R2"
-    set number y to 0
+    str name = "R2"
+    number y = 0
 
     func move(number steps) do:
-        change self.y to self.y + steps
+        self.y = self.y + steps
     end
 
     func status() do:
@@ -299,13 +299,13 @@ class Robot do:
     end
 end
 
-set Robot rover to Robot()
+Robot rover = Robot()
 
 with rover do:
     move(3)
     move(2)
     print(status())
-    change y to y + 10
+    y = y + 10
     print(.y)
 end
 ```
@@ -317,10 +317,10 @@ R2 at 5
 
 - The object is worked out once, when the block starts, and must be an object (`E4-035`).
 - A name is looked up in this order: a variable made inside the block, then a member of the object (a method when it is called, a field otherwise), then the rest of the program as usual. Members come before the outer names on purpose: what a name means is decided by the class, and does not change when a variable of that name appears elsewhere.
-- The same order applies to the first name of a place, so `change y to y + 10` changes the field `y` here. `add` and `remove` follow it as well.
+- The same order applies to the first name of a place, so `y = y + 10` changes the field `y` here. `add` and `remove` follow it as well.
 - `.name` always means a member of the object of the innermost `with`: `.y` above. Use it when a plain name could mean something else. It is a syntax error outside a `with` block.
 - With blocks nest. A name is looked for in the inner object first, then in the next one out.
-- A variable made with `set` inside the block is gone after the `end`. `return`, `stop`, `skip`, `await` and `or_else` work through a block as if it were not there.
+- A variable declared inside the block is gone after the `end`. `return`, `stop`, `skip`, `await` and `or_else` work through a block as if it were not there.
 - Inside a method, `self` is still the object the method was called on, not the object of a `with` inside it.
 - A private member stays private: `with` does not open it (`E4-034`).
 
@@ -354,29 +354,29 @@ An error object of a class of your own shows the name of its class before the me
 
 ### Catching an error
 
-`or_else as NAME do: ... end` runs its block when the statement before it fails, with the error in the variable `NAME`. Every error the engine can raise and that a program may catch (the `E3-1xx`, `E4`, `E5` and `E7` codes) arrives as an `Error`, so a handler can look at `code`, `message`, `line` and `column`. The errors that cannot be caught (the syntax errors, the budget errors and the internal errors) are not affected. `or_else do:` without a name works as before.
+`or_else as TYPE NAME do: ... end` runs its block when the statement before it fails, with the error in the variable `NAME`, which has the type `TYPE`: `Error` accepts every error, `any` and `object` do too, and a class of your own accepts only errors of that class (`E4-020` for another one). Every error the engine can raise and that a program may catch (the `E3-1xx`, `E4`, `E5` and `E7` codes) arrives as an `Error`, so a handler can look at `code`, `message`, `line` and `column`. The errors that cannot be caught (the syntax errors, the budget errors and the internal errors) are not affected. `or_else do:` without a name runs the block without the error value.
 
 ```cuff
 class ValidationError extends Error do:
-    set str field to ""
+    str field = ""
 end
 
 func check_age(number age) do:
     if age < 0 do:
-        set ValidationError e to ValidationError("age is negative")
-        change e.field to "age"
+        ValidationError e = ValidationError("age is negative")
+        e.field = "age"
         fail e
     end
     return age
 end
 
-check_age(-1) or_else as err do:
+check_age(-1) or_else as Error err do:
     if err isa ValidationError do:
         print(f"bad {err.field}: {err.message}")
     end
 end
 
-print(1 / 0) or_else as err do:
+print(1 / 0) or_else as Error err do:
     print(err.code, err.line)
 end
 ```

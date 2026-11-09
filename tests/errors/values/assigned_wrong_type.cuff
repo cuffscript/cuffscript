@@ -1,0 +1,3 @@
+note: E4-020
+number x = 1
+x = "a"

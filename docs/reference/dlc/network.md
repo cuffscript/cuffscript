@@ -21,7 +21,7 @@ that could not be completed is an error.
 
 ```cuff
 use DLC:network
-set map res to network_get("http://example.com/")
+map res = network_get("http://example.com/")
 if res["ok"] do:
     print(res["status"])
 end
@@ -55,9 +55,9 @@ The body of the response is returned as text. A response sent in chunks is reass
 
 ```cuff
 use DLC:network
-set map res to network_get("http://example.com/") or_else do:
+map res = network_get("http://example.com/") or_else do:
     print("could not reach the server")
-    change res to {"status": 0, "ok": false, "body": ""}
+    res = {"status": 0, "ok": false, "body": ""}
 end
 print(res["ok"])
 ```

@@ -35,7 +35,7 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `lexer/ColonValidator.h` | Rejects a space before a `:`. |
 | `parser/Parser.h`, `ParserCore.h` | The token cursor, error construction and helpers shared by the parsers. |
 | `parser/StatementParser.h` | Chooses the parser for a statement from its first token and attaches an `or_else`. |
-| `parser/DeclarationParser.h` | `set`, `change`, `global`, and the two pieces they share: `TypeParser` (a type name) and `PlaceParser` (the target of `change`, `add` and `remove`). |
+| `parser/DeclarationParser.h` | Declarations, assignments and `global`, and the two pieces they share: `TypeParser` (a type name) and `PlaceParser` (the target of an assignment, `add` and `remove`). |
 | `parser/FunctionParser.h` | `[async] [pure] func` declarations, their parameters and default values; also the methods of a class. |
 | `parser/ClassParser.h` | `class` declarations: the fields and methods in the body. |
 | `parser/ControlFlowParser.h`, `LoopParser.h` | `if` / `else` and `with`, and `loop repeat` / `loop while` / `loop each`. |

@@ -10,7 +10,7 @@ braces: {a} and {42}
 [1, 2, 3] 3
 {"ann": 31, "bo": 27} 2
 ab
-empty empty empty true pattern
+empty empty <match "1"> true pattern
 one-line if
 1
 2

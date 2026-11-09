@@ -1,5 +1,5 @@
 class Safe do:
-    private set number code to 1234
+    private number code = 1234
 end
-set Safe s to Safe()
+Safe s = Safe()
 print(s.code)

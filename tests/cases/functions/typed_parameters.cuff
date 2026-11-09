@@ -1,22 +1,22 @@
-note: typed parameters -- written as `type name`; the type may be omitted (mixing is fine).
+note: every parameter is written `type name`; `any` takes a value of any type.
 func add_num(number n1, number n2) do:
     return n1 + n2
 end
 print(add_num(1, 2))
 
 use DLC:list
-func greet(str name, count, list items) do:
+func greet(str name, any count, list items) do:
     print(f"{name} {count} {length(items)}")
 end
 greet("kim", 3, [1, 2])
 
-func mixed(a, number b) do:
+func mixed(any a, number b) do:
     return a + b
 end
 print(mixed(5, 6))
 
-note: a typed parameter still accepts `empty` (same rule as set)
-func maybe(str s) do:
+note: `empty` is a value of its own type: only `empty` and `any` take it
+func maybe(any s) do:
     return s is empty
 end
 print(maybe(empty))

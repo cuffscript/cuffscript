@@ -1,5 +1,5 @@
 note: E4-025
 use DLC:json
-set list a to []
+list a = []
 add a to a
 print(to_json(a))

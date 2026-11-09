@@ -1,6 +1,6 @@
 note: pattern literals, flags, matches, equality and display.
-set pattern digits to p"[num]+"
-set pattern word to p"[word]+"i
+pattern digits = p"[num]+"
+pattern word = p"[word]+"i
 print(digits)
 print(word)
 print(digits is p"[num]+", digits is word, digits is p"[num]+"i)
@@ -9,18 +9,18 @@ print("Yes" matches p"yes"i, "Yes" matches p"yes", "NO" matches p"yes"i)
 print("A-12" matches p"[up]-[num]2", !("A-123" matches p"[up]-[num]2"))
 print(type_of(digits))
 
-set str source to "[num]+"
-set pattern built to pattern(source)
+str source = "[num]+"
+pattern built = pattern(source)
 print(built is digits, built)
 print("123" matches pattern("[num]3"), "12" matches pattern("[num]3"))
 print(pattern("[low]+", "i"))
 
 note: patterns are values: lists, maps, parameters
-set list rules to [p"[num]+", p"[up]+", p"[low]+"]
-loop each rule in rules do:
+list rules = [p"[num]+", p"[up]+", p"[low]+"]
+loop each any rule in rules do:
     print(rule, "ABC" matches rule)
 end
-func is_valid(text, pattern rule) do:
+func is_valid(any text, pattern rule) do:
     return text matches rule
 end
 print(is_valid("42", digits), is_valid("4x", digits))
@@ -36,9 +36,9 @@ print("[num]+" is "[num]+", "123" is "[num]+")
 print("multi\nline" matches p"multi[any]line", "ab" matches p"[start]ab[end]")
 
 note: pattern and the other type names are ordinary variable names
-set number pattern_count to 2
-set list list to [1, 2]
-set map map to {"a": 1}
-set str str to "s"
-set number number to 3
+number pattern_count = 2
+list list = [1, 2]
+map map = {"a": 1}
+str str = "s"
+number number = 3
 print(pattern_count, list, map, str, number)

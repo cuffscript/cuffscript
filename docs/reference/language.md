@@ -55,7 +55,7 @@ Strings and comments may contain any Unicode text; everything else is ASCII. The
 
 ### 1.2 Lines, blocks and indentation
 
-A statement is written on one line. The exception is inside brackets: the elements of a list or map literal and the arguments of a call may continue over several lines between their opening and closing bracket, and a list or map literal may end with a trailing comma (a call or a parameter list may not). A line cannot end in the middle of an expression after an operator: `set number x to 1 +` is a syntax error. A block statement (`if`, `loop`, `with`, `func`, `class`, and the
+A statement is written on one line. The exception is inside brackets: the elements of a list or map literal and the arguments of a call may continue over several lines between their opening and closing bracket, and a list or map literal may end with a trailing comma (a call or a parameter list may not). A line cannot end in the middle of an expression after an operator: `number x = 1 +` is a syntax error. A block statement (`if`, `loop`, `with`, `func`, `class`, and the
 `or_else` handler) opens with `do:` at the end of its header line, holds a body of further
 statements, and is closed by `end`. Every block needs its own `end`; a missing or surplus `end` is a
 syntax error.
@@ -77,7 +77,7 @@ end
   enclosing block uses is rejected too (`inconsistent indentation`). `end` still closes the block; indentation does not.
 - An empty body needs no indentation: `end` (or `else`) may follow the `do:` line directly.
 - *One-line form:* when a block's body and its `end` fit on the header's line, no indentation is
-  needed (`if x is 1 do: print("one") end`, `func twice(x) do: return x * 2 end`). Only a class may have an empty body on one line
+  needed (`if x is 1 do: print("one") end`, `func twice(number x) do: return x * 2 end`). Only a class may have an empty body on one line
   (`class Oops extends Error do: end`).
 - Blank lines are ignored.
 
@@ -109,20 +109,21 @@ A name starts with a letter or `_` and continues with letters, digits and `_`. L
 only. Names are case-sensitive. Variables and functions have separate name spaces, so a variable and
 a function may share a name. The name of a class starts with a capital letter (see [classes](classes.md)).
 
-The reserved words, 44 of them, are:
+The reserved words, 43 of them, are:
 
 ```text
-set change constant global add remove if else loop repeat while each stop skip return fail await use from in to do end note endnote
+constant global add remove if else loop repeat while each stop skip return fail await use from in to at do end note endnote
 func class extends with async pure private or_else self super is matches isa not and or true false empty
 ```
 
-Six of them may nevertheless be used as variable, function, parameter and loop-variable names: `add`, `to`, `in`, `global`, `not` and
-`from`. Every other reserved word is always reserved. `as` (after `or_else`) and `init` (the name of the method that sets up an
-object) are not reserved; they have their meaning only in those places.
+A reserved word is always reserved: it cannot be the name of a variable, function, parameter, field or loop variable (a syntax error, with a
+hint that says so). `as` (after `or_else`) and `init` (the name of the method that sets up an object) are not reserved; they have their
+meaning only in those places.
 
-The names of the types (`number`, `str`, `boolean`, `list`, `map`, `match`, `pattern`, `object`, `empty`) and the names of classes are not reserved either. They are read as types only
-where a type may stand: after `set [constant]`, before the name of a parameter, and in a field declaration. Anywhere else they are ordinary
-names, so `set list list to [1, 2]` declares a list called `list`. The same goes for the names of the built-in functions (`find`, `count`, `copy` and so on): a variable may be called `count`, and a
+The names of the types (`any`, `number`, `str`, `boolean`, `list`, `map`, `match`, `pattern`, `object`, `empty`) and the names of classes are not reserved either. They are read as types only
+where a type may stand: at the start of a declaration, before the name of a parameter, in a field declaration, in `loop repeat` and
+`loop each`, and after `or_else as`. Anywhere else they are ordinary
+names, so `list list = [1, 2]` declares a list called `list`. The same goes for the names of the built-in functions (`find`, `count`, `copy` and so on): a variable may be called `count`, and a
 function of your own with the name of a built-in replaces it.
 
 ### 1.6 Literals
@@ -144,6 +145,7 @@ function of your own with the name of a built-in replaces it.
 
 | Type | Holds | Falsy when |
 | :--- | :--- | :--- |
+| `any` | A value of any type, `empty` included (only a variable, parameter, field or loop variable has this type; a value never does) | as the value it holds |
 | `number` | An IEEE-754 double | `0` |
 | `str` | UTF-8 text | the empty string |
 | `boolean` | `true` or `false` | `false` |
@@ -152,7 +154,7 @@ function of your own with the name of a built-in replaces it.
 | `match` | The result of a successful pattern match (see `patterns.md`) | — (a failed match gives `empty`, not a `match` value) |
 | `pattern` | A compiled pattern: the value of a `p"..."` literal or of `pattern(text)` | never |
 | *a class* | An object made from a class (see [classes](classes.md)); the type `object` stands for any of them | never |
-| `empty` | No value | always |
+| `empty` | No value; the only value of the type `empty` | always |
 
 **Truthiness.** `if`, `else if`, `loop while` and `!` accept a value of any type and treat it as
 *falsy* or *truthy* by the last column above. `to_boolean(x)` applies the same rule, so
@@ -189,64 +191,66 @@ Strings inside a list or map are wrapped in double quotes and are **not** escape
 
 ## 3. Variables and constants
 
-### 3.1 Declaring with `set`
+### 3.1 Declaring a variable
 
 ```cuff
-set number age to 25
-set str name to "Ann"
-set list items to [1, 2, 3]
-set map profile to {"name": "Ann"}
-set boolean active to true
-set empty nothing to empty
+number age = 25
+str name = "Ann"
+list items = [1, 2, 3]
+map profile = {"name": "Ann"}
+boolean active = true
+any found = empty
 ```
 
-- The type is one of `number`, `str`, `list`, `map`, `boolean`, `match`, `pattern`, `object`, `empty`, or the name of a class, and it is required: `set x to 5` is a syntax error. There is no type inference.
-- The value's type must equal the declared type (`E4-020`); a class accepts its own objects and those of its children. `empty` is accepted for every type, so
-  the `empty` that a failed `find` or `match` produces can be stored and then tested.
-- The assignment word is `to`; `=` is a syntax error.
-- The type is checked **only at the declaration**. A later `change` may store any type.
-- Declaring a name again in the same scope replaces the earlier binding.
+- A declaration is `[type] [name] = [value]`. The type is one of `any`, `number`, `str`, `list`, `map`, `boolean`, `match`, `pattern`, `object`, `empty`, or the name of a class, and it is required: `x = 5` alone is an assignment (section 3.2), not a declaration. There is no type inference.
+- A variable keeps the type it was declared with, and only values of that type can be stored in it (`E4-020`). A class accepts its own objects and those of its
+  children, `object` accepts any object, and `any` accepts every value, so a variable that holds values of different types is declared `any`.
+- `empty` is a type of its own whose only value is `empty`. The `empty` that a failed `find` or `match` produces is therefore stored in an `any` variable, and tested there with `is empty`.
+- A name is declared once in a function, or once at the top level of a program: declaring it again is a syntax error (`E2-010`), whether the second declaration is in the same block, in a block inside the first one's block, or a parameter or loop variable that has the name of a variable declared before. A name declared inside
+  a block (an `if`, a loop body, a handler) is free again once that block has ended, so two blocks side by side may declare the same name, and every function starts with no names declared.
+- A declaration that runs again, in a loop body or in a function that is called again, creates its variable afresh.
 
-### 3.2 Changing with `change`
+### 3.2 Assigning
 
 ```cuff
-change age to 26
-change name to "Bob"
+age = 26
+name = "Bob"
 ```
 
-`change` requires an existing binding (`E4-001` otherwise) and cannot target a constant.
+`[name] = [value]` stores a new value in an existing variable (`E4-001` if there is none) and cannot target a constant (`E4-003`). The value must be of the type the variable was declared with (`E4-020`). Parameters, loop variables and
+the name that `or_else as` gives are variables like any other. The same `=` stores into a place: `items[2] = 5`, `profile["name"] = "Bob"`, `player.score = 10` (section 5.1).
 
 ### 3.3 Constants
 
 ```cuff
-set constant number MAX_USERS to 100
-set constant str API_URL to "https://example.com"
+constant number MAX_USERS = 100
+constant str API_URL = "https://example.com"
 ```
 
 A constant's name is written entirely in uppercase letters, digits and underscores (`E4-004`
 otherwise). Changing a constant is an error (`E4-003`). These checks run when the statement
 executes, so a constant declared in a branch that never runs is never checked.
 
-A constant can have any of the types above, and none of them accepts `change` on the constant's own name. What else is
+A constant can have any of the types above, and none of them accepts an assignment to the constant's own name. What else is
 protected depends on the type: a number, a string and a boolean have nothing else to protect, a list is read-only through every
 name (below), and a map is protected only through the constant's own name.
 
-**Constant lists.** `set constant list PRIMES to [2, 3, 5, 7]` creates a read-only list. `add`,
-`remove` and `change` on it are errors (`E4-003`). The value is copied when the constant is created,
+**Constant lists.** `constant list PRIMES = [2, 3, 5, 7]` creates a read-only list. `add`,
+`remove` and an assignment to one of its elements are errors (`E4-003`). The value is copied when the constant is created,
 so freezing it never freezes a list another variable already refers to; and the read-only property
 belongs to that list, so it follows the value into other variables and function arguments. The
 protection is shallow: a list or map stored inside the constant list can still be changed unless it
 was itself declared constant.
 
-**Constant maps.** `change CONFIG["key"] to ...` and `remove "key" from CONFIG` are errors (`E4-003`) when `CONFIG` is a
+**Constant maps.** `CONFIG["key"] = ...` and `remove "key" from CONFIG` are errors (`E4-003`) when `CONFIG` is a
 constant map, but the map itself is not frozen: another variable that was given the same map can still change it, and the constant then
 shows the change. Copy with `copy(CONFIG)` when a program needs a map that is independent of the constant.
 
 ```cuff
-set list source to [1, 2, 3]
-set constant list SNAPSHOT to source   note: a frozen copy of source
+list source = [1, 2, 3]
+constant list SNAPSHOT = source   note: a frozen copy of source
 add 99 to source                       note: allowed; SNAPSHOT is still [1, 2, 3]
-set list mine to copy(SNAPSHOT)        note: a copy is a new, mutable list
+list mine = copy(SNAPSHOT)        note: a copy is a new, mutable list
 ```
 
 ---
@@ -316,8 +320,8 @@ every operand: a string on the right is just a string, never a pattern. Two obje
 `value isa ClassName` is true when `value` is an object of that class or of one of its children, and false for any other value, including every value that is not an object. The name must be a class (`E4-031`).
 
 ```cuff
-set str input_text to "Apple"
-set str code to "AB-1234"
+str input_text = "Apple"
+str code = "AB-1234"
 if input_text is "Apple" do:
     print("equal")
 end
@@ -352,7 +356,7 @@ operands. The right operand is evaluated only when the left one does not already
 divides by zero.
 
 ```cuff
-set number age to 30
+number age = 30
 if age >= 18 and age < 65 do:
     print("working age")
 end
@@ -372,7 +376,7 @@ Positions are **1-based**; position `0` does not exist (`E4-007`). A negative po
 the end: `-1` is the last element.
 
 ```cuff
-set list colors to ["red", "green", "blue", "yellow"]
+list colors = ["red", "green", "blue", "yellow"]
 print(colors[1])        note: red
 print(colors[-1])       note: yellow
 print(colors[2~3])      note: ["green", "blue"]
@@ -383,9 +387,9 @@ print(colors[2~3])      note: ["green", "blue"]
   error (`E4-008`), and position `0` is an error in a slice as it is anywhere else (`E4-007`).
 - A position must be a whole number (`E4-024` otherwise).
 - Strings are indexed by **code point**, not by byte, so `"안녕"[1]` is `"안"`. A string cannot be changed in place:
-  `change text[1] to "x"` is an error (`E4-005`); build a new string with `+` and a slice instead.
-- A map is indexed by a string key. A missing key is an error (`E4-009`); assigning to a new key with
-  `change` creates it.
+  `text[1] = "x"` is an error (`E4-005`); build a new string with `+` and a slice instead.
+- A map is indexed by a string key. A missing key is an error (`E4-009`); assigning to a new key
+  creates it.
 
 ### 4.7 Patterns and text functions
 
@@ -394,13 +398,13 @@ A pattern is a value of its own. A **pattern literal** is written `p"..."` and i
 Seven built-in functions work on text and patterns. They need no `use`, and the text is always the first argument:
 
 ```cuff
-set match r to match(text, p"SN-([num]4)-([num]+)")
-set str first to find(article, p"T-[num]3")
-set list all to find_all(article, p"T-[num]3")
-set str masked to replace(raw, p"010-[num]4-", "010-****-")
-set str cleaned to replace_all(raw, p"[sp]+", " ")
-set list parts to split(line, p"[,;][sp]*")
-set number n to count(document, p"apple"i)
+match r = match(text, p"SN-([num]4)-([num]+)")
+str first = find(article, p"T-[num]3")
+list all = find_all(article, p"T-[num]3")
+str masked = replace(raw, p"010-[num]4-", "010-****-")
+str cleaned = replace_all(raw, p"[sp]+", " ")
+list parts = split(line, p"[,;][sp]*")
+number n = count(document, p"apple"i)
 ```
 
 Each is specified, with its results and its failure values, in [patterns](patterns.md). In short: a failed `match` or `find` yields `empty`; `find_all` yields a list (empty when nothing matched); `count` yields `0`; `replace` changes the first match and `replace_all` every match, and the replacement is used as plain text; `split` keeps empty pieces. A string where a pattern is wanted is an error (`E4-005`) with a hint to write `p"..."` or to use `pattern(text)`.
@@ -416,9 +420,9 @@ error inside the braces is reported at the line of the f-string.
 
 ## 5. Statements
 
-### 5.1 Changing places: `change`, `add`, `remove`
+### 5.1 Places: assignment, `add`, `remove`
 
-`change`, `add` and `remove` all take a **place**: a spot that holds a value. A place is a name, `self`, or a `.name` (inside a `with` block), followed by any number of `[index]` and `.field` steps:
+An assignment, `add` and `remove` all take a **place**: a spot that holds a value. A place is a name, `self`, or a `.name` (inside a `with` block), followed by any number of `[index]` and `.field` steps:
 
 ```text
 x          grid[2]          grid[2][3]          player.score          self.items          team[1].tags[2]          .y
@@ -428,19 +432,18 @@ A slice (`x[1~2]`) and the result of a call (`f()`) are not places.
 
 | Statement | Effect |
 | :--- | :--- |
-| `change [place] to [value]` | Replaces what the place holds. For a list item, that is the element at that position; for a map entry, it sets or creates the key; for a field, it sets the field. |
+| `[place] = [value]` | Replaces what the place holds. For a list item, that is the element at that position; for a map entry, it sets or creates the key; for a field, it sets the field. A variable and a field keep their declared type (`E4-020`). |
 | `add [value] to [place]` | Appends to the end of the list the place holds. |
-| `remove [position] from [place]` | A number removes the element at that position of the list. |
-| `remove [value] from [place]` | Any non-number removes the first element of the list equal to it (`E4-015` if none). |
-| `remove "key" from [place]` | Deletes the key of the map the place holds; a missing key is ignored. |
+| `remove at [position] from [place]` | Removes the element at that position of the list. |
+| `remove [value] from [place]` | Removes the first element of the list that is equal to the value (`E4-015` if there is none); from a map, it deletes the key (a missing key is ignored). |
 
 Every step before the last is only *read*, so these statements change the collection that the place leads to, in place, and every name that refers to it sees the change. On a constant
 collection they are errors (`E4-003`).
 
 ```cuff
-set list grid to [[1], [2]]
+list grid = [[1], [2]]
 add 5 to grid[1]
-change grid[2][1] to 9
+grid[2][1] = 9
 print(grid)
 ```
 
@@ -448,25 +451,24 @@ print(grid)
 [[1, 5], [9]]
 ```
 
-**Positions.** A position must exist: `0` is `E4-007` and one past the end is `E4-008`, for `change` and for `remove`
-alike. A map's entries are changed with `change [place]["key"]` and removed by key. `add`, and `remove` with a position, need a
+**Positions.** A position must exist: `0` is `E4-007` and one past the end is `E4-008`, for an assignment to an element and for `remove at`
+alike. A map's entries are set with `[place]["key"] = [value]` and removed by key. `add`, and `remove at`, need a
 list (`E4-005` for a map).
 
-**Position or value.** `remove` decides by the *type* of its first operand: a number is always a position. To delete the
-number `20` from `[10, 20, 30]`, look its position up first:
+**Position or value.** `remove at` takes a position and `remove` alone takes a value, whatever its type, so removing the number `20` from `[10, 20, 30]` and removing the second element are two different statements:
 
 ```cuff
-use DLC:list
-set list items to [10, 20, 30]
-remove index_of(items, 20) from items
+list items = [10, 20, 30, 20]
+remove 20 from items
+remove at 1 from items
 print(items)
 ```
 
 ```output
-[10, 30]
+[30, 20]
 ```
 
-**Objects.** A field is a place like any other, so `change player.score to 10` sets a field, `add item to self.items` appends to a list that a field holds, and `change self.grid[2][3] to 0` reaches into it. See [classes](classes.md).
+**Objects.** A field is a place like any other, so `player.score = 10` sets a field, `add item to self.items` appends to a list that a field holds, and `self.grid[2][3] = 0` reaches into it. See [classes](classes.md).
 
 ### 5.2 Conditionals
 
@@ -486,7 +488,7 @@ scope (section 7).
 ### 5.3 Loops
 
 ```cuff
-loop repeat i to 1 ~ 10 do:
+loop repeat number i = 1 ~ 10 do:
     print(i)
 end
 
@@ -494,22 +496,22 @@ loop while [condition] do:
     ...
 end
 
-loop each item in [collection] do:
+loop each [type] item in [collection] do:
     ...
 end
 ```
 
-- `loop repeat [var] to [start] ~ [end]` runs the body once for each whole number from `start` to
+- `loop repeat [type] [var] = [start] ~ [end]` runs the body once for each whole number from `start` to
   `end` inclusive, counting **down** when `start` is greater. Both bounds are evaluated once, before
-  the first pass, and must be whole numbers (`E4-024`).
+  the first pass, and must be whole numbers (`E4-024`). The type must accept numbers (`number` or `any`), which is checked once, before the first pass (`E4-020`).
 - A `repeat` range is never empty: `1 ~ 1` runs once, and `1 ~ 0` runs **twice**, with `i` equal to `1` and then `0`, because the loop counts down. To visit the elements of a list that may be empty, use `loop each`; a `repeat` loop over its positions has
   to test the length first:
 
   ```cuff
   use DLC:list
-  set list items to []
+  list items = []
   if length(items) > 0 do:
-      loop repeat i to 1 ~ length(items) do:
+      loop repeat number i = 1 ~ length(items) do:
           print(items[i])
       end
   end
@@ -521,13 +523,13 @@ end
   ```
 
 - `loop while` re-tests its condition before every pass.
-- `loop each [var] in [collection]` runs the body once for each element of a list, each key of a map (in the order the keys were added) or each character of a string (a code point). Anything else is an error (`E4-005`). An empty collection runs the body no times. The loop works from a snapshot taken when it starts, so adding to the list inside the body does not make the loop longer.
+- `loop each [type] [var] in [collection]` runs the body once for each element of a list, each key of a map (in the order the keys were added, so `str` or `any`) or each character of a string (a code point, so `str` or `any`). The type is checked against every element as it is taken (`E4-020`). Anything else than a list, a map or a string is an error (`E4-005`). An empty collection runs the body no times. The loop works from a snapshot taken when it starts, so adding to the list inside the body does not make the loop longer.
 - `stop` ends the **nearest enclosing** loop only, and `skip` ends the current pass of the nearest enclosing loop and goes on with the next one. Outside a loop either is an error (`E4-023`).
 - A loop does not open a scope: `[var]` and anything declared in the body remain visible after the
   loop, holding their last values.
 
 ```cuff
-loop each word in ["a", "", "b"] do:
+loop each str word in ["a", "", "b"] do:
     if word is "" do:
         skip
     end
@@ -558,14 +560,14 @@ A **class** groups values (fields) and functions (methods) under one name, and a
 
 ```cuff
 class Counter do:
-    set number count to 0
+    number count = 0
 
     func bump() do:
-        change self.count to self.count + 1
+        self.count = self.count + 1
     end
 end
 
-set Counter c to Counter()
+Counter c = Counter()
 c.bump()
 print(c.count)
 ```
@@ -574,10 +576,10 @@ print(c.count)
 1
 ```
 
-- `class Name extends Parent do: ... end` declares a class at the top level of a file. The body holds fields (`set [constant] type name to value`) and methods (`func`, optionally `async`, `pure` or `private`).
+- `class Name extends Parent do: ... end` declares a class at the top level of a file. The body holds fields (`[private] [constant] [type] [name] = [value]`) and methods (`func`, optionally `async`, `pure` or `private`).
 - `Name(arguments)` makes an object; the method `init` receives the arguments. `object.field` and `object.method(arguments)` use an object, and `self` and `super` are available inside methods.
 - `with [object] do: ... end` lets a block use the object's members by their plain names.
-- `fail [value]` raises an error, and `or_else as [name]` catches it as an object (section 8.3).
+- `fail [value]` raises an error, and `or_else as [type] [name]` catches it as an object (section 8.3).
 
 [Classes and objects](classes.md) is the full reference; the [guide](../guide/classes-and-objects.md) teaches it step by step.
 
@@ -588,7 +590,7 @@ print(c.count)
 ### 6.1 Declaring and calling
 
 ```cuff
-func greet(name) do:
+func greet(str name) do:
     print(f"Hello, {name}!")
 end
 
@@ -597,11 +599,11 @@ func add_numbers(number a, number b) do:
 end
 
 greet("Ann")
-set number total to add_numbers(2, 3)
+number total = add_numbers(2, 3)
 ```
 
 - A function is declared with `func [name]([parameters]) do:` followed by an indented body and
-  `end`, or on one line: `func twice(x) do: return x * 2 end`. There is no `set` in front.
+  `end`, or on one line: `func twice(number x) do: return x * 2 end`.
 - Functions are declared at the top level of a program or module (or in a block of it). Declaring one inside another
   function or a method is an error (`E4-018`).
 - A call is `name(arguments)`. It is a statement on its own line or an expression. It does not use
@@ -616,18 +618,18 @@ set number total to add_numbers(2, 3)
 
 ### 6.2 Parameters and their types
 
-A parameter is written `name` or `type name`, and may end with `to [default]`. The types are `number`, `str`, `boolean`, `list`, `map`,
-`match`, `pattern`, `object` and the name of a class, and typed and untyped parameters may be mixed in one list. A word alone is always a name:
-`f(list)` has a parameter called `list`, and `f(list items)` a parameter `items` of type `list`.
+A parameter is written `[type] [name]`, and may end with `= [default]`. The types are `any`, `number`, `str`, `boolean`, `list`, `map`,
+`match`, `pattern`, `object`, `empty` and the name of a class, and every parameter has one: `any` takes a value of any type. A parameter is a variable of its function and keeps its type, so an
+assignment to it is checked like any other (`E4-020`).
 
-A typed parameter checks its argument at the call: a value of another type is an error on the calling
-line (`E4-030`). `empty` is accepted by every type.
+A parameter checks its argument at the call: a value of another type is an error on the calling
+line (`E4-030`). `empty` is accepted only by `any` and `empty`.
 
-**Default values.** A parameter written `name to [value]` is optional. The parameters without a default come first (a syntax error otherwise). The default is worked out **each time** the function is called and
+**Default values.** A parameter written `[type] [name] = [value]` is optional. The parameters without a default come first (a syntax error otherwise). The default is worked out **each time** the function is called and
 without that argument, in the scope of the function, so it can use the parameters before it but not a global variable. A default is checked against the parameter's type when it is used, like an argument (`E4-030`).
 
 ```cuff
-func greet(str name, str greeting to "Hello") do:
+func greet(str name, str greeting = "Hello") do:
     return f"{greeting}, {name}!"
 end
 
@@ -684,7 +686,7 @@ calling an ordinary helper. To lift these restrictions, remove the `pure` keywor
 
 ```cuff
 use DLC:math
-pure func hypotenuse(a, b) do:
+pure func hypotenuse(number a, number b) do:
     return math_sqrt(math_pow(a, 2) + math_pow(b, 2))
 end
 print(hypotenuse(3, 4))   note: 5
@@ -699,11 +701,11 @@ see global variables unless it asks for them.
 
 1. **Global scope** holds what the top level of a program declares.
 2. **Function scope** is created on each call. It holds the parameters, every name the body declares
-   with `set` (including inside `if` and `loop` bodies), and the names the body *bridges*.
+   (including inside `if` and `loop` bodies), and the names the body *bridges*.
 3. **`if` and `loop` bodies do not create a scope.** A name declared inside one stays visible in the
    enclosing scope after the block, and the loop variable of `loop repeat` keeps its last value.
 4. **An `or_else` handler runs in its own scope.** A new name declared in it is local to the handler,
-   and so is the name given by `or_else as`; an existing name can still be changed with `change`.
+   and so is the name given by `or_else as`; an existing name can still be assigned.
 5. **A `with` block has a scope of its own.** A name declared in it is gone after the block's `end` (see [classes](classes.md#the-with-block)).
    A method of a class sees its own locals and parameters like any function, plus `self`.
 
@@ -713,13 +715,13 @@ A function sees its own locals and parameters and **nothing else** from outside 
 variable, not even a constant, and no local of its caller. To use a global, bridge it:
 
 ```cuff
-set number visits to 0
-set constant number STEP to 5
+number visits = 0
+constant number STEP = 5
 
 func record() do:
     global visits     note: from here on, `visits` is the global
     global STEP       note: constants are bridged the same way
-    change visits to visits + STEP
+    visits = visits + STEP
 end
 
 func peek() do:
@@ -732,9 +734,9 @@ print(visits)                   note: 5
 
 - `global [name]` (or `global [a], [b]` for several names) is valid only inside a function body (`E4-021` elsewhere). It applies from
   that statement to the end of that call, to every block inside the function, and only to that call.
-- After bridging, reading the name, `change`, and the collection statements (`add`, `remove`,
-  `change x[i]`) all act on the global itself.
-- A name declared with `set` in the function is a new local that **takes precedence** over a bridge of
+- After bridging, reading the name, assigning to it, and the collection statements (`add`, `remove`,
+  `x[i] = ...`) all act on the global itself.
+- A name declared in the function is a new local that **takes precedence** over a bridge of
   the same name. Declaring a name that also exists globally never touches the global.
 - If no global of that name exists, bridging it has no effect and using the name is an error
   (`E4-001`).
@@ -787,19 +789,19 @@ An `or_else` handler goes after a statement, on the same line as its last token 
 block:
 
 ```cuff
-set number quantity to to_number("abc") or_else do:
+number quantity = to_number("abc") or_else do:
     print("Not a number; using 1.")
-    change quantity to 1
+    quantity = 1
 end
 
-loop repeat i to 1 ~ 3 do:
+loop repeat number i = 1 ~ 3 do:
     print(10 / (i - 2)) or_else do:
         print("skipped a division by zero")
     end
 end
 ```
 
-`or_else as [name] do:` also gives the handler the error as a value (section 8.3).
+`or_else as [type] [name] do:` also gives the handler the error as a value (section 8.3).
 
 **Semantics**
 
@@ -809,7 +811,8 @@ end
 3. Whatever the statement did before the error stays done: changes to variables, output already
    printed and calls already made are not undone.
 4. If the failed statement was a declaration, its name is bound to `empty` before the handler runs, so
-   the handler can `change` it.
+   the handler can assign it. The variable keeps its declared type, and an assignment is checked against it; if the handler does not assign it,
+   it holds `empty`, which is the one case where a variable holds a value that its type does not accept.
 5. An error raised **inside** the handler is not caught by the same `or_else`.
 6. `return` inside a handler returns from the enclosing function, and `stop` ends the enclosing loop.
 7. Errors that are not catchable (resource limits, internal errors, and syntax errors in a pattern) always end the program.
@@ -819,7 +822,7 @@ call. It cannot guard the work of an `async` call that is queued rather than awa
 
 ### 8.3 Error objects and `fail`
 
-`or_else as [name] do:` runs the handler with the error in a variable. Every error a handler can catch arrives as an object of the built-in class `Error`, with the fields `message`, `code`, `line`, `column` and `hint`.
+`or_else as [type] [name] do:` runs the handler with the error in a variable, and the type is `Error`, a class that extends `Error`, `object` or `any`; a type that does not accept the error is `E4-020`. Every error a handler can catch arrives as an object of the built-in class `Error`, with the fields `message`, `code`, `line`, `column` and `hint`.
 
 `fail [value]` raises an error from the program. The value is an `Error` object, or a string, which becomes `Error(string)`; its code is `E7-001`. A class of your own may extend `Error` to carry more. Inside a handler, `fail [name]` raises the same error again.
 
@@ -832,7 +835,7 @@ func divide(number a, number b) do:
 end
 
 print(divide(6, 3))
-print(divide(1, 0)) or_else as err do:
+print(divide(1, 0)) or_else as Error err do:
     print(f"{err.code}: {err.message}")
 end
 ```
@@ -925,7 +928,7 @@ A built-in function whose first argument is the value it works on can also be wr
 
 ```cuff
 use DLC:string, DLC:list
-set str title to "  hello  "
+str title = "  hello  "
 print(title.trim().upper())
 print([3, 1, 2].sort(), "a,b".split(p","), [1, 2, 3].length())
 ```
@@ -980,28 +983,28 @@ use DLC:string
 use DLC:list
 use DLC:map
 
-set str text to "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs."
+str text = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs."
 
 note: find_all gives every run of letters; upper case makes "The" and "the" the same word.
-set list words to find_all(str_upper(text), p"[let]+")
+list words = find_all(str_upper(text), p"[let]+")
 print(f"{length(words)} words, {length(list_unique(words))} different")
 
-set map counts to {}
-loop each word in words do:
+map counts = {}
+loop each str word in words do:
     if map_has_key(counts, word) do:
-        change counts[word] to counts[word] + 1
+        counts[word] = counts[word] + 1
     else do:
-        change counts[word] to 1
+        counts[word] = 1
     end
 end
 
 note: Pick the most frequent word three times, taking it out each time. Ties go to the earlier word.
-set list remaining to list_sort(map_keys(counts))
-loop repeat rank to 1 ~ 3 do:
-    set str best to remaining[1]
-    loop each word in remaining do:
+list remaining = list_sort(map_keys(counts))
+loop repeat number rank = 1 ~ 3 do:
+    str best = remaining[1]
+    loop each str word in remaining do:
         if counts[word] > counts[best] do:
-            change best to word
+            best = word
         end
     end
     print(f"{rank}. {best} ({counts[best]})")

@@ -25,12 +25,12 @@ namespace cuff
             stmt.opKind = CollectionOpStmt::OpKind::Add;
             stmt.value = ExpressionParser::parse(p);
             p.consume(TokenType::TO, "expected 'to' in 'add' statement");
-            stmt.target = PlaceParser::parse(p, "add to");
+            stmt.target = PlaceParser::parse(p, "add to", "'add'");
             stmt.loc = loc;
             return std::make_unique<Stmt>(StmtKind::CollectionOp, std::move(stmt));
         }
 
-        // `remove expression from place`
+        // `remove expression from place`, or `remove at position from place`
         static std::unique_ptr<Stmt> parseRemove(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
@@ -38,9 +38,10 @@ namespace cuff
 
             CollectionOpStmt stmt;
             stmt.opKind = CollectionOpStmt::OpKind::Remove;
+            stmt.atPosition = p.match(TokenType::AT);
             stmt.value = ExpressionParser::parse(p);
             p.consume(TokenType::FROM, "expected 'from' in 'remove' statement");
-            stmt.target = PlaceParser::parse(p, "remove from");
+            stmt.target = PlaceParser::parse(p, "remove from", "'remove'");
             stmt.loc = loc;
             return std::make_unique<Stmt>(StmtKind::CollectionOp, std::move(stmt));
         }

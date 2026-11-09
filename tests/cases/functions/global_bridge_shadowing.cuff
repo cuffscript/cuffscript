@@ -5,11 +5,11 @@ note: implementation checked globalDeclared_ before findLocal in Environment::re
 note: so reading a loop variable named like a bridged name only ever showed the global
 note: value on every iteration.
 
-set number i to 100
+number i = 100
 
 func loop_var_shadow() do:
     global i
-    loop repeat i to 1 ~ 3 do:
+    loop repeat number i = 1 ~ 3 do:
         print(f"loop i = {i}")
     end
     print(f"after loop, local i = {i}")
@@ -19,12 +19,12 @@ loop_var_shadow()
 print(f"global i untouched = {i}")
 
 note: the or_else declaration-recovery placeholder must also shadow a bridge of the same name
-set number counter to 0
+number counter = 0
 
 func or_else_shadow() do:
     global counter
-    set number counter to 1 / 0 or_else do:
-        set number counter to 999
+    number counter = 1 / 0 or_else do:
+        counter = 999
         print(f"inside fallback, local counter = {counter}")
     end
     print(f"after or_else, function-scope counter = {counter}")

@@ -1,4 +1,4 @@
 class Box do:
 end
-set Box b to Box()
+Box b = Box()
 b.open()

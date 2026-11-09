@@ -9,7 +9,9 @@ be here — if you find a new one, please add it to this document.
 Items 1 to 45 were written for the 3.x language. Where they show code with `set func`, `returnable`, `find ... from`,
 `IS`, `&&` or `||`, that is the spelling of the time and the code no longer runs; the engine's behaviour that each item
 describes (the order of `async` calls, limits, error locations, and so on) holds unless a later item says otherwise.
-Items from 46 on record the decisions of 4.0.0, which are the language as it is now.
+Items 46 to 61 record the decisions of 4.0.0 and 4.0.1. Items 62 to 64 record 5.0.0, which are the language as it is now; where
+they disagree with items 4, 6, 28, 36, 46 and 53 (the spellings `set`, `change` and `to`, the soft keywords, the type check at
+declaration only, the removal of a number as a position, the optional parameter types) they win.
 
 ## 1. The `async` / `await` execution model
 
@@ -1421,3 +1423,93 @@ else to go.
 The same release put some locations on the part that is wrong instead of the start of the statement or the `(` of a call:
 a call and a member access are reported at the name, an unknown class in `set` at the type word, a wrong value or a bad constant
 name at the variable's name, and `change` of a variable that does not exist at that variable.
+
+## 62. v5.0.0: one shape for declaring, assigning and binding
+
+4.x had a different spelling and a different rule for each way of giving a name a value: `set TYPE NAME to v` declared,
+`change PLACE to v` assigned, `loop repeat i to 1 ~ 3` and `loop each x in xs` bound a name with no type, `or_else as e` the
+same, a parameter was `name`, `type name` or `name to default`, and six reserved words were allowed as names because 3.x
+programs used them. Each rule was small and the sum was a language that had to be learnt a form at a time.
+
+5.0.0 gives every name the same shape, `TYPE NAME`, wherever a name is bound:
+
+| Where | Spelling |
+| :--- | :--- |
+| declaration | `[constant] TYPE NAME = value` |
+| loop | `loop repeat TYPE NAME = a ~ b do:`, `loop each TYPE NAME in collection do:` |
+| handler | `or_else as TYPE NAME do:` |
+| parameter | `TYPE NAME [= default]` |
+| field | `[private] [constant] TYPE NAME = value` |
+
+and one spelling to store into something that exists, `PLACE = value`, for a variable, an item, a key and a field. `set`
+and `change` are gone, and `to` is left only in `add x to place`. `=` always stores and never compares (`is` compares), so it
+has one meaning, and a user is told only that "`=` stores a value", whether it creates the variable or replaces its value.
+
+`loop repeat` takes any type that accepts numbers and checks it once before the first pass, because the range is a number by
+construction and a check per pass would buy nothing. `loop each` checks the type against every element as it is taken, because
+the elements of a list need not agree.
+
+**How the parser tells a declaration from an assignment.** A statement is a declaration if it starts with `constant`, or with a
+type word, a name and `=`. It is an assignment if it starts with a name, `self` or `.` and has a `=` outside brackets before
+the end of its line. The two do not overlap, because a name followed by another name is never an assignment, and a type word
+alone, such as `list`, is still an ordinary name wherever it is not followed by a name and `=`.
+
+**The old spellings are errors with a hint** (`E2-001`): `set number x to 1` says to write the type, the name, `=` and the
+value, and `change x to 2` says to write the name, `=` and the value. `E1-007` ("`=` where `to` is needed") is removed, since
+`=` is now what is needed.
+
+**Reserved words.** Every keyword is reserved. The six soft keywords of 4.0.0 (`add to in global not from`, item 53) existed
+because 3.x programs used them as names, and that reason ended with the rewrite that 5.0.0 is; a rule with six exceptions costs
+the reader more than it saves a program that has to be rewritten anyway. `set` and `change` are no longer keywords and can be
+names; `at` is added, so there are 43.
+
+**`remove`.** `remove at N from xs` removes by position and `remove V from xs` by value (or, from a map, by key). Item 6 made
+a number mean a position, which made it impossible to remove the number `20` from a list of numbers without first looking it up
+with `index_of`. A word for the position leaves the plain form free to mean the value for every type.
+
+## 63. v5.0.0: a variable keeps its type, and `any` and `empty` are types
+
+Item 4 chose to check a type once, at the declaration, so that the type in front of a variable said what the first value was
+and nothing afterwards. Once every binder has a type (item 62), a name whose type is checked once and then ignored is the one
+rule that does not fit: `number x = 1` followed by `x = "a"` would be accepted, and the type written on the line above would
+be a comment. 5.0.0 makes the type mean what it says:
+
+- A variable, parameter, field and loop variable keeps the type it was declared with, and every store checks it (`E4-020`).
+  A class accepts its own objects and those of its children, `object` any object.
+- `any` is a type that accepts every value. It is the escape hatch, and the only one: no nullable types, unions or generics were
+  added, because each is a concept that a script writer would have to learn for a problem that `any` already solves.
+  No value has the type `any`; only a variable, parameter, field or loop variable does.
+- `empty` is a type with one value, `empty`. Item 4's exception ("every type accepts `empty`") is removed, because it is what
+  made a `number` variable unable to be trusted to hold a number. The cost falls on three patterns: the result of `find` or
+  `match`, which may be `empty`, is stored in an `any` variable; a field that is `empty` until it is set (the `next` of a linked
+  list) is `any`; and `object o = empty` is `any o = empty`.
+- A declaration whose expression fails and is recovered by `or_else` binds its name to `empty` before the handler runs, with
+  the declared type. The handler may assign the variable, and if it does not, the variable holds `empty`. This is the one place
+  a variable holds a value its type does not accept; the alternative, leaving the name undeclared, would make the handler's
+  assignment an error and the code after the handler fail with an unrelated "undefined variable".
+
+**Cost.** The type is a code (`any` is 0, a class is 16 plus its name id) kept in padding that the slot of a variable already
+has, so a variable takes no more memory, and the check on a store is one comparison that `any` skips. Measured on the
+benchmark programs, best of 31 runs: programs that store into a field or a variable in a hot loop are 4% to 7% slower
+(`field`, `random`), the others are within the noise of ±3%. The engine source grew by 8.7 KB (1.5%) and the stripped binary
+by 8 KB (1%).
+
+## 64. v5.0.0: one name, one declaration per function (`E2-010`)
+
+With `TYPE NAME = value` declaring and `NAME = value` storing, a second declaration of a name in the same function is most
+likely a typo, and under item 63 it would also be a way to change a variable's type without anyone noticing. It is a syntax
+error: the parser keeps the names a function has declared, counting parameters, loop variables and the name of `or_else as`.
+
+The check is on the text and not on the run. A name declared in a block (an `if`, a loop body, a handler, a `with`) is
+forgotten when the block ends, so two blocks side by side may declare the same name, and a name can be declared again after the
+block that held it. Every function, method and `init` starts with no names, and so does each entry of the shell and each module,
+which are parsed on their own; in `cuffsh` a name can therefore be declared again in a later entry, and the new declaration
+replaces the old variable.
+
+Run-time scoping is unchanged (item 40 and the scopes section of the guide): a function has one scope, so a variable declared in
+a loop or an `if` is still readable after it, and a declaration that runs again, as a loop body does, makes its variable afresh. A
+declaration may still share its name with a `global` bridge, and the local wins, as before (item 27).
+
+Block scopes were considered and refused. They would change what an existing program means (a variable made in a loop would
+disappear after it), cost a scope per loop pass, and add a second set of rules to the guide, to solve a problem, the
+accidental redeclaration, that a check on the text solves without touching the run.

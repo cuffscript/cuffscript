@@ -14,7 +14,7 @@ Every program here is also a test (`tests/cases/phenomena/`, or the unit test na
 ```cuff
 note: a function or a class can be used above the place where it is written
 print(double(4))
-set Point corner to Point(2, 3)
+Point corner = Point(2, 3)
 print(corner.x + corner.y)
 
 func double(number n) do:
@@ -22,20 +22,20 @@ func double(number n) do:
 end
 
 class Point do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 
     func init(number x, number y) do:
-        change self.x to x
-        change self.y to y
+        self.x = x
+        self.y = y
     end
 end
 
 note: a variable is only there from the line that makes it
-print(total) or_else as problem do:
+print(total) or_else as Error problem do:
     print(problem.code, "the variable does not exist yet")
 end
-set number total to 5
+number total = 5
 print(total)
 ```
 
@@ -46,7 +46,7 @@ E4-001 the variable does not exist yet
 5
 ```
 
-**Why.** A run begins by reading the whole text, then walking the top level once to register every function and every class (see [a run in four steps](../internals/how-it-works.md#a-run-in-four-steps)). Only then does the first statement run. A variable has no such step: it comes into being when its `set` line runs, so asking for it earlier is [`E4-001`](../reference/errors.md#e4-001).
+**Why.** A run begins by reading the whole text, then walking the top level once to register every function and every class (see [a run in four steps](../internals/how-it-works.md#a-run-in-four-steps)). Only then does the first statement run. A variable has no such step: it comes into being when its declaration runs, so asking for it earlier is [`E4-001`](../reference/errors.md#e4-001).
 
 **Use it.** Put the steps of a program first and the helpers under them. Classes may be written in any order too, even a child before its parent.
 
@@ -71,7 +71,7 @@ note: functions are looked up before the library, so one of your own replaces a 
 use DLC:string
 print(str_upper("hello"))
 
-func str_upper(text) do:
+func str_upper(str text) do:
     return "no thanks"
 end
 ```
@@ -112,7 +112,7 @@ The first program prints no `first line`: only the error report. The second prin
 `fixtures/helpers.cuff`:
 
 ```cuff
-func shout(word) do:
+func shout(str word) do:
     return word + "!"
 end
 ```
@@ -122,7 +122,7 @@ The program:
 ```cuff
 note: use is a statement. Until execution reaches it, the module's functions do not exist.
 print("calling before the use line")
-print(shout("x")) or_else as problem do:
+print(shout("x")) or_else as Error problem do:
     print(problem.code, "the module is not loaded yet")
 end
 
@@ -131,7 +131,7 @@ print(shout("now"))
 
 note: a function written in this very file needs no such order
 print(local_shout("anytime"))
-func local_shout(word) do:
+func local_shout(str word) do:
     return word + "!"
 end
 ```
@@ -154,8 +154,8 @@ anytime!
 <!-- test: phenomena/shared_values -->
 ```cuff
 note: a list, a map or an object is one thing with several names; a number or a text is copied
-set list first to [1, 2]
-set list second to first
+list first = [1, 2]
+list second = first
 add 3 to second
 print(first, second)
 
@@ -165,27 +165,27 @@ end
 grow(first)
 print(first)
 
-set number count to 5
+number count = 5
 func bump(number x) do:
-    change x to x + 1
+    x = x + 1
     return x
 end
 print(bump(count), count)
 
 note: copy() makes a new outer list, but the lists inside are still shared
-set list grid to [[1], [2]]
-set list twin to grid.copy()
+list grid = [[1], [2]]
+list twin = grid.copy()
 add 5 to twin[1]
 add [9] to twin
 print(grid, twin)
 
 note: is compares the items of a list or a map, but an object only with itself
 class Dot do:
-    set number x to 1
+    number x = 1
 end
-set Dot a to Dot()
-set Dot b to Dot()
-set Dot c to a
+Dot a = Dot()
+Dot b = Dot()
+Dot c = a
 print([1, 2] is [1, 2], {"k": 1} is {"k": 1})
 print(a is b, a is c, a is a.copy())
 ```
@@ -208,22 +208,22 @@ false true false
 <!-- test: phenomena/scopes -->
 ```cuff
 note: a loop and an if do not open a scope; a function does
-loop repeat i to 1 ~ 3 do:
-    set number last to i * 10
+loop repeat number i = 1 ~ 3 do:
+    number last = i * 10
 end
 print(i, last)
 
 if true do:
-    set number inside to 7
+    number inside = 7
 end
 print(inside)
 
 func work() do:
-    set number hidden to 1
+    number hidden = 1
     return hidden
 end
 print(work())
-print(hidden) or_else as problem do:
+print(hidden) or_else as Error problem do:
     print(problem.code, "a function's variables stay inside it")
 end
 ```
@@ -242,13 +242,13 @@ E4-001 a function's variables stay inside it
 <!-- test: phenomena/with_finds_members_first -->
 ```cuff
 class Box do:
-    set number size to 1
-    set str label to "box"
+    number size = 1
+    str label = "box"
 end
 
-set number size to 100
-set number label to 5
-set Box b to Box()
+number size = 100
+number label = 5
+Box b = Box()
 
 with b do:
     note: inside with, a bare name is looked for in the object first
@@ -273,7 +273,7 @@ print(size, label)
 <!-- test: phenomena/private_belongs_to_the_class -->
 ```cuff
 class Parent do:
-    private set number secret to 7
+    private number secret = 7
 
     func reveal() do:
         return self.secret
@@ -286,9 +286,9 @@ class Child extends Parent do:
     end
 end
 
-set Child kid to Child()
+Child kid = Child()
 print(kid.reveal())
-print(kid.peek()) or_else as problem do:
+print(kid.peek()) or_else as Error problem do:
     print(problem.code, "a child inherits the field but not the right to read it")
 end
 ```
@@ -300,37 +300,6 @@ E4-034 a child inherits the field but not the right to read it
 
 **Why.** A private member is checked against the class whose method is running, not against the class of the object. `reveal` was written in `Parent`, so it may read `secret`. `peek` was written in `Child`, so it may not, although every `Child` object has the field.
 
-### A field's type is checked when the object is made
-
-<!-- test: phenomena/field_types_at_creation -->
-```cuff
-class Counter do:
-    set number count to 0
-end
-
-note: a field's type is checked when the object is made...
-class Bad do:
-    set number n to "x"
-end
-set Bad b to Bad() or_else as problem do:
-    print(problem.code)
-end
-
-note: ...and not afterwards
-set Counter c to Counter()
-change c.count to "many"
-print(c.count, type_of(c.count))
-```
-
-```output
-E4-020
-many str
-```
-
-**Why.** The type written in front of a field is checked once, against the field's default, as the object is made. After that a `change` is an ordinary assignment, whether it is written in `init`, in another method or outside the class, and it does not look at the type again.
-
-**Watch out.** Do not count on a `number` field staying a number. If it matters, check the value in the method that changes it.
-
 ## The order things happen in
 
 ### A loop works from the items it started with
@@ -338,8 +307,8 @@ many str
 <!-- test: phenomena/loop_snapshot -->
 ```cuff
 note: loop each walks the items it started with
-set list xs to [1, 2, 3]
-loop each x in xs do:
+list xs = [1, 2, 3]
+loop each number x in xs do:
     if x < 3 do:
         add x + 10 to xs
     end
@@ -348,8 +317,8 @@ end
 print(xs)
 
 note: a key removed during the loop is still visited, and is gone afterwards
-set map m to {"a": 1, "b": 2, "c": 3}
-loop each key in m do:
+map m = {"a": 1, "b": 2, "c": 3}
+loop each str key in m do:
     remove "c" from m
     print(key)
 end
@@ -404,7 +373,7 @@ hello c
 <!-- test: phenomena/fresh_defaults -->
 ```cuff
 note: a default is worked out again at every call, so a new list is made each time
-func collect(item, list bag to []) do:
+func collect(number item, list bag = []) do:
     add item to bag
     return bag
 end
@@ -458,8 +427,8 @@ true
 <!-- test: phenomena/operator_surprises -->
 ```cuff
 note: a range counts both ends and runs backwards when it starts higher
-loop repeat i to 3 ~ 1 do: print(i) end
-loop repeat i to 2 ~ 2 do: print("once", i) end
+loop repeat number i = 3 ~ 1 do: print(i) end
+loop repeat number i = 2 ~ 2 do: print("once", i) end
 
 note: ** binds tighter than a minus on its left, and groups to the right
 print(-2 ** 2, (-2) ** 2, 2 ** 3 ** 2)

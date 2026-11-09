@@ -3,6 +3,7 @@
 #include "ParserCore.h"
 #include "ASTNodes.h"
 #include "BodyParser.h"
+#include "DeclarationParser.h"
 #include "../common/TokenTypes.h"
 #include "../common/CuffError.h"
 #include <memory>
@@ -11,7 +12,7 @@
 namespace cuff
 {
 
-    // `statement or_else [as NAME] do: fallback end`. `as` is a keyword only here, right after `or_else`.
+    // `statement or_else [as TYPE NAME] do: fallback end`. `as` is a keyword only here, right after `or_else`.
     class OrElseParser
     {
     public:
@@ -21,10 +22,16 @@ namespace cuff
             p.consume(TokenType::OR_ELSE, "Expected 'or_else'");
 
             OrElseStmt orElse;
+            NameScope names(p.declared);
             if (p.check(TokenType::IDENTIFIER) && p.current().value == "as")
             {
                 p.advance();
-                const Token name = p.consumeName("expected a name for the error after 'or_else as'");
+                const Token typeTok = p.current();
+                orElse.typeLoc = typeTok.location;
+                orElse.errorType = DeclarationParser::parseDeclaredType(p);
+                DeclarationParser::requireName(p, typeTok, "or_else as Error e do:");
+                const Token name = p.consumeName("expected a name for the error after its type in 'or_else as'");
+                p.declareName(name);
                 orElse.errorName = name.value;
                 orElse.errorNameId = internName(orElse.errorName);
             }

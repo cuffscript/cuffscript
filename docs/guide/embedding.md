@@ -59,7 +59,7 @@ changes. Neither entry point throws for a failing script, and neither lets an en
 #include "engine/Session.h"
 
 cuff::Session session(options);
-auto a = session.run("set number n to 5\n");
+auto a = session.run("number n = 5\n");
 auto b = session.run("print(n * 2)\n");   // sees n
 session.reset();                           // forget everything, keep the options
 ```

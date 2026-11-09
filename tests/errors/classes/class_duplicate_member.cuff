@@ -1,5 +1,5 @@
 class Box do:
-    set number size to 1
+    number size = 1
     func size() do:
         return 1
     end

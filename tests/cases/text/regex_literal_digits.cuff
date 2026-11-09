@@ -1,6 +1,6 @@
 note: a digit run is a repeat count only after a token, set or group; after a literal
 note: character or an anchor it is ordinary text.
-set str phone to "010-1234-5678"
+str phone = "010-1234-5678"
 print(phone matches p"010-[num]4-[num]4")
 print("0000000000-1234-5678" matches p"010-[num]4-[num]4")
 print("2026-12-25" is "2026-12-25")

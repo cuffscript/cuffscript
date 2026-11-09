@@ -36,7 +36,6 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e1-004"></a>`E1-004` | Indentation that does not line up with the enclosing block. _Reserved: never raised._ | no |
 | <a id="e1-005"></a>`E1-005` | A space before the colon that opens a block. _Reserved: never raised._ | no |
 | <a id="e1-006"></a>`E1-006` | A block comment that is never closed. _Reserved: never raised._ | no |
-| <a id="e1-007"></a>`E1-007` | `=` written where `to` is required. _Reserved: never raised._ | no |
 
 ### Syntax Errors
 
@@ -51,6 +50,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e2-007"></a>`E2-007` | Something that cannot be assigned to. | no |
 | <a id="e2-008"></a>`E2-008` | Code nested deeper than the nesting limit, or a single expression longer than the expression limit. | no |
 | <a id="e2-009"></a>`E2-009` | A program or shell entry larger than the source size limit. | no |
+| <a id="e2-010"></a>`E2-010` | A name declared again where the same function or program already declares it. | no |
 
 ### Regex Syntax Errors
 
@@ -163,10 +163,17 @@ reproduce, and codes that nothing in an ordinary program raises, are described a
 
 ### Syntax
 
-**E2-001.** The program is not valid CuffScript. The message says what was expected and the caret shows where the parser gave up. The usual causes are `=` written where `to` is needed, a block with no `end`, a missing `do:`, a space before a colon, a string with no closing quote and a stray character. Put the first error right and run again: later errors are often caused by the first.
+**E2-001.** The program is not valid CuffScript. The message says what was expected and the caret shows where the parser gave up. The usual causes are a declaration or an assignment that is not written `TYPE NAME = value` or `NAME = value` (the old `set`, `change` and `to` forms get a hint that says what to write), a block with no `end`, a body that is not indented, a missing `do:`, a space before a colon, a string with no closing quote and a stray character. Put the first error right and run again: later errors are often caused by the first.
 
 ```cuff error E2-001
-set number x = 5
+number x
+```
+
+**E2-010.** A name is declared a second time where the same function, or the top level of the program, already declares it: in the same block, in a block inside it, or as a parameter or a loop variable with the name of a variable declared before. Give the second one another name, or assign to the first (`total = 2`). Two blocks side by side may declare the same name, and so may two functions.
+
+```cuff error E2-010
+number total = 1
+number total = 2
 ```
 
 ### Patterns
@@ -228,13 +235,13 @@ print("x" matches p"a)")
 **E3-101.** A pattern ran past the budget of matching steps. Patterns that nest a repeat inside a repeat, like `([any]*)*`, can take an enormous number of steps on a text that almost matches. Simplify the pattern. This one can be caught with `or_else`; `E3-102` (time) and `E3-103` (recursion depth) are the same kind of error and are handled the same way.
 
 ```cuff error E3-101
-set str s to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
+str s = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
 print(s matches p"([any]*)*x")
 ```
 
 ### Running the program
 
-**E4-001.** A name that was never declared with `set`, was declared later in the program, or lives in another scope. Check the spelling. Inside a function, a variable of the main program is only visible after `global name`.
+**E4-001.** A name that was never declared, was declared later in the program, or lives in another scope. Check the spelling. Inside a function, a variable of the main program is only visible after `global name`.
 
 ```cuff error E4-001
 print(missing)
@@ -246,17 +253,17 @@ print(missing)
 print(missing_fn(1))
 ```
 
-**E4-003.** A constant, or a constant list, was changed. Use `set` for a value that has to change. To change a constant list, copy it first into an ordinary list.
+**E4-003.** A constant, or a constant list, was changed. Declare the value without `constant` if it has to change. To change a constant list, copy it first into an ordinary list.
 
 ```cuff error E4-003
-set constant number MAX to 1
-change MAX to 2
+constant number MAX = 1
+MAX = 2
 ```
 
 **E4-004.** A constant's name must be all capital letters, digits and underscores, so that a constant stands out from a variable: `MAX_USERS`.
 
 ```cuff error E4-004
-set constant number max to 1
+constant number max = 1
 ```
 
 **E4-005.** An operation was given the wrong kind of value, such as `"a" + 1`, a comparison between a number and a string, or a library function given a list where it wants a string. Convert explicitly with `to_str` or `to_number`.
@@ -286,7 +293,7 @@ print("abc"[5])
 **E4-009.** A map has no such key. Ask `map_has_key(m, key)` first, or recover with `or_else`.
 
 ```cuff error E4-009
-set map m to {"a": 1}
+map m = {"a": 1}
 print(m["b"])
 ```
 
@@ -296,10 +303,10 @@ print(m["b"])
 print(type_of(1, 2))
 ```
 
-**E4-015.** `remove` was given a value that is not in the list. Check with `contains` first.
+**E4-015.** `remove` was given a value that is not in the list. Check with `contains` first, or remove by position with `remove at`.
 
 ```cuff error E4-015
-set list a to [1]
+list a = [1]
 remove "x" from a
 ```
 
@@ -336,10 +343,10 @@ end
 await f()
 ```
 
-**E4-020.** A `set` declared one type and the value has another: `set number n to "x"`. Declare the type the value really has. (`find` gives a `str`; `match` gives a `match`.)
+**E4-020.** A value does not have the type the variable, field, loop variable or `or_else` name was declared with: `number n = "x"`, or `n = "x"` after `number n = 1`. Store a value of the declared type, or declare the type the value really has; a variable that holds different types is declared `any`, and so is one that may hold the `empty` of a failed `find` or `match`, because `empty` is not a `str` or a `match`.
 
 ```cuff error E4-020
-set number n to "x"
+number n = "x"
 ```
 
 **E4-021.** `global name` is only meaningful inside a function, where it makes a global variable visible. At the top level every variable is already in reach.
@@ -382,7 +389,7 @@ print(str_repeat("abcdefgh", 1000000000))
 **E4-027.** A `pure` function used a global variable. A pure function can use only its parameters and its own variables.
 
 ```cuff error E4-027
-set number g to 1
+number g = 1
 pure func f() do:
     global g
     return g
@@ -408,7 +415,7 @@ end
 f()
 ```
 
-**E4-030.** An argument does not match the type declared for the parameter (`number a`). Convert it before the call.
+**E4-030.** An argument does not match the type declared for the parameter (`number a`). Convert it before the call, or declare the parameter `any`.
 
 ```cuff error E4-030
 func f(number a) do:
@@ -435,9 +442,9 @@ end
 
 ```cuff error E4-033
 class Dog do:
-    set str name to "Rex"
+    str name = "Rex"
 end
-set Dog d to Dog()
+Dog d = Dog()
 print(d.nmae)
 ```
 
@@ -445,7 +452,7 @@ print(d.nmae)
 
 ```cuff error E4-034
 class Safe do:
-    private set number code to 1234
+    private number code = 1234
 end
 print(Safe().code)
 ```
@@ -453,7 +460,7 @@ print(Safe().code)
 **E4-035.** A `.name` was used on a value that is not an object, or `with` was given one. Only objects have fields and methods.
 
 ```cuff error E4-035
-set number n to 5
+number n = 5
 print(n.size)
 ```
 
@@ -470,8 +477,8 @@ end
 
 ```cuff error E4-037
 class Box do:
-    set number size to 1
-    set number size to 2
+    number size = 1
+    number size = 2
 end
 ```
 
@@ -507,10 +514,10 @@ print(Dog().bark)
 
 ```cuff error E4-041
 class Counter do:
-    set number n to 0
+    number n = 0
 
     pure func bump() do:
-        change self.n to self.n + 1
+        self.n = self.n + 1
     end
 end
 Counter().bump()
@@ -528,7 +535,7 @@ use nothing from ./lib
 
 ```cuff error E5-002
 use DLC:filesystem
-file_write("broken.cuff", "set number z to 1 +\n")
+file_write("broken.cuff", "number z = 1 +\n")
 use broken from .
 ```
 

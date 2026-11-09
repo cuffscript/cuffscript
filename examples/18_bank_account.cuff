@@ -2,34 +2,34 @@ note: An account that refuses what it cannot do by raising errors, including an 
 use DLC:list
 
 class InsufficientFunds extends Error do:
-    set number shortfall to 0
+    number shortfall = 0
 end
 
 class Account do:
-    set str owner to ""
-    set number balance to 0
-    private set list history to []
+    str owner = ""
+    number balance = 0
+    private list history = []
 
-    func init(str owner, number opening to 0) do:
-        change self.owner to owner
-        change self.balance to opening
+    func init(str owner, number opening = 0) do:
+        self.owner = owner
+        self.balance = opening
     end
 
     func deposit(number amount) do:
         if amount <= 0 do:
             fail "a deposit must be more than zero"
         end
-        change self.balance to self.balance + amount
+        self.balance = self.balance + amount
         self.record("deposit", amount)
     end
 
     func withdraw(number amount) do:
         if amount > self.balance do:
-            set InsufficientFunds problem to InsufficientFunds(f"cannot withdraw {amount} from {self.balance}")
-            change problem.shortfall to amount - self.balance
+            InsufficientFunds problem = InsufficientFunds(f"cannot withdraw {amount} from {self.balance}")
+            problem.shortfall = amount - self.balance
             fail problem
         end
-        change self.balance to self.balance - amount
+        self.balance = self.balance - amount
         self.record("withdraw", amount)
     end
 
@@ -42,22 +42,22 @@ class Account do:
     end
 end
 
-set Account account to Account("Ann", 100)
+Account account = Account("Ann", 100)
 account.deposit(50)
 account.withdraw(30)
 
-account.withdraw(500) or_else as err do:
+account.withdraw(500) or_else as Error err do:
     print(err.message)
     if err isa InsufficientFunds do:
         print("short by", err.shortfall)
     end
 end
 
-account.deposit(-5) or_else as err do:
+account.deposit(-5) or_else as Error err do:
     print(err.code, err.message)
 end
 
-account.record("tamper", 1) or_else as err do:
+account.record("tamper", 1) or_else as Error err do:
     print(err.code)
 end
 

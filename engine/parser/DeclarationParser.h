@@ -11,7 +11,7 @@
 namespace cuff
 {
 
-    inline const char *kTypeNamesText = "number, str, boolean, list, map, match, pattern, object, empty or a class name";
+    inline const char *kTypeNamesText = "number, str, boolean, list, map, match, pattern, object, empty, any or a class name";
 
     // A type, where one is expected: the name of a built-in type, `empty`, or the name of a class. These words are
     // types only in these positions; anywhere else they are ordinary names.
@@ -42,12 +42,12 @@ namespace cuff
         }
     };
 
-    // The target of change, add and remove: a variable, `self` or a member of the `with` object, followed by any
+    // The target of an assignment, add and remove: a variable, `self` or a member of the `with` object, followed by any
     // number of [index] and .field steps.
     class PlaceParser
     {
     public:
-        static Place parse(ParserCore &p, const char *verb)
+        static Place parse(ParserCore &p, const char *verb, const char *target)
         {
             Place place;
             place.loc = p.current().location;
@@ -92,7 +92,7 @@ namespace cuff
                     step.index = ExpressionParser::parse(p);
                     if (p.check(TokenType::TILDE))
                         throw SyntaxError(ErrorCode::InvalidAssignmentTarget,
-                                          std::string("a slice cannot be the target of '") + verb + "'", p.current().location,
+                                          std::string("a slice cannot be the target of ") + target, p.current().location,
                                           "slices produce a new list or text; use an index to reach one item");
                     p.consume(TokenType::RBRACKET, "expected ']' to close the index");
                     place.steps.push_back(std::move(step));
@@ -110,7 +110,7 @@ namespace cuff
                 else if (p.check(TokenType::LPAREN))
                 {
                     throw SyntaxError(ErrorCode::InvalidAssignmentTarget,
-                                      std::string("the result of a call cannot be the target of '") + verb + "'",
+                                      std::string("the result of a call cannot be the target of ") + target,
                                       p.current().location,
                                       "store the result in a variable first");
                 }
@@ -122,7 +122,7 @@ namespace cuff
 
             if (place.root == Place::Root::Self && place.steps.empty())
                 throw SyntaxError(ErrorCode::InvalidAssignmentTarget,
-                                  std::string("'self' cannot be the target of '") + verb + "'", place.loc,
+                                  std::string("'self' cannot be the target of ") + target, place.loc,
                                   "name a field of it: self.name");
             return place;
         }
@@ -131,13 +131,59 @@ namespace cuff
     class DeclarationParser
     {
     public:
-        // `set [constant] TYPE NAME to expression`. Also used for the fields of a class.
-        static std::unique_ptr<Stmt> parseSet(ParserCore &p)
+        // Whether the statement starts with a type, a name and `=`: `number x = 1`. A type word is a type only here, so
+        // `number = 1` assigns to a variable that happens to be called number.
+        static bool atDeclaration(const ParserCore &p)
+        {
+            return p.check(TokenType::CONSTANT) ||
+                   (TypeParser::atType(p) && p.peek(1).is(TokenType::IDENTIFIER) && p.peek(2).is(TokenType::ASSIGN));
+        }
+
+        // Whether the statement is an assignment: a place followed by `=` somewhere before the end of the statement.
+        static bool atAssignment(const ParserCore &p)
+        {
+            if (!(p.check(TokenType::IDENTIFIER) || p.check(TokenType::SELF) || p.check(TokenType::DOT)))
+                return false;
+            int depth = 0;
+            for (int i = 0;; ++i)
+            {
+                switch (p.peek(i).type)
+                {
+                case TokenType::LPAREN:
+                case TokenType::LBRACKET:
+                case TokenType::LBRACE:
+                    ++depth;
+                    break;
+                case TokenType::RPAREN:
+                case TokenType::RBRACKET:
+                case TokenType::RBRACE:
+                    --depth;
+                    break;
+                case TokenType::ASSIGN:
+                    if (depth == 0)
+                        return true;
+                    break;
+                case TokenType::NEWLINE:
+                    if (depth > 0)
+                        break;
+                    [[fallthrough]];
+                case TokenType::EOF_TOKEN:
+                case TokenType::END:
+                case TokenType::ELSE:
+                case TokenType::OR_ELSE:
+                case TokenType::DEDENT:
+                    return false;
+                default:
+                    break;
+                }
+            }
+        }
+
+        // `[constant] TYPE NAME = expression`. Also used for the fields of a class (which are not variables, so their
+        // names are not recorded as declared).
+        static std::unique_ptr<Stmt> parseDeclaration(ParserCore &p, bool isField = false)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::SET, "expected 'set'");
-
-            rejectOldFunctionForms(p);
 
             bool isConst = false;
             if (p.match(TokenType::CONSTANT))
@@ -145,8 +191,10 @@ namespace cuff
 
             const SourceLocation typeLoc = p.current().location;
             TypeSpec type = parseDeclaredType(p);
-            const Token nameTok = p.consumeName("expected a variable name after the type in 'set' declaration");
-            p.consume(TokenType::TO, "expected 'to' in 'set' declaration (CuffScript uses 'to', not '=')");
+            const Token nameTok = p.consumeName("expected a name after the type in a declaration");
+            if (!isField)
+                p.declareName(nameTok);
+            p.consume(TokenType::ASSIGN, "expected '=' and a value after the name in a declaration");
             auto value = ExpressionParser::parse(p);
 
             DeclarationStmt decl;
@@ -162,44 +210,59 @@ namespace cuff
             return std::make_unique<Stmt>(StmtKind::Declaration, std::move(decl));
         }
 
-        // The type after `set [constant]`. A word that is not a built-in type is taken as a class name, except
-        // that `set x to 5` (a name where the type belongs) is reported as a missing type.
+        // The type of a declaration, a parameter, a loop variable or the error of a handler.
         static TypeSpec parseDeclaredType(ParserCore &p)
         {
             if (!TypeParser::atType(p))
-                p.failUnexpected(std::string("expected a type (") + kTypeNamesText + ") after 'set'");
-            TypeKind builtin;
-            if (p.check(TokenType::IDENTIFIER) && !builtinTypeFromName(p.current().value, builtin) &&
-                p.peek(1).is(TokenType::TO) && !p.peek(2).is(TokenType::TO))
-            {
-                throw SyntaxError(ErrorCode::UnexpectedToken,
-                                  "expected a type before '" + p.current().value + "' in 'set' declaration",
-                                  p.current().location,
-                                  std::string("write the type first, for example: set number ") + p.current().value + " to ...");
-            }
+                p.failUnexpected(std::string("expected a type (") + kTypeNamesText + ")");
             return TypeParser::parse(p);
         }
 
-        static std::unique_ptr<Stmt> parseChange(ParserCore &p)
+        // A type is always followed by the name it declares. A name written alone (`loop each x in xs`, `f(a)`) is read as a
+        // type, so say what to write.
+        static void requireName(const ParserCore &p, const Token &typeTok, const std::string &example)
+        {
+            if (!isNameToken(p.current()))
+                throw SyntaxError(ErrorCode::UnexpectedToken,
+                                  "'" + typeTok.value + "' is read as a type here, and no name follows it (got " +
+                                      describeToken(p.current()) + ")",
+                                  typeTok.location, "write the type and then the name, for example: " + example);
+        }
+
+        // `set` and `change` were the words of declarations and assignments before `=`: name what to write instead.
+        static void rejectOldForms(ParserCore &p)
+        {
+            const Token &t = p.current();
+            if (!t.is(TokenType::IDENTIFIER) || (t.value != "set" && t.value != "change"))
+                return;
+            const Token &next = p.peek(1);
+            const bool function = next.is(TokenType::FUNCTION) || next.is(TokenType::ASYNC) || next.is(TokenType::PURE) ||
+                                  (next.is(TokenType::IDENTIFIER) && next.value == "returnable");
+            if (t.value == "set" && function)
+                throw SyntaxError(ErrorCode::UnexpectedToken, "a function declaration does not start with 'set'", t.location,
+                                  "write `func name(...) do:` without 'set'; return works in every function");
+            if (!(next.is(TokenType::IDENTIFIER) || next.is(TokenType::SELF) || next.is(TokenType::DOT) ||
+                  next.is(TokenType::CONSTANT) || next.is(TokenType::EMPTY)))
+                return;
+            if (t.value == "set")
+                throw SyntaxError(ErrorCode::UnexpectedToken, "a declaration does not start with 'set'", t.location,
+                                  "write the type, the name, '=' and the value, for example: number x = 1");
+            throw SyntaxError(ErrorCode::UnexpectedToken, "an assignment does not start with 'change'", t.location,
+                              "write the name, '=' and the value, for example: x = 1");
+        }
+
+        static std::unique_ptr<Stmt> parseAssign(ParserCore &p)
         {
             SourceLocation loc = p.current().location;
-            p.consume(TokenType::CHANGE, "expected 'change'");
 
-            Place place = PlaceParser::parse(p, "change");
-            p.consume(TokenType::TO, "expected 'to' in 'change' statement");
+            Place place = PlaceParser::parse(p, "assign to", "an assignment");
+            p.consume(TokenType::ASSIGN, "expected '=' in an assignment");
 
-            if (p.check(TokenType::GLOBAL) && isStatementEndAfter(p, 1))
-            {
-                const std::string name = (place.root == Place::Root::Name && place.steps.empty()) ? place.name : "NAME";
-                throw SyntaxError(ErrorCode::UnexpectedToken, "'change ... to global' is not a statement",
-                                  p.current().location, "write `global " + name + "` on its own line");
-            }
-
-            ChangeStmt change;
-            change.target = std::move(place);
-            change.value = ExpressionParser::parse(p);
-            change.loc = loc;
-            return std::make_unique<Stmt>(StmtKind::Change, std::move(change));
+            AssignStmt assign;
+            assign.target = std::move(place);
+            assign.value = ExpressionParser::parse(p);
+            assign.loc = loc;
+            return std::make_unique<Stmt>(StmtKind::Assign, std::move(assign));
         }
 
         // `global NAME { , NAME }`
@@ -222,36 +285,6 @@ namespace cuff
                     break;
             }
             return std::make_unique<Stmt>(StmtKind::Global, std::move(global));
-        }
-
-        static bool isStatementEndAfter(const ParserCore &p, int ahead)
-        {
-            switch (p.peek(ahead).type)
-            {
-            case TokenType::NEWLINE:
-            case TokenType::EOF_TOKEN:
-            case TokenType::END:
-            case TokenType::DEDENT:
-            case TokenType::OR_ELSE:
-            case TokenType::ELSE:
-                return true;
-            default:
-                return false;
-            }
-        }
-
-    private:
-        // `set func`, `set async func`, `set returnable func`: functions are declared without `set`.
-        static void rejectOldFunctionForms(ParserCore &p)
-        {
-            const Token &t = p.current();
-            const bool returnable = t.is(TokenType::IDENTIFIER) && t.value == "returnable";
-            if (t.is(TokenType::FUNCTION) || t.is(TokenType::ASYNC) || t.is(TokenType::PURE) || returnable)
-            {
-                throw SyntaxError(ErrorCode::UnexpectedToken, "a function declaration does not start with 'set'", t.location,
-                                  returnable ? "write `func`; return works in every function"
-                                             : "write `func name(...) do:` without 'set'");
-            }
         }
     };
 

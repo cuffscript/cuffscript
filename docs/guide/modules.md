@@ -13,7 +13,7 @@ project/
 `lib/ratio.cuff`:
 
 ```cuff
-func ratio(a, b) do:
+func ratio(number a, number b) do:
     return a / b
 end
 ```
@@ -32,7 +32,7 @@ the script, written as `.`:
 
 ```cuff
 use DLC:filesystem
-file_write("greeter.cuff", "func greet(name) do:\n    return \"Hello, \" + name + \"!\"\nend\nset number visits to 0\n")
+file_write("greeter.cuff", "func greet(str name) do:\n    return \"Hello, \" + name + \"!\"\nend\nnumber visits = 0\n")
 
 use greeter from .
 print(greet("Ann"), visits)
@@ -59,7 +59,7 @@ Hello, Ann! 0
 
   ```cuff
   use DLC:filesystem
-  file_write("counter.cuff", "print(\"loading counter\")\nset number start to 10\n")
+  file_write("counter.cuff", "print(\"loading counter\")\nnumber start = 10\n")
   use counter from .
   use counter from .
   print(start)
@@ -88,10 +88,10 @@ Hello, Ann! 0
 
   ```cuff
   use DLC:filesystem
-  file_write("shapes.cuff", "class Square do:\n    set number side to 1\n    func area() do:\n        return self.side * self.side\n    end\nend\n")
+  file_write("shapes.cuff", "class Square do:\n    number side = 1\n    func area() do:\n        return self.side * self.side\n    end\nend\n")
   use shapes from .
-  set Square s to Square()
-  change s.side to 3
+  Square s = Square()
+  s.side = 3
   print(s.area())
   ```
 
@@ -99,7 +99,7 @@ Hello, Ann! 0
   9
   ```
 
-- A module's top-level variables are copied into the scope that wrote `use`, after the module has run, so `set number secret_a to 1` in a module is visible as `secret_a` in the file that
+- A module's top-level variables are copied into the scope that wrote `use`, after the module has run, so `number secret_a = 1` in a module is visible as `secret_a` in the file that
   loaded it. A function of the module that wants to read such a variable has to bridge it first, like any function (`global secret_a`); the bridge finds the copy in the file that loaded the module.
 - Modules may load modules; the nesting is limited (see [limits](../reference/limits.md)).
 - The libraries a module loads with `use DLC:...` stay available to the whole program, because a library is loaded into the program, not into one file.

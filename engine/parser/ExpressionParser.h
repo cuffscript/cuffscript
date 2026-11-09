@@ -437,7 +437,7 @@ namespace cuff
         std::string hint;
         if (name == "replace" && rest.size() >= 2 && rest[0]->is(TokenType::IDENTIFIER) && rest[1]->is(TokenType::LBRACKET))
         {
-            hint = "use `change " + rest[0]->value + "[...] to value`";
+            hint = "use `" + rest[0]->value + "[...] = value`";
         }
         else
         {
@@ -630,8 +630,6 @@ namespace cuff
             return std::make_unique<Expr>(ExprKind::Await, std::move(*awaited));
         }
         default:
-            if (isBareIdentifierKeyword(tok.type))
-                return makeIdentifierExpr(p);
             throw SyntaxError(ErrorCode::UnexpectedToken, "unexpected " + describeToken(tok) + " in expression", tok.location,
                               p.hintForUnexpected());
         }

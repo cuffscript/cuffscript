@@ -1,5 +1,5 @@
 class Box do:
-    set number size to 1
+    number size = 1
 end
-set Box b to Box()
-change b.sise to 2
+Box b = Box()
+b.sise = 2

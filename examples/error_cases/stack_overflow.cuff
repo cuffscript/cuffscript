@@ -1,5 +1,5 @@
 note: infinite recursion -> StackOverflowError (reported cleanly as an error; the process does not die)
-func boom(n) do:
+func boom(number n) do:
     return boom(n + 1)
 end
 print(boom(1))

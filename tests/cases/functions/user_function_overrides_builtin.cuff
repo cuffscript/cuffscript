@@ -1,6 +1,6 @@
 note: a function declared by the program takes over the call form of a built-in with the same name.
-set str text to "banana"
-func count(text, rule) do:
+str text = "banana"
+func count(any text, any rule) do:
     return -1
 end
 print(count(text, p"a"))

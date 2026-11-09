@@ -1,4 +1,4 @@
-set number total to 0
+number total = 0
 func bump() do:
-    change total to global
+    total = global
 end

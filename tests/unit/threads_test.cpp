@@ -45,24 +45,24 @@ int main()
                 const std::string base = "T" + std::to_string(t) + "Base" + std::to_string(round);
                 const std::string child = "T" + std::to_string(t) + "Child" + std::to_string(round);
                 const std::string classes =
-                    "class " + base + " do:\n    set number v to " + std::to_string(round) + "\n    set list log to []\n"
-                    "    func init(number extra to 0) do:\n        change self.v to self.v + extra\n    end\n"
+                    "class " + base + " do:\n    number v = " + std::to_string(round) + "\n    list log = []\n"
+                    "    func init(number extra = 0) do:\n        self.v = self.v + extra\n    end\n"
                     "    func get() do:\n        return self.v\n    end\nend\n"
                     "class " + child + " extends " + base + " do:\n    func get() do:\n        return super.get() * 2\n    end\nend\n"
-                    "set " + child + " obj to " + child + "(" + std::to_string(t) + ")\n"
-                    "set number got to 0\n"
-                    "with obj do:\n    change got to get()\nend\n"
-                    "if got is not " + std::to_string((round + t) * 2) + " or !(\"x" + std::to_string(round) + "\" matches p\"x[num]+\") do:\n    set number z to 1 / 0\nend\n"
-                    "fail \"t" + std::to_string(t) + "\" or_else as err do:\n    if err.message is not \"t" + std::to_string(t) + "\" do:\n        set number z to 1 / 0\n    end\nend\n";
-                const std::string source = classes + "set number " + a + " to " + std::to_string(round) + "\n"
-                                           "func " + f + "(n) do:\n    return n + " + std::to_string(t) + "\nend\n"
-                                           "if " + f + "(" + a + ") is not " + std::to_string(round + t) + " do:\n    set number z to 1 / 0\nend\n"
+                    + child + " obj = " + child + "(" + std::to_string(t) + ")\n"
+                    "number got = 0\n"
+                    "with obj do:\n    got = get()\nend\n"
+                    "if got is not " + std::to_string((round + t) * 2) + " or !(\"x" + std::to_string(round) + "\" matches p\"x[num]+\") do:\n    number z = 1 / 0\nend\n"
+                    "fail \"t" + std::to_string(t) + "\" or_else as Error err do:\n    if err.message is not \"t" + std::to_string(t) + "\" do:\n        number z = 1 / 0\n    end\nend\n";
+                const std::string source = classes + "number " + a + " = " + std::to_string(round) + "\n"
+                                           "func " + f + "(any n) do:\n    return n + " + std::to_string(t) + "\nend\n"
+                                           "if " + f + "(" + a + ") is not " + std::to_string(round + t) + " do:\n    number z = 1 / 0\nend\n"
                                            "use DLC:random\n"
-                                           "set number d to random_int(1, 6)\n"
-                                           "set number u to random_float()\n"
-                                           "set list deck to random_shuffle([1, 2, 3, 4])\n"
-                                           "set number picked to random_choice([1, 2, 3])\n"
-                                           "if d < 1 or d > 6 or u < 0 or u >= 1 or picked < 1 or picked > 3 do:\n    set number z to 1 / 0\nend\n";
+                                           "number d = random_int(1, 6)\n"
+                                           "number u = random_float()\n"
+                                           "list deck = random_shuffle([1, 2, 3, 4])\n"
+                                           "number picked = random_choice([1, 2, 3])\n"
+                                           "if d < 1 or d > 6 or u < 0 or u >= 1 or picked < 1 or picked > 3 do:\n    number z = 1 / 0\nend\n";
                 auto outcome = session.run(source);
                 if (!outcome.success)
                 {

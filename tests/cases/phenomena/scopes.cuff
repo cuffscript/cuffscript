@@ -1,19 +1,19 @@
 note: a loop and an if do not open a scope; a function does
-loop repeat i to 1 ~ 3 do:
-    set number last to i * 10
+loop repeat number i = 1 ~ 3 do:
+    number last = i * 10
 end
 print(i, last)
 
 if true do:
-    set number inside to 7
+    number inside = 7
 end
 print(inside)
 
 func work() do:
-    set number hidden to 1
+    number hidden = 1
     return hidden
 end
 print(work())
-print(hidden) or_else as problem do:
+print(hidden) or_else as Error problem do:
     print(problem.code, "a function's variables stay inside it")
 end

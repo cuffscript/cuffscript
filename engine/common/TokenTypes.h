@@ -36,14 +36,13 @@ namespace cuff
         COLON,  // :
         DOT,  // .
         TILDE,  // ~
+        ASSIGN,  // =
 
         NEWLINE,
         INDENT,
         DEDENT,
         EOF_TOKEN,
 
-        SET,
-        CHANGE,
         CONSTANT,
         IF,
         ELSE,
@@ -75,6 +74,7 @@ namespace cuff
         ADD,
         REMOVE,
         TO,
+        AT,
         OR_ELSE,
         GLOBAL,
         NOT,
@@ -148,6 +148,8 @@ namespace cuff
             return ".";
         case TokenType::TILDE:
             return "~";
+        case TokenType::ASSIGN:
+            return "=";
         case TokenType::NEWLINE:
             return "NEWLINE";
         case TokenType::INDENT:
@@ -156,10 +158,6 @@ namespace cuff
             return "DEDENT";
         case TokenType::EOF_TOKEN:
             return "EOF";
-        case TokenType::SET:
-            return "set";
-        case TokenType::CHANGE:
-            return "change";
         case TokenType::CONSTANT:
             return "constant";
         case TokenType::IF:
@@ -222,6 +220,8 @@ namespace cuff
             return "remove";
         case TokenType::TO:
             return "to";
+        case TokenType::AT:
+            return "at";
         case TokenType::OR_ELSE:
             return "or_else";
         case TokenType::GLOBAL:

@@ -473,7 +473,7 @@ namespace cuff
 
     enum class TypeKind : uint8_t
     {
-        Any, // an untyped parameter
+        Any, // any value
         Empty,
         Number,
         Str,
@@ -506,8 +506,8 @@ namespace cuff
             case TypeKind::Match: return "match";
             case TypeKind::Pattern: return "pattern";
             case TypeKind::Object: return "object";
+            case TypeKind::Any: return "any";
             case TypeKind::Class:
-            case TypeKind::Any:
                 break;
             }
             return "";
@@ -523,7 +523,8 @@ namespace cuff
             TypeKind kind;
         } table[] = {{"number", TypeKind::Number}, {"str", TypeKind::Str},     {"boolean", TypeKind::Boolean},
                      {"list", TypeKind::List},     {"map", TypeKind::Map},     {"match", TypeKind::Match},
-                     {"pattern", TypeKind::Pattern}, {"object", TypeKind::Object}, {"empty", TypeKind::Empty}};
+                     {"pattern", TypeKind::Pattern}, {"object", TypeKind::Object}, {"empty", TypeKind::Empty},
+                     {"any", TypeKind::Any}};
         for (const auto &e : table)
         {
             if (word == e.word)
@@ -547,7 +548,7 @@ namespace cuff
         SourceLocation nameLoc; // the variable's name, where a wrong value or a bad constant name is reported
     };
 
-    // Where a `change`, `add` or `remove` writes: a variable, `self`, or a member of the innermost `with` object,
+    // Where an assignment, `add` or `remove` writes: a variable, `self`, or a member of the innermost `with` object,
     // followed by any number of [index] and .field steps.
     struct PlaceStep
     {
@@ -574,7 +575,7 @@ namespace cuff
         SourceLocation loc;
     };
 
-    struct ChangeStmt
+    struct AssignStmt
     {
         Place target;
         std::unique_ptr<Expr> value;
@@ -633,6 +634,8 @@ namespace cuff
         };
         LoopKind kind;
 
+        TypeSpec varType;      // the type declared for the loop variable of Repeat and Each
+        SourceLocation typeLoc;
         std::string repeatVar; // the loop variable of Repeat and Each
         uint32_t repeatVarId = 0;
         std::unique_ptr<Expr> repeatStart;
@@ -719,6 +722,7 @@ namespace cuff
             Remove
         };
         OpKind opKind;
+        bool atPosition = false; // `remove at N from ...`: the value is a position, not an element or a key
         std::unique_ptr<Expr> value;
         Place target;
         SourceLocation loc;
@@ -728,9 +732,11 @@ namespace cuff
     {
         std::unique_ptr<Stmt> primaryStmt;
         std::vector<std::unique_ptr<Stmt>> fallbackBody;
-        std::string errorName; // `or_else as NAME`; empty when the handler takes no error
+        TypeSpec errorType;    // `or_else as TYPE NAME`
+        std::string errorName; // empty when the handler takes no error
         uint32_t errorNameId = 0;
         SourceLocation loc;
+        SourceLocation typeLoc;
     };
 
     struct FieldDecl
@@ -760,7 +766,7 @@ namespace cuff
     enum class StmtKind
     {
         Declaration,
-        Change,
+        Assign,
         Global,
         FunctionDecl,
         ClassDecl,
@@ -783,7 +789,7 @@ namespace cuff
         StmtKind kind;
         std::variant<
             DeclarationStmt,
-            ChangeStmt,
+            AssignStmt,
             GlobalStmt,
             FunctionDecl,
             ClassDecl,

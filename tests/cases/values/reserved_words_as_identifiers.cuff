@@ -1,43 +1,32 @@
-note: regression test -- syntax keywords like add/count/find/split/replace/match/in/by/not/global must
-note: be usable as variable, function, parameter and loop-variable names: declared, then read back.
-note: Previously the places that declare or reference a name only accepted
-note: TokenType::IDENTIFIER, so using any of these names made parsing
-note: fail outright.
+note: library function names and words with their own expression syntax are not reserved: they can be
+note: variable, function, parameter and loop-variable names, declared and read back. (The reserved words
+note: of the statements -- add, to, in, not, global, ... -- cannot be names: tests/errors/syntax.)
 
-set number add to 5
-set number count to 10
-set number in to 1
-set number by to 2
-set number global to 3
-set number not to 4
-set number to to 6
-change add to add + 1
-print(add)
+number count = 10
+number by = 2
+count = count + 1
 print(count)
-print(in)
 print(by)
-print(global)
-print(not)
-print(to)
 
 note: the same name can also be reused as a function (variables and functions have separate namespaces)
-func add(x, y) do:
+func total(number x, number y) do:
     return x + y
 end
-print(add(1, 2))
+number total = 5
+print(total)
 
 note: also usable as a loop variable name
-loop repeat add to 1 ~ 3 do:
-    change count to count + add
+loop repeat number step = 1 ~ 3 do:
+    count = count + step
 end
 print(count)
 
 note: match/find/replace/split/count have their own expression syntax,
 note: but are treated as plain identifiers when that syntax does not follow.
-set str replace to "R"
-set str split to "S"
-set str find to "F"
-set str match to "M"
+str replace = "R"
+str split = "S"
+str find = "F"
+str match = "M"
 print(replace)
 print(split)
 print(find)
@@ -50,8 +39,8 @@ print(find("hello world", p"world"))
 print(replace("hello world", p"world", "there"))
 print(count("banana", p"a"))
 
-note: the "is not" comparison must not conflict with using `not` as a variable.
-set boolean flag to true
+note: the "is not" comparison is a word of its own.
+boolean flag = true
 if flag is not false do:
     print("is-not still works")
 end

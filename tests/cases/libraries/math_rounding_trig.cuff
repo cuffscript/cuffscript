@@ -7,7 +7,7 @@ print(5.sign(), (-5).sign(), 0.sign())
 print(math_round(math_e(), 5))
 print(math_round(1.exp(), 5), 8.log2(), 1000.log10(), math_round(1.log(), 5))
 
-set number quarter to math_pi() / 4
+number quarter = math_pi() / 4
 print(math_round(math_tan(quarter), 10), math_round(quarter.tan(), 10))
 print(math_round(0.sin(), 10), math_round(0.cos(), 10))
 print(math_round(math_asin(1), 5), math_round(math_acos(1), 5), math_round(math_atan(1), 5))

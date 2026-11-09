@@ -1,6 +1,6 @@
-set constant str DEFAULT_GREETING to "Hello"
+constant str DEFAULT_GREETING = "Hello"
 
-func greet(name) do:
+func greet(str name) do:
     global DEFAULT_GREETING
     return DEFAULT_GREETING + ", " + name + "!"
 end

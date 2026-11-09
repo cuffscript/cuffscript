@@ -16,7 +16,7 @@ Short answers to the questions people ask first. Each answer links to the page t
 
 ## The language
 
-**Why `to` and not `=`?** It reads like a sentence, and it keeps `=` free of the two meanings it has in other languages (assigning and comparing). Writing `=` gives an error that says to use `to`.
+**Why does `=` store a value but not compare?** `=` always stores, in a declaration (`number n = 1`) and in an assignment (`n = 2`), and comparing is the word `is`, so the two never mix. Writing `=` where a comparison is meant gives an error that says to write `is`.
 
 **How do I compare two values?** With `is` and `is not`. There is no `==` or `!=`. Values of different types are never equal, so `"1" is 1` is false. `is` always compares values, whatever is on its right.
 
@@ -25,7 +25,7 @@ Short answers to the questions people ask first. Each answer links to the page t
 **Why is `count is "5"` false when `count` is 5?** A number and a string are different types and are never equal. Compare like with like: `count is 5`, or `to_str(count) is "5"`.
 
 ```cuff
-set number count to 5
+number count = 5
 print(count is 5, to_str(count) is "5")
 ```
 
@@ -38,12 +38,12 @@ true true
 **How do I loop over a list?** With `loop each`. It visits every element, and an empty list simply runs the body no times:
 
 ```cuff
-set list items to []
-loop each item in items do:
+list items = []
+loop each number item in items do:
     print(item)
 end
 print("nothing to show")
-loop each name in ["tea", "milk"] do:
+loop each str name in ["tea", "milk"] do:
     print(name)
 end
 ```
@@ -59,8 +59,8 @@ milk
 **How do I loop over a map?** `loop each` visits its keys, in the order they were added:
 
 ```cuff
-set map prices to {"tea": 3, "milk": 2}
-loop each name in prices do:
+map prices = {"tea": 3, "milk": 2}
+loop each str name in prices do:
     print(name, prices[name])
 end
 ```
@@ -74,12 +74,12 @@ milk 2
 
 **How do I get the last element?** With a negative position: `items[-1]`. Positions start at 1, and position `0` is an error.
 
-**Why did changing one list change another?** Lists and maps are shared, not copied: `set list b to a` gives `b` the same list. Make a copy with `copy`:
+**Why did changing one list change another?** Lists and maps are shared, not copied: `list b = a` gives `b` the same list. Make a copy with `copy`:
 
 ```cuff
-set list a to [1, 2]
-set list same to a
-set list copy to copy(a)
+list a = [1, 2]
+list same = a
+list copy = copy(a)
 add 3 to a
 print(same, copy)
 ```
@@ -88,12 +88,12 @@ print(same, copy)
 [1, 2, 3] [1, 2]
 ```
 
-**Can I add to a list inside another list?** Yes. `add`, `change` and `remove` take any place, however deep:
+**Can I add to a list inside another list?** Yes. An assignment, `add` and `remove` take any place, however deep:
 
 ```cuff
-set list grid to [[1], [2]]
+list grid = [[1], [2]]
 add 5 to grid[1]
-change grid[2][1] to 9
+grid[2][1] = 9
 print(grid)
 ```
 
@@ -110,9 +110,9 @@ print(grid)
 **How do I read a number from the keyboard?** Read the text and convert it, with a fallback for text that is not a number:
 
 ```cuff
-set number age to to_number(input("Age? ")) or_else do:
+number age = to_number(input("Age? ")) or_else do:
     print("that was not a number")
-    change age to 0
+    age = 0
 end
 ```
 
@@ -126,7 +126,7 @@ end
 
 **Why does reading a field give E4-033?** The class does not declare a field of that name, and the field set of a class is fixed. The message lists the fields the class has; the usual cause is a misspelling.
 
-**Why is my object changed when I changed another one?** Objects are shared, not copied, like lists: `set Player b to a` gives `b` the same object. Use `a.copy()` for a separate one. See [objects are values](../reference/classes.md#objects-are-values).
+**Why is my object changed when I changed another one?** Objects are shared, not copied, like lists: `Player b = a` gives `b` the same object. Use `a.copy()` for a separate one. See [objects are values](../reference/classes.md#objects-are-values).
 
 **Can I pass a method to another function?** No. Methods, like functions, are not values: `player.sayhello` without parentheses is an error. Pass the object and call the method inside.
 
@@ -137,10 +137,10 @@ end
 **What does "global variable 'x' is not visible inside a function" mean?** A function sees only its own variables. Name the global one first with `global x`. See [scope](../reference/language.md#7-scope).
 
 ```cuff
-set number total to 0
-func add_to_total(amount) do:
+number total = 0
+func add_to_total(number amount) do:
     global total
-    change total to total + amount
+    total = total + amount
 end
 add_to_total(5)
 add_to_total(7)

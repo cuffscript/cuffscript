@@ -74,6 +74,7 @@ namespace cuff
             decl.source = p.source;
 
             ContextGuard guard(p);
+            FunctionNames names(p.declared);
             p.ctx.inMethod = owner.isMethod;
             p.ctx.hasParent = owner.isMethod && owner.classHasParent;
             p.ctx.withDepth = 0;
@@ -100,32 +101,29 @@ namespace cuff
         }
 
     private:
-        // `[TYPE] NAME [to expression]`. A word followed by a name is a type; a word alone is the name.
+        // `TYPE NAME [= expression]`
         static void parseParam(ParserCore &p, FunctionDecl &decl)
         {
-            TypeSpec type;
-            if (p.check(TokenType::EMPTY))
-                throw SyntaxError(ErrorCode::UnexpectedToken, "'empty' cannot be the type of a parameter", p.current().location,
-                                  "leave the type out to accept any value");
-            if (p.check(TokenType::IDENTIFIER) && isNameToken(p.peek(1)) && !p.peek(1).is(TokenType::TO))
-            {
-                type = TypeParser::parse(p);
+            const Token typeTok = p.current();
+            TypeSpec type = DeclarationParser::parseDeclaredType(p);
+            DeclarationParser::requireName(p, typeTok, "any " + typeTok.value);
+            if (type.kind != TypeKind::Any)
                 decl.hasTypedParams = true;
-            }
 
             const Token nameTok = p.consumeName("expected parameter name");
             for (const auto &existing : decl.params)
                 if (existing == nameTok.value)
                     throw SyntaxError(ErrorCode::UnexpectedToken, "duplicate parameter name '" + nameTok.value + "'",
                                       nameTok.location);
+            p.declareName(nameTok);
 
             std::unique_ptr<Expr> fallback;
-            if (p.match(TokenType::TO))
+            if (p.match(TokenType::ASSIGN))
                 fallback = ExpressionParser::parse(p);
             else if (!decl.paramDefaults.empty() && decl.paramDefaults.back())
                 throw SyntaxError(ErrorCode::UnexpectedToken,
                                   "parameter '" + nameTok.value + "' needs a default value: it follows a parameter that has one",
-                                  nameTok.location, "write `" + nameTok.value + " to value`, or move it before the others");
+                                  nameTok.location, "write `" + type.name() + " " + nameTok.value + " = value`, or move it before the others");
 
             decl.params.push_back(nameTok.value);
             decl.paramIds.push_back(internName(nameTok.value));

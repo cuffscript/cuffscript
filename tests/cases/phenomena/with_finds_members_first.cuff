@@ -1,11 +1,11 @@
 class Box do:
-    set number size to 1
-    set str label to "box"
+    number size = 1
+    str label = "box"
 end
 
-set number size to 100
-set number label to 5
-set Box b to Box()
+number size = 100
+number label = 5
+Box b = Box()
 
 with b do:
     note: inside with, a bare name is looked for in the object first

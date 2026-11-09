@@ -73,11 +73,7 @@ namespace cuff
                 p.advance();
             }
 
-            if (p.check(TokenType::SET))
-            {
-                decl.fields.push_back(parseField(p, isPrivate));
-            }
-            else if (FunctionParser::atFunctionStart(p))
+            if (FunctionParser::atFunctionStart(p))
             {
                 FunctionParser::Owner owner;
                 owner.isMethod = true;
@@ -85,29 +81,32 @@ namespace cuff
                 owner.classHasParent = !decl.parentName.empty();
                 decl.methods.push_back(FunctionParser::parse(p, owner));
             }
+            else if (DeclarationParser::atDeclaration(p))
+            {
+                decl.fields.push_back(parseField(p, isPrivate));
+            }
             else
             {
-                p.failUnexpected("a class body can only contain fields ('set') and methods ('func')");
+                p.failUnexpected("a class body can only contain fields (TYPE NAME = value) and methods ('func')");
             }
 
             if (!p.atStatementEnd())
                 p.failUnexpected("expected the end of the line after a class member");
         }
 
-        // `set [constant] TYPE NAME to expression`; the default is computed for every new object, and cannot use self.
+        // `[constant] TYPE NAME = expression`; the default is computed for every new object, and cannot use self.
         static FieldDecl parseField(ParserCore &p, bool isPrivate)
         {
             FieldDecl field;
             field.loc = p.current().location;
             field.isPrivate = isPrivate;
-            p.consume(TokenType::SET, "expected 'set'");
             if (p.match(TokenType::CONSTANT))
                 field.isConstant = true;
             field.type = DeclarationParser::parseDeclaredType(p);
             const Token nameTok = p.consumeName("expected a field name after the type");
             field.name = nameTok.value;
             field.nameId = internName(field.name);
-            p.consume(TokenType::TO, "expected 'to' and a default value in a field declaration");
+            p.consume(TokenType::ASSIGN, "expected '=' and a default value in a field declaration");
             ContextGuard guard(p);
             p.ctx.inMethod = false;
             p.ctx.hasParent = false;

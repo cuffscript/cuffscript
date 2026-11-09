@@ -15,6 +15,6 @@ note: functions are looked up before the library, so one of your own replaces a 
 use DLC:string
 print(str_upper("hello"))
 
-func str_upper(text) do:
+func str_upper(str text) do:
     return "no thanks"
 end

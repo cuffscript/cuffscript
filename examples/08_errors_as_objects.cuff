@@ -1,18 +1,18 @@
-note: Errors as objects: fail raises one, or_else as catches it, and classes tell kinds apart.
+note: Errors as objects: fail raises one, or_else as Error catches it, and classes tell kinds apart.
 
 class ValidationError extends Error do:
-    set str field to ""
+    str field = ""
 
     func init(str field, str message) do:
         super.init(message)
-        change self.field to field
+        self.field = field
     end
 end
 
 class OutOfStock extends Error do:
 end
 
-set map stock to {"apple": 3, "pear": 0}
+map stock = {"apple": 3, "pear": 0}
 
 func order(str item, number count) do:
     global stock
@@ -25,12 +25,12 @@ func order(str item, number count) do:
     if stock[item] < count do:
         fail OutOfStock(f"only {stock[item]} {item}(s) left")
     end
-    change stock[item] to stock[item] - count
+    stock[item] = stock[item] - count
     return f"ordered {count} {item}"
 end
 
 func try_order(str item, number count) do:
-    print(order(item, count)) or_else as err do:
+    print(order(item, count)) or_else as Error err do:
         if err isa ValidationError do:
             print(f"invalid {err.field}: {err.message}")
         else if err isa OutOfStock do:
@@ -48,19 +48,19 @@ try_order("pear", 1)
 try_order("plum", 1)
 
 note: errors raised by the engine arrive as the same Error object
-print(10 / 0) or_else as err do:
+print(10 / 0) or_else as Error err do:
     print(err.code, err.message)
     print(f"at line {err.line}, column {err.column}")
 end
 
 note: fail err raises a caught error again, for a caller further out
 func checked(str item) do:
-    order(item, 1) or_else as err do:
+    order(item, 1) or_else as Error err do:
         print("logging:", err.message)
         fail err
     end
 end
-checked("pear") or_else as err do:
+checked("pear") or_else as Error err do:
     print("caller got", type_of(err))
 end
 

@@ -12,7 +12,7 @@ cannot do yet. Every item links to the page that defines the behaviour. The [des
 - **Number literals are plain.** No exponent form (`1e5`), no leading or trailing point (`.5`, `5.`), no digit separators; a minus is an operator.
 - **Strings cannot be changed in place**, there are no `\u` escapes, and an f-string has no format specifiers (`{x:2}` is a syntax error). Text is handled as Unicode code points, so a letter made of several code points counts as several characters.
 - **Map keys are strings.** `loop each` over a map visits its keys, in the order they were added; use the key to read the value.
-- **A slice and the result of a call are not places.** `change`, `add` and `remove` work on a name, an item or a field (`grid[2][3]`, `self.items`), not on `f()` or `x[1~2]`. See [changing places](language.md#51-changing-places-change-add-remove).
+- **A slice and the result of a call are not places.** An assignment, `add` and `remove` work on a name, an item or a field (`grid[2][3]`, `self.items`), not on `f()` or `x[1~2]`. See [places](language.md#51-places-assignment-add-remove).
 - **A `repeat` range is never empty.** `1 ~ 0` runs twice, counting down. See [loops](language.md#53-loops).
 - **`async` is not concurrency.** Queued calls run one after another after the main program. Nothing runs at the same time, and there is no sleep or timer.
 - **Chained comparisons are not supported**: `1 < 2 < 3` is a type error.

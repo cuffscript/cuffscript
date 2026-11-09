@@ -1,0 +1,5 @@
+note: E2-010
+number x = 1
+if x is 1 do:
+    str x = "a"
+end

@@ -1,3 +1,3 @@
 class Box do:
 end
-set Box b to Box(1)
+Box b = Box(1)

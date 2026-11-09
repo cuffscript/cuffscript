@@ -8,7 +8,7 @@ definition, with every token and flag, is the [pattern reference](../reference/p
 `text matches pattern` is true if the **whole** text fits the pattern:
 
 ```cuff
-set str code to "AB-1234"
+str code = "AB-1234"
 if code matches p"[up]2-[num]4" do:
     print("looks like a code")
 end
@@ -63,7 +63,7 @@ true true
 ## Finding parts of a text
 
 ```cuff
-set str log to "user=ann id=1042 user=ben id=2077"
+str log = "user=ann id=1042 user=ben id=2077"
 print(find(log, p"[num]4"))
 print(find_all(log, p"[num]4"))
 print(count(log, p"user"))
@@ -78,12 +78,12 @@ empty
 ```
 
 `find` gives the first match, or `empty` if there is none. `find_all` gives all of them, as a list (an empty list when nothing matches). `count` gives how many. A match is
-text you can use like any other: `find` gives a `str`, so declare its result with `set str`.
+text you can use like any other: `find` gives a `str` when it finds something, so a variable that may hold a failed result is declared `any`: `empty` is not a `str`.
 
 `[edge]` stops a word from matching inside a longer one:
 
 ```cuff
-set str sentence to "The category of catalog is a cat"
+str sentence = "The category of catalog is a cat"
 print(find_all(sentence, p"cat"))
 print(find_all(sentence, p"[edge]cat[edge]"))
 ```
@@ -99,13 +99,13 @@ Parentheses make a group whose text can be read afterwards. `match` searches for
 A group can also be named with `<name:...>`, and then it is read by name:
 
 ```cuff
-set match order to match("order SN-2024-0042 shipped", p"SN-([num]4)-([num]+)")
+match order = match("order SN-2024-0042 shipped", p"SN-([num]4)-([num]+)")
 print(order[1], order[2], order[-1])
 
-set match when to match("on 2026-12-25", p"<year:[num]4>-<month:[num]2>-<day:[num]2>")
+match when = match("on 2026-12-25", p"<year:[num]4>-<month:[num]2>-<day:[num]2>")
 print(when["day"] + "/" + when["month"] + "/" + when["year"])
 
-set match none to match("no digits", p"([num]+)")
+any none = match("no digits", p"([num]+)")
 if none is empty do:
     print("no match is empty, not an error")
 end
@@ -122,7 +122,7 @@ A `match` that found nothing is `empty`; ask with `is empty`. It is not an error
 ## Replacing and splitting
 
 ```cuff
-set str text to "call 010-1234-5678 now"
+str text = "call 010-1234-5678 now"
 print(replace(text, p"[num]4-[num]4", "****-****"))
 print(replace_all("a   b    c", p"[sp]+", " "))
 print(split("a, b;c", p"[,;][sp]*"))
@@ -145,7 +145,7 @@ Two flags can follow the closing quote of a pattern: `i` (ignore case, for Engli
 ```cuff
 print("Yes" matches p"yes"i, "Yes" matches p"yes")
 print(count("Apple, apple, APPLE", p"apple"i))
-set str lines to "first\nsecond"
+str lines = "first\nsecond"
 print(find(lines, p"[start]second"))
 print(find(lines, p"[start]second"m))
 ```
@@ -160,7 +160,7 @@ second
 A pattern can be kept in a variable of the type `pattern`, and built while the program runs with `pattern(text)`. A plain string is never read as a pattern, so `find(log, "user")` is an error with a hint to write `p"user"`.
 
 ```cuff
-set pattern id_shape to pattern("[num]4")
+pattern id_shape = pattern("[num]4")
 print(find("id 1042", id_shape))
 ```
 
@@ -182,7 +182,7 @@ Some characters have a meaning inside a pattern. To match one of them as itself,
 | `.` `\|` `:` `-` `{` `}` | Nothing: they match themselves | as they are |
 
 ```cuff
-set str html to "<b>one</b> and <b>two</b>"
+str html = "<b>one</b> and <b>two</b>"
 print(find(html, p"\<b\>[any]+?\</b\>"))
 print("a.b" matches p"a.b", "axb" matches p"a.b")
 print("(1)" matches p"\([num]\)")
@@ -200,7 +200,7 @@ The dot is an ordinary character, and `|` is too: there is no way to write "this
 
 - **A misspelled token is a set of letters.** `[nun]` is not an error: it matches one of `n`, `u`, `n`. Compare with a known good example when a pattern matches strangely.
 - **`matches` needs the whole text.** To find a shape *inside* text, use `find`, `match` or `count`.
-- **`find` gives text, not a `match`.** Use `set str` for `find` and `set match` for `match`.
+- **`find` gives text, not a `match`.** Declare a result that is known to exist as `str` for `find` and `match` for `match`, and one that may be missing as `any`, because `empty` fits neither type.
 - **Digits after a token are a count.** `[num]4` is four digits. A digit after a plain character is just that digit (`"v2"` matches `v2`).
 - **A pattern with a syntax error stops the program** with an `E3-` code before it runs, when the pattern is written as a `p"..."` literal. One made with `pattern(text)` stops the program when that call runs.
 

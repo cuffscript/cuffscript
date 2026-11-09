@@ -1,14 +1,14 @@
 note: Classes: fields, methods, a constructor, private state and objects as values.
 
 class Player do:
-    set str name to "unknown"
-    set number x to 0
-    set list items to []
-    private set number steps to 0
+    str name = "unknown"
+    number x = 0
+    list items = []
+    private number steps = 0
 
-    func init(str name, number x to 0) do:
-        change self.name to name
-        change self.x to x
+    func init(str name, number x = 0) do:
+        self.name = name
+        self.x = x
     end
 
     func sayhello() do:
@@ -16,15 +16,15 @@ class Player do:
     end
 
     func turnleft() do:
-        change self.steps to self.steps + 1
+        self.steps = self.steps + 1
     end
 
     func walk(number distance) do:
-        change self.x to self.x + distance
-        change self.steps to self.steps + 1
+        self.x = self.x + distance
+        self.steps = self.steps + 1
     end
 
-    func pick(item) do:
+    func pick(str item) do:
         add item to self.items
     end
 
@@ -37,7 +37,7 @@ class Player do:
     end
 end
 
-set Player player1 to Player("Ann")
+Player player1 = Player("Ann")
 player1.sayhello()
 player1.walk(3)
 player1.turnleft()
@@ -45,15 +45,15 @@ player1.pick("lamp")
 print(player1.report())
 
 note: each object has its own fields
-set Player player2 to Player("Bob", 10)
+Player player2 = Player("Bob", 10)
 player2.pick("map")
 print(player1.items, player2.items)
 
 note: objects are shared, not copied, when you assign them
-set Player alias to player1
+Player alias = player1
 alias.walk(2)
 print(player1.x, player1 is alias, player1 is player2)
-set Player twin to player1.copy()
+Player twin = player1.copy()
 twin.walk(100)
 print(player1.x, twin.x)
 
@@ -66,7 +66,7 @@ end
 print(describe(player2))
 
 note: a name that the class does not declare is an error, which or_else can catch
-print(player1.nickname) or_else as err do:
+print(player1.nickname) or_else as Error err do:
     print(err.code)
     print(err.message)
 end

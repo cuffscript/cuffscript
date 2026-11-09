@@ -1,6 +1,6 @@
 note: a list, a map or an object is one thing with several names; a number or a text is copied
-set list first to [1, 2]
-set list second to first
+list first = [1, 2]
+list second = first
 add 3 to second
 print(first, second)
 
@@ -10,26 +10,26 @@ end
 grow(first)
 print(first)
 
-set number count to 5
+number count = 5
 func bump(number x) do:
-    change x to x + 1
+    x = x + 1
     return x
 end
 print(bump(count), count)
 
 note: copy() makes a new outer list, but the lists inside are still shared
-set list grid to [[1], [2]]
-set list twin to grid.copy()
+list grid = [[1], [2]]
+list twin = grid.copy()
 add 5 to twin[1]
 add [9] to twin
 print(grid, twin)
 
 note: is compares the items of a list or a map, but an object only with itself
 class Dot do:
-    set number x to 1
+    number x = 1
 end
-set Dot a to Dot()
-set Dot b to Dot()
-set Dot c to a
+Dot a = Dot()
+Dot b = Dot()
+Dot c = a
 print([1, 2] is [1, 2], {"k": 1} is {"k": 1})
 print(a is b, a is c, a is a.copy())

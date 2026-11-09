@@ -40,7 +40,7 @@ int main()
 
     // 3. A program that arrives in pieces: later pieces see what earlier ones declared.
     cuff::Session session(options);
-    session.run("set number n to 5\n");
+    session.run("number n = 5\n");
     auto piece = session.run("print(n * 2)\n");
     std::cout << "piece ok: " << piece.success << "\n";
     session.reset();
@@ -48,7 +48,7 @@ int main()
     std::cout << "after reset ok: " << after.success << "\n";
 
     // 4. Parse only, for tools that want the syntax tree.
-    auto parsed = cuff::CuffEngine::run("set number x to 1\n", false);
+    auto parsed = cuff::CuffEngine::run("number x = 1\n", false);
     std::cout << "parsed ok: " << parsed.success << ", has tree: " << (parsed.ast != nullptr) << "\n";
     return 0;
 }

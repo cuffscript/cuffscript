@@ -97,8 +97,8 @@ a forward declaration plus the member function **declarations** in the header, a
 write the actual definitions at the bottom of `ExpressionParser.h` (where
 `LiteralParser::parsePrimary` is defined), after both classes are complete types.
 
-A statement that changes a value takes a **place** as its target: `change`, `add` and `remove` all read it with the same
-function, so a new statement of that kind needs no target rule of its own.
+A statement that changes a value takes a **place** as its target: an assignment, `add` and `remove` all read it with the same
+function (`PlaceParser`), so a new statement of that kind needs no target rule of its own.
 
 ## 4. Adding a new kind of error
 
@@ -136,7 +136,7 @@ instead of creating a new value type (see `constant list` in v2.0.0).
    Otherwise you can silently freeze an object another variable already refers to
    (see `Interpreter::freezeList`).
 3. The places that must check the state are the ones that "directly mutate" the
-   value — content changes (`add`/`remove`/`change x[i]`), not variable
+   value — content changes (`add`/`remove`/`x[i] = ...`), not variable
    reassignment. Separately from the existing per-variable constant check
    (`constants_` in `Environment`), add code that checks the value's own flag to the
    execution part of those operations.
@@ -210,23 +210,23 @@ For a new feature, add one test alongside it to `tests/cases/<area>/` (success c
 test is your safety net as is. A feature that changes what a user can see also changes a
 page under `docs/`; [Documentation](documentation.md) says which, and what is generated.
 
-## 9. Allowing reserved words in name positions (parser)
+## 9. Reserved words and names (parser)
 
-Six reserved words may still be used as names: `add`, `to`, `in`, `global`, `not` and `from`
-(`isBareIdentifierKeyword()` in `ParserCore.h`). When a new statement/declaration syntax has a spot where
-"a name goes here", use `isNameToken(p.current())` (or `p.consumeName(...)`) instead of
-`p.check(TokenType::IDENTIFIER)`, so that those six are accepted there. Every other reserved word stays reserved:
+Every reserved word is always reserved: `isNameToken()` in `ParserCore.h` accepts an identifier and nothing else. When a new statement/declaration syntax has a spot where
+"a name goes here", use `isNameToken(p.current())` (or `p.consumeName(...)`). A reserved word there:
 a block or control-flow keyword (`end`, `do`, `if`, ...), an operator written as a word (`is`, `and`, `or`, `matches`,
 `isa`) or a literal (`true`/`false`/`empty`) appearing where an expression should be usually means a real syntax error
 with a missing operand, and accepting it as a name would turn a clear "unexpected token" into a misleading runtime error.
+
+A name that a construct *declares* (a variable, a parameter, a loop variable, the name of `or_else as`) goes through `ParserCore::declareName`, which refuses a name that the function has already declared (`E2-010`). `NameScope` ends the names of a block with the block, and `FunctionNames` gives a function a list of its own, so a new construct that declares a name calls `declareName` and opens a `NameScope` for its body.
 
 Two more rules decide what a word means from where it stands:
 
 - **After a dot.** A member name is read by `consumeMemberName()`, which accepts any word, keywords included
   (`text.repeat(3)`, `m.end`), because a dot leaves no doubt about what the word is.
 - **Type names.** The names of the types (`number`, `list`, `pattern`, ...) and of classes are not reserved. They are
-  read as types only where a type may stand, which `TypeParser::atType` decides: after `set [constant]`, before a
-  parameter name that follows, and in a field declaration. Anywhere else they are ordinary identifiers.
+  read as types only where a type may stand, which `TypeParser::atType` decides: at the start of a declaration (a type, a name and `=`), before a
+  parameter name, in a field declaration, in `loop repeat` and `loop each`, and after `or_else as`. Anywhere else they are ordinary identifiers.
 
 Adding a new reserved word is a breaking change for programs that used it as a name; see section 3.
 
@@ -278,10 +278,9 @@ as `NetworkDLC.h` does with the HTTP client.
 ## 12. When touching function parameter syntax
 
 The parameter list is parsed in one place, `FunctionParser::parseParam`
-(`[type] name [to default]`). A word followed by a name is a type and a word alone is
-the name. A new built-in type is added in `TypeKind` and `builtinTypeFromName`
-(`ASTNodes.h`) and in `Interpreter::typeAccepts`, which both `set` and the parameter
-check use (`-Wswitch` catches a missing case in the switches). Type checking happens in
+(`type name [= default]`). A new built-in type is added in `TypeKind` and `builtinTypeFromName`
+(`ASTNodes.h`) and in `Interpreter::acceptsType`, which declarations, assignments, parameters, fields, loop variables and `or_else as`
+all use (`-Wswitch` catches a missing case in the switches). Type checking happens in
 `evalCall`/`invokeAwaited` **before** dispatch, so an async function also errors at the
 call site — do not defer it until after the job is queued. Default values are worked out
 at each call, in the scope of the function, after the arguments that were passed.

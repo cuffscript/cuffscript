@@ -7,6 +7,6 @@ print(GREETING)
 print(shout("modules"))
 print(inner_value())
 
-set Counter c to Counter()
+Counter c = Counter()
 print(c.bump(), c.bump())
 print(c isa Counter)

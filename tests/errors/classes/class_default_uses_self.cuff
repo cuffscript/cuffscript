@@ -1,5 +1,5 @@
 class Box do:
-    set number size to 1
-    set number twice to self.size * 2
+    number size = 1
+    number twice = self.size * 2
 end
-set Box b to Box()
+Box b = Box()

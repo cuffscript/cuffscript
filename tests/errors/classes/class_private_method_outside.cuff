@@ -3,5 +3,5 @@ class Safe do:
         print(1)
     end
 end
-set Safe s to Safe()
+Safe s = Safe()
 s.open()

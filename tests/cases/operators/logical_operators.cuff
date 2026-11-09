@@ -25,7 +25,7 @@ print((true or false) and false)
 print(false and true or true)
 print(false or false or true)
 print(true and true and false)
-set boolean ok to 3 > 2 and 5 > 4
+boolean ok = 3 > 2 and 5 > 4
 print(ok)
 if 1 < 2 and 2 < 3 do:
     print("both")

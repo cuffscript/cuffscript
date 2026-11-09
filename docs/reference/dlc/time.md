@@ -13,8 +13,8 @@ The clock. Both functions take no arguments (`E4-010` otherwise).
 
 ```cuff run
 use DLC:time
-set number started to time_now()
-set number elapsed to time_now() - started
+number started = time_now()
+number elapsed = time_now() - started
 if elapsed < 0 do:
     print("the clock went backwards")
 end

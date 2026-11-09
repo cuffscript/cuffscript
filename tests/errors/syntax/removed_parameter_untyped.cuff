@@ -1,0 +1,4 @@
+note: E2-001
+func double(n) do:
+    return n * 2
+end

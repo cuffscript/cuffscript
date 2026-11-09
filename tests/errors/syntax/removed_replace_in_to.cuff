@@ -1,2 +1,2 @@
-set str text to "a1"
-set str r to replace "a" in text to "b"
+str text = "a1"
+str r = replace "a" in text to "b"

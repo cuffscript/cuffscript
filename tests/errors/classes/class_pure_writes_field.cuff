@@ -1,8 +1,8 @@
 class Counter do:
-    set number n to 0
+    number n = 0
     pure func bump() do:
-        change self.n to self.n + 1
+        self.n = self.n + 1
     end
 end
-set Counter c to Counter()
+Counter c = Counter()
 c.bump()

@@ -7,7 +7,7 @@ next. Build it with `cli/build.sh` (Linux and macOS) or `cli\build.bat` (Windows
 ```text
 >> print(1 + 1)
 2
->> func sq(n) do:
+>> func sq(number n) do:
 ..     return n * n
 .. end
 >> print(sq(6))
@@ -17,6 +17,8 @@ next. Build it with `cli/build.sh` (Linux and macOS) or `cli\build.bat` (Windows
 **Enter runs what you have typed. Shift+Enter or Alt+Enter adds a new line instead.** The shell does not
 guess that something "looks unfinished": whatever you submit is parsed and run exactly once, and any error is
 the engine's own report, in the same form `cuffc` prints.
+
+Each entry is read on its own, so an entry may declare a name that an earlier entry declared (`number x = 1`, then later `str x = "a"`): the new declaration replaces the old variable, and a name keeps its type from the declaration that is current. Inside one entry a name is declared once, as everywhere else.
 
 A class declared in the shell stays for the rest of the session, like a function, and so do the objects made from it. Declaring a class again replaces it for the objects made after that; objects made before keep the class they were made from.
 

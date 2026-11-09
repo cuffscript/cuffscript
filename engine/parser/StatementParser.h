@@ -56,11 +56,8 @@ namespace cuff
         {
             switch (tok.type)
             {
-            case TokenType::SET:
-                return DeclarationParser::parseSet(p);
-
-            case TokenType::CHANGE:
-                return DeclarationParser::parseChange(p);
+            case TokenType::CONSTANT:
+                return DeclarationParser::parseDeclaration(p);
 
             case TokenType::GLOBAL:
                 if (isNameToken(p.peek(1)))
@@ -137,6 +134,12 @@ namespace cuff
                 break;
             }
 
+            DeclarationParser::rejectOldForms(p);
+            if (DeclarationParser::atDeclaration(p))
+                return DeclarationParser::parseDeclaration(p);
+            if (DeclarationParser::atAssignment(p))
+                return DeclarationParser::parseAssign(p);
+
             auto expr = ExpressionParser::parse(p);
             return std::make_unique<Stmt>(StmtKind::ExprStmt, ExprStmt(std::move(expr), tok.location));
         }
@@ -167,6 +170,7 @@ namespace cuff
 
     inline std::vector<std::unique_ptr<Stmt>> BodyParser::parse(ParserCore &p)
     {
+        NameScope names(p.declared);
         if (p.check(TokenType::NEWLINE))
         {
             p.openBody();

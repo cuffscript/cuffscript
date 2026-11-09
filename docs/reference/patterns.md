@@ -26,7 +26,7 @@ A pattern is a value of its own, of the type `pattern`. A **pattern literal** is
 pattern can be tested against a whole text with the comparison operator `matches`:
 
 ```cuff
-set str user_code to "AB-1234"
+str user_code = "AB-1234"
 
 if user_code matches p"[up]2-[num]4" do:
     print("The code matches the format.")
@@ -44,8 +44,8 @@ the literal itself reads is `\"`, which stands for a quote.
 A pattern that is built while the program runs comes from the function `pattern(text)` (or `pattern(text, flags)`); it can be kept in a variable of the type `pattern`, passed to a function and used wherever a literal can be:
 
 ```cuff
-set str shape to "[num]3"
-set pattern three_digits to pattern(shape)
+str shape = "[num]3"
+pattern three_digits = pattern(shape)
 print("123" matches three_digits, "12a" matches three_digits)
 ```
 
@@ -77,7 +77,7 @@ The seven functions are always available and take the text first. A text that is
 A pattern distinguishes upper and lower case English letters unless it is given the `i` flag, written right after the closing quote of the literal.
 
 ```cuff
-set str answer to "Yes"
+str answer = "Yes"
 
 note: only lowercase yes is expected, so this is false
 if answer matches p"yes" do:
@@ -106,7 +106,7 @@ So, unlike regex in other languages, you do not need a start anchor (`^`) or an 
 anchor (`$`). The functions that look *inside* a text (`find`, `match`, `replace`, `count`, ...) do not need the whole text to fit.
 
 ```cuff
-set str pin to "1234"
+str pin = "1234"
 
 note: it is true only when exactly 4 digits fit the whole string.
 if pin matches p"[num]4" do:
@@ -161,7 +161,7 @@ an **English letter or a digit**.
 - Special characters (`_`, `-`, `@`, `.`, etc.) are not included.
 
 ```cuff
-set str id to "user2026"
+str id = "user2026"
 
 if id matches p"[str]8" do:
     print("8 English letters/digits matched")
@@ -179,7 +179,7 @@ end
 - Mainly used when `_` should be allowed, such as in variable names and account IDs.
 
 ```cuff
-set str account to "admin_cuff_01"
+str account = "admin_cuff_01"
 
 if account matches p"[word]+" do:
     print("Valid account identifier format.")
@@ -281,7 +281,7 @@ Adding `?` right after a quantifier switches it to **lazy** matching, which matc
 as short a string as possible.
 
 ```cuff
-set str html to "<b>one</b> and <b>two</b>"
+str html = "<b>one</b> and <b>two</b>"
 
 note: Greedy: swallows everything from the first <b> to the very last </b>
 print(find(html, p"\<b\>[any]+\</b\>"))
@@ -392,10 +392,10 @@ Using a word boundary blocks false positives where the text is just a substring 
 longer word.
 
 ```cuff
-set str sentence to "The category of catalog is books"
+str sentence = "The category of catalog is books"
 
 note: search only for the standalone word 'cat' (category and catalog are excluded)
-set list result to find_all(sentence, p"[edge]cat[edge]")
+list result = find_all(sentence, p"[edge]cat[edge]")
 
 print(result) note: an empty result (there is no standalone word cat)
 ```
@@ -416,7 +416,7 @@ right away, without assembling them from regex symbols each time.
 `[float]` needs digits on both sides of the point and has no exponent, so `10`, `.5`, `5.` and `1e5` are not floats. To accept both whole and decimal numbers, test twice: `value matches p"[int]" or value matches p"[float]"`. A bare sign is never an `[int]`.
 
 ```cuff
-set str coordinate to "-12.54"
+str coordinate = "-12.54"
 
 if coordinate matches p"[float]" do:
     print("A valid coordinate value.")
@@ -443,7 +443,7 @@ The exact shapes are:
 - `[url]`: `http://` or `https://` followed by one or more English letters, digits or any of `. - _ / ? = & % # ~ : +`. A space ends the address, so an address that contains a space does not match as a whole.
 
 ```cuff
-set str user_contact to "010-8888-9999"
+str user_contact = "010-8888-9999"
 
 if user_contact matches p"[phone]" do:
     print("A valid South Korean phone number format.")
@@ -475,7 +475,7 @@ end
 **Backslashes in source.** A pattern literal is raw, so what you write between the quotes is what the pattern parser reads: `p"\."` is the pattern `\.`, and a single backslash is matched by `p"\\"`. The only thing the literal itself reads is `\"`, a quote inside the pattern. A backslash always takes the character after it, so `p"a\\"` is the pattern `a\\` and the literal ends at the next quote. When a pattern is built from an ordinary string with `pattern(text)`, the string's own escapes apply first, so the same single-backslash pattern is written `pattern("\\\\")`.
 
 ```cuff
-set str path to "C:\\temp"
+str path = "C:\\temp"
 print(path matches p"C:\\temp", path matches pattern("C:\\\\temp"))
 print(find("say \"hi\"", p"\"[let]+\""))
 ```
@@ -527,11 +527,11 @@ language philosophy, captures are numbered from **1**, in the order of their ope
 and a negative number counts from the end: `result[-1]` is the last capture.
 
 If nothing matches, `empty` is the result. That is not an error, so an `or_else` block does not
-run; test for it with `is empty`.
+run; test for it with `is empty`. A variable that may hold that result is declared `any`, because `empty` is not a `match` value.
 
 ```cuff
-set str serial to "SN-2026-998"
-set match result to match(serial, p"SN-([num]4)-([num]+)")
+str serial = "SN-2026-998"
+any result = match(serial, p"SN-([num]4)-([num]+)")
 
 if result is not empty do:
     print(f"Year made: {result[1]}") note: "2026"
@@ -555,8 +555,8 @@ Instead of parenthesis numbers, you can give a capture an intuitive name and ext
 data by it. The extracted result is looked up by key, map-style.
 
 ```cuff
-set str date_text to "2026-12-25"
-set match res to match(date_text, p"<year:[num]4>-<month:[num]2>-<day:[num]2>")
+str date_text = "2026-12-25"
+any res = match(date_text, p"<year:[num]4>-<month:[num]2>-<day:[num]2>")
 
 if res is not empty do:
     print(f"Year: {res['year']}")  note: "2026"
@@ -583,21 +583,21 @@ matched text itself (a `str`), declare its result as `str`; a `match` value come
 `match` function.
 
 ```cuff
-set str article to "Ticket number: T-101, next ticket: T-205, spare ticket: T-309"
+str article = "Ticket number: T-101, next ticket: T-205, spare ticket: T-309"
 
 note: extract only the first match (returns a string)
-set str first_ticket to find(article, p"T-[num]3")
+str first_ticket = find(article, p"T-[num]3")
 print(first_ticket) note: "T-101"
 
 note: collect every match (returns a 1-based list)
-set list tickets to find_all(article, p"T-[num]3")
+list tickets = find_all(article, p"T-[num]3")
 
 print(tickets[1]) note: "T-101"
 print(tickets[2]) note: "T-205"
 print(tickets[3]) note: "T-309"
 
 note: returns empty when nothing matches
-set str result to find(article, p"T-[num]5")
+any result = find(article, p"T-[num]5")
 if result is empty do:
     print("No matching pattern.")
 end
@@ -610,10 +610,10 @@ end
 To swap the part that matches a pattern for another string, use `replace(text, pattern, replacement)`.
 
 ```cuff
-set str raw_log to "Phone: 010-1234-5678 (personal data)"
+str raw_log = "Phone: 010-1234-5678 (personal data)"
 
 note: mask the 4 middle digits (****)
-set str masked_log to replace(raw_log, p"010-[num]4-", "010-****-")
+str masked_log = replace(raw_log, p"010-[num]4-", "010-****-")
 
 print(masked_log) note: "Phone: 010-****-5678 (personal data)"
 ```
@@ -625,7 +625,7 @@ back-references.
 To replace every occurrence, use `replace_all`.
 
 ```cuff
-set str clean_text to replace_all("Hello   Cuff    World", p"[sp]+", " ")
+str clean_text = replace_all("Hello   Cuff    World", p"[sp]+", " ")
 print(clean_text) note: "Hello Cuff World"
 ```
 
@@ -637,12 +637,12 @@ To cut a string into several pieces using a particular symbol or pattern as the
 dividing line, use `split(text, pattern)`.
 
 ```cuff
-set str tag_data to "apple, pear; grape: tangerine"
+str tag_data = "apple, pear; grape: tangerine"
 
 note: split on a composite separator: a comma, semicolon or colon followed by optional whitespace
-set list fruit_list to split(tag_data, p"[,;:][sp]*")
+list fruit_list = split(tag_data, p"[,;:][sp]*")
 
-loop repeat i to 1 ~ 4 do:
+loop repeat number i = 1 ~ 4 do:
     print(f"Fruit {i}: {fruit_list[i]}")
 end
 ```
@@ -659,15 +659,15 @@ in a body of text.
 When there is no match: **returns `0`**
 
 ```cuff
-set str document to "apple, banana, Apple, orange, APPLE"
+str document = "apple, banana, Apple, orange, APPLE"
 
 note: count the occurrences with case ignored (i)
-set number apple_count to count(document, p"apple"i)
+number apple_count = count(document, p"apple"i)
 
 print(f"Occurrences of the word apple: {apple_count}") note: 3
 
 note: returns 0 when there is no match
-set number grape_count to count(document, p"grape")
+number grape_count = count(document, p"grape")
 print(f"Occurrences of the word grape: {grape_count}") note: 0
 ```
 
@@ -691,8 +691,8 @@ There is no flag for "every match": the functions `find_all` and `replace_all` d
 `i` folds only the English letters `A`-`Z` and `a`-`z`. `m` changes only `[start]` and `[end]`: they then match at the start and the end of every line (a line feed ends a line), not just of the whole text. Two patterns are equal (`is`) only when their text and flags are both the same.
 
 ```cuff
-set str server_logs to "Error:12 ok ERROR:7"
-set list matches_ to find_all(server_logs, p"error:[num]+"i)
+str server_logs = "Error:12 ok ERROR:7"
+list matches_ = find_all(server_logs, p"error:[num]+"i)
 print(matches_)
 ```
 
@@ -712,10 +712,10 @@ correspond to `^` and `$` in traditional regex.)
 - `[end]` : the very end of the text
 
 ```cuff
-set str message to "NOTICE: maintenance is starting."
+str message = "NOTICE: maintenance is starting."
 
 note: search only for the notice header at the very start
-set str header to find(message, p"[start]NOTICE:")
+str header = find(message, p"[start]NOTICE:")
 print(header)
 ```
 
@@ -734,7 +734,7 @@ Both anchors are zero-width: they match a position and consume nothing. With the
   compile time.
 
 ```cuff
-set str empty_box to ""
+str empty_box = ""
 
 if empty_box matches p"" do:
     print("Confirmed empty text")
@@ -748,8 +748,8 @@ end
 A pattern that does not match is a normal outcome, not an error: `match` and `find` give `empty`, `find_all` gives `[]` and `count` gives `0`, so the way to handle it is an `is empty` check.
 
 ```cuff
-set str text to "no digits here"
-set match found to match(text, p"([num]+)")
+str text = "no digits here"
+any found = match(text, p"([num]+)")
 
 if found is empty do:
     print("no number in the text")
@@ -763,11 +763,11 @@ no number in the text
 `or_else` is for the errors a pattern can raise at run time: matching that runs past its step, time or recursion budget (`E3-101`, `E3-102`, `E3-103`), a text that is not a `str` (`E4-005`) or a statement that is too large (`E4-026`). The matching budget is the usual way to meet one, with a pattern that backtracks badly:
 
 ```cuff
-set str text to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
+str text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
 
-set boolean ok to text matches p"([any]*)*x" or_else do:
+boolean ok = text matches p"([any]*)*x" or_else do:
     print("the pattern is too complex for this text")
-    change ok to false
+    ok = false
 end
 print(ok)
 ```
@@ -818,9 +818,9 @@ limits that apply to patterns (their size, nesting and repeat counts) are on the
 ## 34. Practical example 1 — validating sign-up form data
 
 ```cuff
-set str user_id to "cuff_master"
-set str user_pw to "pass1234!"
-set str user_name to "Alice"
+str user_id = "cuff_master"
+str user_pw = "pass1234!"
+str user_name = "Alice"
 
 note: ID: 6 to 12 characters made of English letters/digits/_
 if !(user_id matches p"[word]6~12") do:
@@ -838,8 +838,8 @@ end
 ## 35. Practical example 2 — validating Korean data (phone and business registration numbers)
 
 ```cuff
-set str mobile to "010-7777-8888"
-set str biz_no to "123-45-67890"
+str mobile = "010-7777-8888"
+str biz_no = "123-45-67890"
 
 note: mobile phone number check
 if mobile matches p"010-[num]4-[num]4" do:
@@ -857,9 +857,9 @@ end
 ## 36. Practical example 3 — parsing server log data
 
 ```cuff
-set str log_line to "2026-03-31 [ERROR] 192.168.0.1 - DB Connection Lost"
+str log_line = "2026-03-31 [ERROR] 192.168.0.1 - DB Connection Lost"
 
-set match parsed to match(log_line, p"<date:[num]4-[num]2-[num]2> \[[one:INFO|WARN|ERROR]\] <ip:[num]1~3\.[num]1~3\.[num]1~3\.[num]1~3> - <msg:[any]+>")
+any parsed = match(log_line, p"<date:[num]4-[num]2-[num]2> \[[one:INFO|WARN|ERROR]\] <ip:[num]1~3\.[num]1~3\.[num]1~3\.[num]1~3> - <msg:[any]+>")
 
 if parsed is not empty do:
     print(f"Date: {parsed['date']}")
@@ -873,10 +873,10 @@ end
 ## 37. Practical example 4 — masking personal data in a document (replacement)
 
 ```cuff
-set str doc to "The caller's phone number is 010-1111-2222."
+str doc = "The caller's phone number is 010-1111-2222."
 
 note: find the whole mobile number and replace it with a privacy label in one go
-set str secured_doc to replace(doc, p"010-[num]4-[num]4", "[phone number withheld]")
+str secured_doc = replace(doc, p"010-[num]4-[num]4", "[phone number withheld]")
 
 print(secured_doc) note: "The caller's phone number is [phone number withheld]."
 ```
@@ -886,12 +886,12 @@ print(secured_doc) note: "The caller's phone number is [phone number withheld]."
 ## 38. Practical example 5 — splitting natural-language text and extracting words
 
 ```cuff
-set str raw_tags to "python, cuff; javascript / kotlin"
+str raw_tags = "python, cuff; javascript / kotlin"
 
 note: use commas, semicolons, slashes and the surrounding whitespace together as the split rule
-set list tags to split(raw_tags, p"[sp]*[,;/][sp]*")
+list tags = split(raw_tags, p"[sp]*[,;/][sp]*")
 
-loop repeat idx to 1 ~ 4 do:
+loop repeat number idx = 1 ~ 4 do:
     print(f"Registered tag #{idx}: {tags[idx]}")
 end
 ```

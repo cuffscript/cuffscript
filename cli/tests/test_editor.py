@@ -345,11 +345,11 @@ check(
 s.finish(0.2)
 s = new(args=("--no-banner", "--timeout", "0"))
 s.send(
-    "set number c to 0"
+    "number c = 0"
     + SHIFT_ENTER.decode()
     + "loop while true do:"
     + SHIFT_ENTER.decode()
-    + "    change c to c + 1"
+    + "    c = c + 1"
     + SHIFT_ENTER.decode()
     + "end\r",
     0.6,
@@ -361,11 +361,11 @@ s.finish(0.2)
 # 16 engine timeout
 s = new(args=("--no-banner", "--timeout", "300"))
 s.send(
-    "set number c to 0"
+    "number c = 0"
     + SHIFT_ENTER.decode()
     + "loop while true do:"
     + SHIFT_ENTER.decode()
-    + "    change c to c + 1"
+    + "    c = c + 1"
     + SHIFT_ENTER.decode()
     + "end\r",
     1.5,

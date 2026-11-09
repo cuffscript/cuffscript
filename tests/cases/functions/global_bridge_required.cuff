@@ -1,15 +1,15 @@
 note: A function sees only its own locals plus the globals it bridges with `global x`.
 
-set number total to 10
-set constant number LIMIT to 3
-set list items to [1, 2]
+number total = 10
+constant number LIMIT = 3
+list items = [1, 2]
 
 func unbridged_read() do:
     print(total)
 end
 
 func unbridged_write() do:
-    change total to 99
+    total = 99
 end
 
 func unbridged_add() do:
@@ -20,13 +20,13 @@ func bridged() do:
     global total
     global LIMIT
     global items
-    change total to total + LIMIT
+    total = total + LIMIT
     add 3 to items
 end
 
 func local_shadow() do:
-    set number total to 1
-    change total to total + 1
+    number total = 1
+    total = total + 1
     print(f"local total = {total}")
 end
 

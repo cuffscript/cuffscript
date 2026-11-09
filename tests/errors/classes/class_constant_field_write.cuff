@@ -1,5 +1,5 @@
 class Box do:
-    set constant number SIZE to 3
+    constant number SIZE = 3
 end
-set Box b to Box()
-change b.SIZE to 4
+Box b = Box()
+b.SIZE = 4

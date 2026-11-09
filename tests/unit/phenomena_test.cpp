@@ -79,8 +79,8 @@ int main()
 
     // A line break inside a string literal is one "\n", whether the file ends its lines with LF or CRLF.
     {
-        Run lf = run("use DLC:string\nset str s to \"ab\ncd\"\nprint(length(s))\n");
-        Run crlf = run("use DLC:string\r\nset str s to \"ab\r\ncd\"\r\nprint(length(s))\r\n");
+        Run lf = run("use DLC:string\nstr s = \"ab\ncd\"\nprint(length(s))\n");
+        Run crlf = run("use DLC:string\r\nstr s = \"ab\r\ncd\"\r\nprint(length(s))\r\n");
         check(lf.success && lf.printed == "5\n", "LF literal length: '" + lf.printed + "'");
         check(crlf.success && crlf.printed == "5\n", "CRLF literal length: '" + crlf.printed + "' " + crlf.error.substr(0, 100));
     }

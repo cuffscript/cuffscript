@@ -43,7 +43,7 @@ namespace
     // What input() returns for `input`, shown as the program prints it: the text between brackets, or "<eof>".
     std::string firstLine(const std::string &input)
     {
-        const auto r = run("set str s to input()\nprint(\"[\" + s + \"]\")\n", input);
+        const auto r = run("str s = input()\nprint(\"[\" + s + \"]\")\n", input);
         return r.success ? r.out : "ERROR " + r.error;
     }
 
@@ -62,7 +62,7 @@ namespace
         const auto two = run("print(input() + \"|\" + input() + \"|\" + input() + \"|\")\n", "x\r\ny\r\n");
         check(two.success && two.out == "x|y||\n", "successive input() calls read successive lines, then the empty string");
 
-        const auto prompt = run("set str s to input(\"name? \")\nprint(s)\n", "Ann\r\n");
+        const auto prompt = run("str s = input(\"name? \")\nprint(s)\n", "Ann\r\n");
         check(prompt.success && prompt.out == "name? Ann\n", "input(prompt) writes the prompt, then reads the line");
 
         const auto bad = run("print(input(5))\n");
@@ -82,12 +82,12 @@ namespace
         const auto same = run("use DLC:random\nrandom_seed(12345)\nprint(random_int(1, 1000000), random_int(1, 1000000))\n");
         check(other.success && same.success && other.out != same.out, "different seeds give different numbers");
 
-        const auto range = run("use DLC:random\nset boolean ok to true\n"
-                               "loop repeat i to 1 ~ 2000 do:\n"
-                               "    set number n to random_int(-3, 3)\n"
-                               "    set number f to random_float()\n"
+        const auto range = run("use DLC:random\nboolean ok = true\n"
+                               "loop repeat number i = 1 ~ 2000 do:\n"
+                               "    number n = random_int(-3, 3)\n"
+                               "    number f = random_float()\n"
                                "    if n < -3 or n > 3 or f < 0 or f >= 1 do:\n"
-                               "        change ok to false\n"
+                               "        ok = false\n"
                                "    end\n"
                                "end\n"
                                "print(ok, random_int(7, 7))\n");

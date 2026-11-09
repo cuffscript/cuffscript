@@ -97,7 +97,7 @@ namespace cuff
         case '~':
             return make(TokenType::TILDE, "~");
         case '=':
-            throw SyntaxError("unexpected '=' — CuffScript uses 'to' for assignment, not '='", start);
+            return make(TokenType::ASSIGN, "=");
         default:
         {
             // Show the whole character: its first byte alone is not valid UTF-8.

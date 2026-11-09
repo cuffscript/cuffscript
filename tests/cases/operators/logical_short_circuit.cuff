@@ -1,4 +1,4 @@
-func say(text, value) do:
+func say(any text, any value) do:
     print(text)
     return value
 end

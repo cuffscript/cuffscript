@@ -1,6 +1,6 @@
 note: a function or a class can be used above the place where it is written
 print(double(4))
-set Point corner to Point(2, 3)
+Point corner = Point(2, 3)
 print(corner.x + corner.y)
 
 func double(number n) do:
@@ -8,18 +8,18 @@ func double(number n) do:
 end
 
 class Point do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 
     func init(number x, number y) do:
-        change self.x to x
-        change self.y to y
+        self.x = x
+        self.y = y
     end
 end
 
 note: a variable is only there from the line that makes it
-print(total) or_else as problem do:
+print(total) or_else as Error problem do:
     print(problem.code, "the variable does not exist yet")
 end
-set number total to 5
+number total = 5
 print(total)

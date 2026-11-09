@@ -9,14 +9,14 @@ use DLC:map
 print("after comments")
 
 note: numbers, strings and f-strings
-set number a to 42
-set number b to 3.25
-set str double to "say \"hi\""
-set str single to 'it\'s'
-set str escapes to "tab:\tend\\"
+number a = 42
+number b = 3.25
+str double = "say \"hi\""
+str single = 'it\'s'
+str escapes = "tab:\tend\\"
 print(a, b, double, single)
 print(escapes)
-set str two_lines to "first
+str two_lines = "first
 second"
 print(two_lines)
 print(length(two_lines))
@@ -25,12 +25,12 @@ print(f"braces: {{a}} and {{{a}}}")
 print(f"{double.length()} chars")
 
 note: a list or a map may end with a comma and may break across lines
-set list items to [
+list items = [
     1,
     2,
     3,
 ]
-set map ages to {
+map ages = {
     "ann": 31,
     "bo": 27,
 }
@@ -41,22 +41,22 @@ print(join_all(
     "b"
 ))
 
-func join_all(x, y) do:
+func join_all(any x, any y) do:
     return x + y
 end
 
 note: every type can be written as a declaration
-set empty nothing to empty
-set object thing to empty
-set match found to empty
-set pattern digits to p"[num]+"
-set boolean ok to true
+empty nothing = empty
+any thing = empty
+match found = match("a1", p"[num]")
+pattern digits = p"[num]+"
+boolean ok = true
 print(nothing, thing, found, ok, type_of(digits))
 
 note: a body may sit on the header's line
 if a is 42 do: print("one-line if") end
-loop repeat i to 1 ~ 3 do: print(i) end
-func twice(x) do: return x * 2 end
+loop repeat number i = 1 ~ 3 do: print(i) end
+func twice(any x) do: return x * 2 end
 print(twice(4))
 class Marker do: end
 print(Marker() isa Marker)

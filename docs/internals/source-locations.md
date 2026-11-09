@@ -22,7 +22,7 @@ the reported line and column are the ones the offset is really at.
 A location belongs to the **start** of a token, except for the tokens that end things:
 
 - `NEWLINE` is located at the end of the statement it finishes: at the line break, after any trailing blanks. Not at the
-  start of whatever follows. This is why `set number x to` followed by another statement is reported on its own line.
+  start of whatever follows. This is why `number x =` followed by another statement is reported on its own line.
 - The `DEDENT`s and `EOF` at the end of the program are located at the end of the last statement, not on an empty line
   past it.
 - `INDENT` and `DEDENT` inside the program are located at the first character of the line they begin.

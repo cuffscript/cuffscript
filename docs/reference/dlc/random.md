@@ -20,7 +20,7 @@ Pseudo-random numbers. An argument of the wrong type is `E4-005`, and the wrong 
 use DLC:random
 use DLC:list
 random_seed(7)
-set number roll to random_int(1, 6)
+number roll = random_int(1, 6)
 if roll < 1 do:
     print("never happens")
 end
@@ -34,9 +34,9 @@ Seeding the generator with the same number gives the same numbers afterwards:
 ```cuff
 use DLC:random
 random_seed(2026)
-set number first to random_int(1, 1000)
+number first = random_int(1, 1000)
 random_seed(2026)
-set number second to random_int(1, 1000)
+number second = random_int(1, 1000)
 print(first is second)
 ```
 

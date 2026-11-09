@@ -110,11 +110,11 @@ namespace cuff
             {
                 if (i > 0)
                     os << ", ";
-                if (i < f.paramTypes.size() && f.paramTypes[i].kind != TypeKind::Any)
+                if (i < f.paramTypes.size())
                     os << f.paramTypes[i].name() << " ";
                 os << f.params[i];
                 if (i < f.paramDefaults.size() && f.paramDefaults[i])
-                    os << " to ...";
+                    os << " = ...";
             }
             os << ")\n";
             for (size_t i = 0; i < f.paramDefaults.size(); ++i)
@@ -141,17 +141,17 @@ namespace cuff
                 os << "]";
                 if (d.isConstant)
                     os << " (const)";
-                os << " " << d.name << " to\n";
+                os << " " << d.name << " =\n";
                 printExpr(os, *d.value, depth + 1);
                 break;
             }
-            case StmtKind::Change:
+            case StmtKind::Assign:
             {
-                const auto &c = std::get<ChangeStmt>(stmt.data);
-                os << "Change ";
+                const auto &c = std::get<AssignStmt>(stmt.data);
+                os << "Assign ";
                 printPlace(os, c.target, depth);
                 indent(os, depth + 1);
-                os << "to:\n";
+                os << "=\n";
                 printExpr(os, *c.value, depth + 2);
                 break;
             }
@@ -226,7 +226,7 @@ namespace cuff
                 if (loop.kind == LoopStmt::LoopKind::Repeat)
                 {
                     indent(os, depth + 1);
-                    os << "var: " << loop.repeatVar << "\n";
+                    os << "var: " << loop.varType.name() << " " << loop.repeatVar << "\n";
                     indent(os, depth + 1);
                     os << "start:\n";
                     printExpr(os, *loop.repeatStart, depth + 2);
@@ -237,7 +237,7 @@ namespace cuff
                 else if (loop.kind == LoopStmt::LoopKind::Each)
                 {
                     indent(os, depth + 1);
-                    os << "var: " << loop.repeatVar << "\n";
+                    os << "var: " << loop.varType.name() << " " << loop.repeatVar << "\n";
                     indent(os, depth + 1);
                     os << "in:\n";
                     printExpr(os, *loop.collection, depth + 2);
@@ -327,7 +327,7 @@ namespace cuff
                 const auto &oe = std::get<OrElseStmt>(stmt.data);
                 os << "OrElse";
                 if (!oe.errorName.empty())
-                    os << " as " << oe.errorName;
+                    os << " as " << oe.errorType.name() << " " << oe.errorName;
                 os << "\n";
                 indent(os, depth + 1);
                 os << "primary:\n";

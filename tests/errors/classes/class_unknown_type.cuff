@@ -1,1 +1,1 @@
-set Ghost g to empty
+Ghost g = empty

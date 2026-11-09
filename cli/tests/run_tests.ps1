@@ -1,67 +1,67 @@
 <#
 .SYNOPSIS
-  Tests cuffsh on Windows (and, with PowerShell 7, on Linux/macOS). Works in Windows PowerShell 5.1 and 7.
+Tests cuffsh on Windows (and, with PowerShell 7, on Linux/macOS). Works in Windows PowerShell 5.1 and 7.
 
 .DESCRIPTION
-  Two kinds of checks.
+Two kinds of checks.
 
-  native       Needs nothing but PowerShell: piped scripts, error text (identical to cuffc's),
-               UTF-8 / Korean text and paths, command-line flags, resource limits, and a
-               side-by-side comparison of cuffsh against cuffc over every .cuff file the
-               project ships.
+native       Needs nothing but PowerShell: piped scripts, error text (identical to cuffc's),
+UTF-8 / Korean text and paths, command-line flags, resource limits, and a
+side-by-side comparison of cuffsh against cuffc over every .cuff file the
+project ships.
 
-  interactive  Drives cuffsh on a real pseudo-terminal and checks what ends up on screen:
-               typing, wrapping, Korean text, cursor keys, Shift+Enter, paste, history,
-               Ctrl+C, input(), entries taller than the window ... plus a fuzzer.
-               Needs Python 3.8+ and the packages in requirements.txt (-InstallDeps installs
-               them), and a POSIX pseudo-terminal: it runs on Linux and macOS, and is reported
-               as N/A on Windows, where the native checks and the checklist at the end apply.
-               Without Python the native checks still run.
+interactive  Drives cuffsh on a real pseudo-terminal and checks what ends up on screen:
+typing, wrapping, Korean text, cursor keys, Shift+Enter, paste, history,
+Ctrl+C, input(), entries taller than the window ... plus a fuzzer.
+Needs Python 3.8+ and the packages in requirements.txt (-InstallDeps installs
+them), and a POSIX pseudo-terminal: it runs on Linux and macOS, and is reported
+as N/A on Windows, where the native checks and the checklist at the end apply.
+Without Python the native checks still run.
 
-  Works on Windows PowerShell 5.1 and PowerShell 7. The file is plain ASCII on purpose: 5.1
-  reads BOM-less files in the ANSI code page, so non-ASCII text is built from code points.
+Works on Windows PowerShell 5.1 and PowerShell 7. The file is plain ASCII on purpose: 5.1
+reads BOM-less files in the ANSI code page, so non-ASCII text is built from code points.
 
 .PARAMETER Cuffsh
-  Path to cuffsh.exe. Default: ..\cuffsh.exe (next to build.bat). Alias: -Exe.
+Path to cuffsh.exe. Default: ..\cuffsh.exe (next to build.bat). Alias: -Exe.
 
 .PARAMETER Cuffc
-  Path to cuffc.exe, used for the comparison tests. Default: <project root>\cuffc.exe.
-  Without it those tests are skipped.
+Path to cuffc.exe, used for the comparison tests. Default: <project root>\cuffc.exe.
+Without it those tests are skipped.
 
 .PARAMETER Build
-  Build cuffsh first (..\build.bat on Windows, ../build.sh elsewhere; needs g++ on PATH).
+Build cuffsh first (..\build.bat on Windows, ../build.sh elsewhere; needs g++ on PATH).
 
 .PARAMETER Suite
-  all (default) | native | editor | session | fuzz
+all (default) | native | editor | session | fuzz
 
 .PARAMETER InstallDeps
-  pip install the Python packages the interactive suites need.
+pip install the Python packages the interactive suites need.
 
 .PARAMETER FuzzTrials
-  Number of random sessions for the fuzzer (default 40).
+Number of random sessions for the fuzzer (default 40).
 
 .PARAMETER TimeScale
-  Multiplies every wait in the interactive suites (default 2.5 on Windows, 1 elsewhere).
-  Raise it on a slow machine or if checks fail only intermittently.
+Multiplies every wait in the interactive suites (default 2.5 on Windows, 1 elsewhere).
+Raise it on a slow machine or if checks fail only intermittently.
 
 .PARAMETER Python
-  Python to use (a path or a command name). Default: py -3, python, python3.
+Python to use (a path or a command name). Default: py -3, python, python3.
 
 .PARAMETER SkipDifferential
-  Skip the cuffc-vs-cuffsh comparison over the shipped scripts (the slow part of "native").
+Skip the cuffc-vs-cuffsh comparison over the shipped scripts (the slow part of "native").
 
 .PARAMETER NoChecklist
-  Don't print the short manual checklist at the end.
+Don't print the short manual checklist at the end.
 
 .PARAMETER Strict
-  Treat a skipped suite (for example no Python installed) as a failure.
+Treat a skipped suite (for example no Python installed) as a failure.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File cli\tests\run_tests.ps1 -Build -InstallDeps
+powershell -ExecutionPolicy Bypass -File cli\tests\run_tests.ps1 -Build -InstallDeps
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File cli\tests\run_tests.ps1 -Suite native
+powershell -ExecutionPolicy Bypass -File cli\tests\run_tests.ps1 -Suite native
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File cli\tests\run_tests.ps1 -Suite editor -TimeScale 4
+powershell -ExecutionPolicy Bypass -File cli\tests\run_tests.ps1 -Suite editor -TimeScale 4
 #>
 [CmdletBinding()]
 param(
@@ -365,7 +365,7 @@ if ($runNative) {
   Check '--help exits 0 and documents Shift+Enter' (($r.ExitCode -eq 0) -and ($r.Out -cmatch 'Shift\+Enter') -and ($r.Out -cmatch '--timeout')) $r.Out
 
   # ---- piped input runs as one script (no prompt, no banner)
-  $src = "set number x to 4`nprint(x * 2)`nif x < 10 do:`n    print(`"small`")`nend`n"
+  $src = "number x = 4`nprint(x * 2)`nif x < 10 do:`n    print(`"small`")`nend`n"
   $r = Invoke-Proc $Cuffsh @() (Bytes $src)
   Check 'piped script runs as one script' (($r.ExitCode -eq 0) -and ($r.Out -ceq "8`nsmall`n") -and ($r.Err -ceq '')) ($r.Out + '|' + $r.Err)
 
@@ -393,7 +393,7 @@ if ($runNative) {
   Check 'incomplete block: engine syntax error ("expected end"), no guessing' (($r.Err -cmatch '^ERROR: \[E2-001\] Syntax Error') -and ($r.Err -cmatch "expected 'end'")) $r.Err
 
   if ($Cuffc) {
-    foreach ($bad in @("print(1 / 0)`n", "if 1 is 1 do:`n", "print(undefined_name)`n", "set number x to `"a`" + 1`n")) {
+    foreach ($bad in @("print(1 / 0)`n", "if 1 is 1 do:`n", "print(undefined_name)`n", "number x = `"a`" + 1`n")) {
       $a = Invoke-Proc $Cuffc @() (Bytes $bad)
       $b = Invoke-Proc $Cuffsh @() (Bytes $bad)
       Check ('error text identical to cuffc: ' + ($bad.Trim() -replace "`n", ' / ')) (($a.Err -ceq $b.Err) -and ($a.Out -ceq $b.Out)) ("cuffc : " + $a.Err + "cuffsh: " + $b.Err)
@@ -452,19 +452,19 @@ if ($runNative) {
   $r = Invoke-Proc $Cuffsh @('a.cuff', 'b.cuff'); Check 'two script files -> exit 2' (($r.ExitCode -eq 2) -and ($r.Err -cmatch 'only one')) $r.Err
 
   # ---- resource limits come from the engine and the session survives them
-  $loop = "set number c to 0`nloop while true do:`n    change c to c + 1`nend`nprint(`"after`")`n"
+  $loop = "number c = 0`nloop while true do:`n    c = c + 1`nend`nprint(`"after`")`n"
   $t0 = Get-Date
   $r = Invoke-Proc -Exe $Cuffsh -ArgList @('--timeout', '400') -InputBytes (Bytes $loop) -TimeoutMs 20000
   $el = ((Get-Date) - $t0).TotalSeconds
   Check '--timeout stops a runaway loop (engine error E6-002) in time' (($r.Err -cmatch '\[E6-002\]') -and (-not $r.TimedOut) -and ($el -lt 15)) ("took " + [math]::Round($el, 1) + "s; " + $r.Err)
 
-  $steps = "set number c to 0`nloop repeat i to 1 ~ 1000 do:`n    change c to c + 1`nend`nprint(c)`n"
+  $steps = "number c = 0`nloop repeat number i = 1 ~ 1000 do:`n    c = c + 1`nend`nprint(c)`n"
   $r = Invoke-Proc $Cuffsh @('--max-steps', '50') (Bytes $steps)
   Check '--max-steps stops a loop (engine error E6-001)' ($r.Err -cmatch '\[E6-001\]') $r.Err
   $r = Invoke-Proc $Cuffsh @('--max-steps', '100000') (Bytes $steps)
   Check '--max-steps with a generous limit lets the same loop finish' (($r.Out -ceq "1000`n") -and ($r.Err -ceq '')) ($r.Out + '|' + $r.Err)
 
-  $deep = "func f(n) do:`n    return f(n + 1)`nend`nprint(f(0))`n"
+  $deep = "func f(any n) do:`n    return f(n + 1)`nend`nprint(f(0))`n"
   $r = Invoke-Proc -Exe $Cuffsh -ArgList @('--timeout', '0') -InputBytes (Bytes $deep) -TimeoutMs 60000
   Check 'runaway recursion ends with the engine''s stack error, not a crash' (($r.Err -cmatch '\[E4-017\]') -and (-not $r.TimedOut) -and ($r.ExitCode -eq 1)) ("exit " + $r.ExitCode + "; " + $r.Err)
 
@@ -532,14 +532,14 @@ Write-Host ('{0,-8} {1}  [{2}]' -f $row.Status, $row.Name, $row.Detail) -Foregro
 if (-not $NoChecklist) {
   Write-Host @'
 
-Not covered above - needs a person at a real console (cmd, PowerShell or Windows Terminal):
-  [ ] Shift+Enter in YOUR terminal app adds a line to the entry instead of running it
-  [ ] type Korean with the IME (composition, Backspace on a syllable) at the prompt
-  [ ] paste several lines from the clipboard: ONE entry, not run line by line; paste more lines than the window is
-      tall, then move the cursor - the screen must not fill with repeated copies of your code
-  [ ] resize the window while typing, then keep typing
-  [ ] Git Bash / mintty: running cuffsh.exe says to use winpty instead of hanging
-'@
+            Not covered above - needs a person at a real console (cmd, PowerShell or Windows Terminal):
+            [ ] Shift+Enter in YOUR terminal app adds a line to the entry instead of running it
+            [ ] type Korean with the IME (composition, Backspace on a syllable) at the prompt
+            [ ] paste several lines from the clipboard: ONE entry, not run line by line; paste more lines than the window is
+            tall, then move the cursor - the screen must not fill with repeated copies of your code
+            [ ] resize the window while typing, then keep typing
+            [ ] Git Bash / mintty: running cuffsh.exe says to use winpty instead of hanging
+            '@
 }
 
 if ($anyFail) { Write-Host ''; Write-Host 'Some checks FAILED.' -ForegroundColor Red; exit 1 }

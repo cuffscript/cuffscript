@@ -3,28 +3,28 @@ use DLC:string
 use DLC:list
 use DLC:map
 
-set str text to "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs."
+str text = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs."
 
 note: find_all gives every run of letters; upper case makes "The" and "the" the same word.
-set list words to find_all(str_upper(text), p"[let]+")
+list words = find_all(str_upper(text), p"[let]+")
 print(f"{length(words)} words, {length(list_unique(words))} different")
 
-set map counts to {}
-loop each word in words do:
+map counts = {}
+loop each str word in words do:
     if map_has_key(counts, word) do:
-        change counts[word] to counts[word] + 1
+        counts[word] = counts[word] + 1
     else do:
-        change counts[word] to 1
+        counts[word] = 1
     end
 end
 
 note: Pick the most frequent word three times, taking it out each time. Ties go to the earlier word.
-set list remaining to list_sort(map_keys(counts))
-loop repeat rank to 1 ~ 3 do:
-    set str best to remaining[1]
-    loop each word in remaining do:
+list remaining = list_sort(map_keys(counts))
+loop repeat number rank = 1 ~ 3 do:
+    str best = remaining[1]
+    loop each str word in remaining do:
         if counts[word] > counts[best] do:
-            change best to word
+            best = word
         end
     end
     print(f"{rank}. {best} ({counts[best]})")

@@ -4,6 +4,7 @@
 #include "ASTNodes.h"
 #include "BodyParser.h"
 #include "ExpressionParser.h"
+#include "DeclarationParser.h"
 #include "../common/TokenTypes.h"
 #include "../common/CuffError.h"
 #include <memory>
@@ -22,16 +23,14 @@ namespace cuff
 
             LoopStmt loop;
             loop.loc = loc;
+            NameScope names(p.declared);
 
             if (p.match(TokenType::REPEAT))
             {
                 loop.kind = LoopStmt::LoopKind::Repeat;
+                parseVariable(p, loop);
 
-                const Token var = p.consumeName("expected variable name after 'repeat'");
-                loop.repeatVar = var.value;
-                loop.repeatVarId = internName(loop.repeatVar);
-
-                p.consume(TokenType::TO, "expected 'to' in repeat loop");
+                p.consume(TokenType::ASSIGN, "expected '=' and the first number of the range after the loop variable");
 
                 loop.repeatStart = ExpressionParser::parse(p);
                 p.consume(TokenType::TILDE, "expected '~' for repeat range");
@@ -51,10 +50,7 @@ namespace cuff
             else if (p.match(TokenType::EACH))
             {
                 loop.kind = LoopStmt::LoopKind::Each;
-
-                const Token var = p.consumeName("expected variable name after 'each'");
-                loop.repeatVar = var.value;
-                loop.repeatVarId = internName(loop.repeatVar);
+                parseVariable(p, loop);
 
                 p.consume(TokenType::IN, "expected 'in' in each loop");
                 loop.collection = ExpressionParser::parse(p);
@@ -74,6 +70,20 @@ namespace cuff
             closeBlock(p, "loop", loc);
 
             return std::make_unique<Stmt>(StmtKind::LoopStmt, std::move(loop));
+        }
+
+    private:
+        // `TYPE NAME`: the loop variable is declared by the loop, in the same words as any other variable.
+        static void parseVariable(ParserCore &p, LoopStmt &loop)
+        {
+            const Token typeTok = p.current();
+            loop.typeLoc = typeTok.location;
+            loop.varType = DeclarationParser::parseDeclaredType(p);
+            DeclarationParser::requireName(p, typeTok, loop.kind == LoopStmt::LoopKind::Repeat ? "loop repeat number i = 1 ~ 3 do:" : "loop each str item in items do:");
+            const Token var = p.consumeName("expected the name of the loop variable after its type");
+            p.declareName(var);
+            loop.repeatVar = var.value;
+            loop.repeatVarId = internName(loop.repeatVar);
         }
     };
 

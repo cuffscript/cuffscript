@@ -1,6 +1,6 @@
 note: the text functions are also methods of a str: the text comes first, so it goes before the dot.
 use DLC:string
-set str text to "alpha 123 beta 45.6 gamma-789"
+str text = "alpha 123 beta 45.6 gamma-789"
 
 print(text.find(p"[num]+"), text.find(p"zzz"))
 print(text.find_all(p"[num]+"))
@@ -8,7 +8,7 @@ print(text.count(p"[num]+"))
 print(text.replace(p"[num]+", "#"))
 print(text.replace_all(p"[num]+", "#"))
 print(text.split(p"[sp]"))
-set match m to "2024-05-17".match(p"(<year:[num]4>)-(<month:[num]2>)")
+match m = "2024-05-17".match(p"(<year:[num]4>)-(<month:[num]2>)")
 print(m["year"], m["month"])
 print("none".match(p"[num]+"))
 

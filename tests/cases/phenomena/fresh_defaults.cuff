@@ -1,5 +1,5 @@
 note: a default is worked out again at every call, so a new list is made each time
-func collect(item, list bag to []) do:
+func collect(number item, list bag = []) do:
     add item to bag
     return bag
 end

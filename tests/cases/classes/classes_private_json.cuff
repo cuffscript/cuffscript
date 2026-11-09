@@ -2,22 +2,22 @@ note: private members, to_str, and to_json of objects.
 use DLC:json
 
 class Account do:
-    set str owner to ""
-    set number balance to 0
-    private set number pin to 1234
-    set list history to []
+    str owner = ""
+    number balance = 0
+    private number pin = 1234
+    list history = []
 
-    func init(str owner, number balance to 0) do:
-        change self.owner to owner
-        change self.balance to balance
+    func init(str owner, number balance = 0) do:
+        self.owner = owner
+        self.balance = balance
     end
 
-    private func record(text) do:
+    private func record(any text) do:
         add text to self.history
     end
 
     func deposit(number amount) do:
-        change self.balance to self.balance + amount
+        self.balance = self.balance + amount
         self.record(f"deposit {amount}")
     end
 
@@ -31,7 +31,7 @@ class Account do:
 end
 
 class Savings extends Account do:
-    set number rate to 0.5
+    number rate = 0.5
 
     func interest() do:
         return self.balance * self.rate / 100
@@ -42,19 +42,19 @@ class Savings extends Account do:
     end
 end
 
-set Account acc to Account("Ann", 10)
+Account acc = Account("Ann", 10)
 acc.deposit(5)
 print(acc)
 print(f"{acc} / {to_str(acc)} / {acc.to_str()}")
 print(acc.check_pin(1234), acc.check_pin(1))
 print(to_json(acc))
 
-set Savings sav to Savings("Bob", 200)
+Savings sav = Savings("Bob", 200)
 sav.deposit(50)
 print(sav.interest(), sav.peek())
 print(to_json(sav))
 print(to_json([acc, {"owner": sav}]))
 print(sav isa Account, to_str(sav))
 
-set map back to from_json(to_json(acc))
+map back = from_json(to_json(acc))
 print(back["owner"], back["balance"], type_of(back))

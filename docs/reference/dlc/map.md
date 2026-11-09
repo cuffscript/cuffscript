@@ -25,7 +25,7 @@ function: asking a map for it is `E4-005`, and loading only `DLC:map` does not p
 
 ```cuff
 use DLC:map
-set map ages to {"ana": 31, "ben": 27}
+map ages = {"ana": 31, "ben": 27}
 print(map_keys(ages), map_values(ages), length(ages))
 print(map_has_key(ages, "ben"), contains(ages, "cy"))
 print(map_entries(ages))
@@ -44,9 +44,9 @@ true false
 Everyday map work uses the language itself, not this library:
 
 ```cuff
-set map stock to {"apples": 3}
-change stock["pears"] to 5
-change stock["apples"] to stock["apples"] + 1
+map stock = {"apples": 3}
+stock["pears"] = 5
+stock["apples"] = stock["apples"] + 1
 remove "pears" from stock
 print(stock)
 ```
@@ -56,7 +56,7 @@ print(stock)
 ```
 
 - `stock["key"]` reads a value. A key that is not there is `E4-009`; test first with `map_has_key` or recover with `or_else`.
-- `change stock["key"] to value` sets a key, creating it when it is new.
+- `stock["key"] = value` sets a key, creating it when it is new.
 - `remove "key" from stock` deletes a key; a key that is not there is ignored.
 - A map key must be a string. `{1: "one"}` and `stock[1]` are `E4-005`.
 
@@ -66,9 +66,9 @@ A map is not looped over directly. Loop over its keys, or its entries, instead:
 
 ```cuff
 use DLC:map
-set map prices to {"tea": 3, "milk": 2}
-set list names to map_keys(prices)
-loop repeat i to 1 ~ length(names) do:
+map prices = {"tea": 3, "milk": 2}
+list names = map_keys(prices)
+loop repeat number i = 1 ~ length(names) do:
     print(names[i], prices[names[i]])
 end
 ```
@@ -85,8 +85,8 @@ the one from `b` replaces the one from `a` as a whole.
 
 ```cuff
 use DLC:map
-set map defaults to {"color": "blue", "size": 10}
-set map chosen to map_merge(defaults, {"size": 12})
+map defaults = {"color": "blue", "size": 10}
+map chosen = map_merge(defaults, {"size": 12})
 print(chosen, defaults)
 ```
 

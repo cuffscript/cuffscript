@@ -1,2 +1,2 @@
-set list items to [1, 2]
+list items = [1, 2]
 replace items[1] to 5

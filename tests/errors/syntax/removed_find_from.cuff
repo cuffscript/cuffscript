@@ -1,2 +1,2 @@
-set str text to "a1"
-set str r to find "[num]" from text
+str text = "a1"
+str r = find "[num]" from text

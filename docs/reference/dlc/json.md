@@ -18,9 +18,9 @@ Nesting deeper than the [JSON limit](../limits.md) is rejected on the way in and
 ```cuff
 use DLC:json
 use DLC:list
-set map person to {"name": "Ana", "tags": ["a", "b"], "age": empty}
+map person = {"name": "Ana", "tags": ["a", "b"], "age": empty}
 print(to_json(person))
-set map data to from_json("{\"n\": 3, \"ok\": true, \"items\": [1, 2]}")
+map data = from_json("{\"n\": 3, \"ok\": true, \"items\": [1, 2]}")
 print(data["n"] + 1, data["ok"], length(data["items"]))
 ```
 
@@ -90,8 +90,8 @@ A text that might be malformed is best read with `or_else`:
 
 ```cuff
 use DLC:json
-set map config to from_json("{oops") or_else do:
-    change config to {"retries": 3}
+map config = from_json("{oops") or_else do:
+    config = {"retries": 3}
 end
 print(config)
 ```
@@ -106,7 +106,7 @@ Writing and reading again gives back an equal value, with these differences: a n
 
 ```cuff
 use DLC:json
-set map original to {"id": 7, "tags": ["x"], "note": empty}
+map original = {"id": 7, "tags": ["x"], "note": empty}
 print(from_json(to_json(original)) is original)
 ```
 

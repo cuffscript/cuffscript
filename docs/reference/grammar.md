@@ -27,32 +27,32 @@ program        = { statement } ;
 
 statement      = ( simple_statement | block_statement ) [ or_else ] NEWLINE ;
 
-or_else        = "or_else" [ "as" NAME ] "do" ":" NEWLINE { statement } "end" ;
+or_else        = "or_else" [ "as" type NAME ] "do" ":" NEWLINE { statement } "end" ;
 ```
 
 An `or_else` follows the statement it protects, on the same line for a simple statement and after the closing `end` for a block. The handler is a block of its own and has its own
-`end`. A statement may be followed by only one `or_else`. `as NAME` gives the handler the [error object](classes.md#errors-are-objects) in a variable of that name. A statement ends at the end of its line: two statements on one line are a syntax error.
+`end`. A statement may be followed by only one `or_else`. `as type NAME` gives the handler the [error object](classes.md#errors-are-objects) in a variable of that name and type. A statement ends at the end of its line: two statements on one line are a syntax error.
 
 ## Statements
 
 ```text
 simple_statement = declaration
-                 | change | add | remove | global
+                 | assignment | add | remove | global
                  | "stop" | "skip"
                  | return | fail
                  | await_statement
                  | use
                  | expression ;
 
-declaration    = "set" [ "constant" ] type NAME "to" expression ;
-type           = "number" | "str" | "list" | "map" | "boolean" | "match" | "pattern" | "object" | "empty"
+declaration    = [ "constant" ] type NAME "=" expression ;
+type           = "any" | "number" | "str" | "list" | "map" | "boolean" | "match" | "pattern" | "object" | "empty"
                | CLASSNAME ;
 
 place          = ( NAME | "self" | "." NAME ) { "[" expression "]" | "." NAME } ;
 
-change         = "change" place "to" expression ;
+assignment     = place "=" expression ;
 add            = "add" expression "to" place ;
-remove         = "remove" expression "from" place ;
+remove         = "remove" [ "at" ] expression "from" place ;
 global         = "global" NAME { "," NAME } ;
 
 return         = "return" [ expression ] ;
@@ -60,11 +60,13 @@ fail           = "fail" expression ;
 await_statement = "await" postfix ;
 ```
 
-- `declaration`: the type is required, and a constant's name must be written in capitals (checked when the statement runs). A type name is read as a type only where a type may stand (here, in a parameter list and in a field); everywhere else the same word is an ordinary name.
-- `place` is a spot that holds a value: a variable, a list item, a map entry or a field, to any depth. `change`, `add` and `remove` all take one, so `add 5 to grid[1]` adds to the inner list and `change self.items[2] to 0` changes an item of a field. A slice or the result of a call is not a place. `.NAME` is a member of the object of the innermost [`with` block](classes.md#the-with-block).
+- `declaration`: the type is required, and a constant's name must be written in capitals (checked when the statement runs). A type name is read as a type only where a type may stand (the start of a declaration, a parameter list, a field, `loop repeat`, `loop each` and `or_else as`); everywhere else the same word is an ordinary name. A name that the same function has already declared is a syntax error (`E2-010`; [language reference](language.md#31-declaring-a-variable)).
+- A statement that starts with a type word, a name and `=` is a declaration; one that starts with a name, `self` or `.` and has a `=` outside brackets before the end of its line is an assignment.
+- `place` is a spot that holds a value: a variable, a list item, a map entry or a field, to any depth. An assignment, `add` and `remove` all take one, so `add 5 to grid[1]` adds to the inner list and `self.items[2] = 0` changes an item of a field. A slice or the result of a call is not a place. `.NAME` is a member of the object of the innermost [`with` block](classes.md#the-with-block).
+- `remove at expression from place` removes by position; `remove expression from place` removes by value (or, from a map, by key).
 - `global` links variables of the program to the function it is written in; it must come before the names are used. At the top level it is an error, because there every variable is already global.
 - `fail` raises an error; its value is an `Error` object or a string (see [errors are objects](classes.md#errors-are-objects)).
-- `await postfix` is the statement form; `await` can also be used inside an expression (`set number x to await f()`).
+- `await postfix` is the statement form; `await` can also be used inside an expression (`number x = await f()`).
 - An `expression` on its own is a statement; its value is discarded. This is how a call such as `print(1)` is a statement.
 - `skip` and `stop` act on the nearest enclosing loop and are an error outside one.
 
@@ -76,27 +78,27 @@ if             = "if" expression "do" ":" body
                  [ "else" "do" ":" body ]
                  "end" ;
 
-loop           = "loop" "repeat" NAME "to" expression "~" expression "do" ":" body "end"
+loop           = "loop" "repeat" type NAME "=" expression "~" expression "do" ":" body "end"
                | "loop" "while" expression "do" ":" body "end"
-               | "loop" "each" NAME "in" expression "do" ":" body "end" ;
+               | "loop" "each" type NAME "in" expression "do" ":" body "end" ;
 
 with           = "with" expression "do" ":" body "end" ;
 
 function       = { "async" | "pure" } "func" NAME
                  "(" [ parameter { "," parameter } ] ")" "do" ":" body "end" ;
 
-parameter      = [ type ] NAME [ "to" expression ] ;
+parameter      = type NAME [ "=" expression ] ;
 
 class          = "class" CLASSNAME [ "extends" CLASSNAME ] "do" ":" { member } "end" ;
 member         = [ "private" ] ( field | function ) ;
-field          = "set" [ "constant" ] type NAME "to" expression ;
+field          = [ "constant" ] type NAME "=" expression ;
 
 body           = { statement } ;
 ```
 
 - The body of an `if`, a loop, a `with`, a function or a class may be written on the same line as its header (`if x is 1 do: print("one") end`). An empty body may be written on one line only for a class (`class Oops extends Error do: end`).
 - The words `async` and `pure` can appear in any order before `func`, each at most once. `private` may only appear in front of a member of a class.
-- A parameter's type is optional and is a type name followed by the name (`list items`); `empty` is not a parameter type. A single word is always a name, so `f(list)` has a parameter called `list`. A parameter with a default is written `NAME to expression`; the parameters without one come first.
+- A parameter is a type followed by its name (`list items`), and `any` takes every value. A parameter with a default is written `type NAME = expression`; the parameters without one come first.
 - A class contains fields and methods only, and appears only at the top level of a program or a module. A function is not declared inside another function or a method.
 - A body closes at the first `end` (or `else` for an `if` branch) that is not inside a deeper block.
 
@@ -186,7 +188,7 @@ comment        = "note" ":" { any character up to the end of the line }
                | "note" ":" NEWLINE { any text } "endnote" ;
 ```
 
-- A name is not a [reserved word](language.md#15-names-and-reserved-words), apart from the few that may be used as names (the language reference lists them). The names of the types are ordinary names outside the places where a type may stand.
+- A name is not a [reserved word](language.md#15-names-and-reserved-words). The names of the types are ordinary names outside the places where a type may stand.
 - A number has digits on both sides of its point, and no sign or exponent: a minus is the prefix operator, and `.5`, `5.` and `1e5` are not numbers.
 - A string is written with double quotes or single quotes; an f-string only with double quotes. Inside a string a backslash starts an escape (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`); any other backslash and the character after it are kept as written. A string may span lines.
 - Inside an f-string, `{` begins an expression that runs to the matching `}`, and `{{` and `}}` are literal braces. The expression cannot contain a double quote, and there is no format specifier: `{x:2}` is a syntax error.

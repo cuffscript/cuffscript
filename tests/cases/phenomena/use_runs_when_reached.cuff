@@ -1,6 +1,6 @@
 note: use is a statement. Until execution reaches it, the module's functions do not exist.
 print("calling before the use line")
-print(shout("x")) or_else as problem do:
+print(shout("x")) or_else as Error problem do:
     print(problem.code, "the module is not loaded yet")
 end
 
@@ -9,6 +9,6 @@ print(shout("now"))
 
 note: a function written in this very file needs no such order
 print(local_shout("anytime"))
-func local_shout(word) do:
+func local_shout(str word) do:
     return word + "!"
 end

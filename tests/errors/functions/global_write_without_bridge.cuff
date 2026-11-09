@@ -1,6 +1,6 @@
 note: E4-001
-set number x to 1
+number x = 1
 func f() do:
-    change x to 2
+    x = 2
 end
 f()

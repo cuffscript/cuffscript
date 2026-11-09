@@ -6,12 +6,12 @@ Every example on this page is run by the documentation checks, so the output sho
 ## Values and variables
 
 ```cuff
-set number age to 25
-set str name to "Ann"
-set boolean active to true
-set list scores to [90, 85, 77]
-set map profile to {"name": "Ann", "city": "Seoul"}
-change age to 26
+number age = 25
+str name = "Ann"
+boolean active = true
+list scores = [90, 85, 77]
+map profile = {"name": "Ann", "city": "Seoul"}
+age = 26
 print(name, age, active)
 print(scores, profile)
 ```
@@ -21,8 +21,8 @@ Ann 26 true
 [90, 85, 77] {"name": "Ann", "city": "Seoul"}
 ```
 
-`set` declares and checks the type once; `change` gives an existing variable a new value. A constant is written
-`set constant number MAX to 10`, with a name in capitals, and cannot be changed.
+A declaration names a type, a name and a value, and the variable keeps that type: `age = 26` stores a new value, and a value of another type is an error. `any` is the type of a variable that holds different kinds of values. A constant is written
+`constant number MAX = 10`, with a name in capitals, and cannot be changed.
 
 ## Comments
 
@@ -31,7 +31,7 @@ A comment starts with `note:` and runs to the end of the line, on its own line o
 
 ```cuff
 note: a comment on its own line
-set number total to 0   note: a comment after code
+number total = 0   note: a comment after code
 
 note:
 A block comment can span several lines
@@ -50,7 +50,7 @@ Strings use double quotes, `+` joins them, and an f-string puts values into text
 a negative position counts from the end.
 
 ```cuff
-set str city to "Seoul"
+str city = "Seoul"
 print("Hello, " + city + "!")
 print(f"{city} has {1 + 1} syllables")
 print(city[1], city[-1], city[2~4])
@@ -69,7 +69,7 @@ S l eou
 Equality is written `is` and `is not`, and a comparison works on two numbers or two strings.
 
 ```cuff
-set number temp to 18
+number temp = 18
 if temp > 25 do:
     print("hot")
 else if temp > 15 do:
@@ -104,7 +104,7 @@ an empty list is falsy
 as `a` is true. `%` gives the remainder of a division and `**` raises to a power.
 
 ```cuff
-set number hour to 14
+number hour = 14
 if hour >= 9 and hour < 18 do:
     print("open")
 end
@@ -119,13 +119,13 @@ open
 ## Repeating
 
 ```cuff
-loop repeat i to 1 ~ 3 do:
+loop repeat number i = 1 ~ 3 do:
     print(i * i)
 end
 
-set number n to 1
+number n = 1
 loop while n < 20 do:
-    change n to n * 3
+    n = n * 3
 end
 print(n)
 ```
@@ -140,7 +140,7 @@ print(n)
 `loop each` visits the elements of a list, the keys of a map or the characters of a text, and `skip` goes on with the next pass. `stop` ends the nearest loop. A loop does not open a new scope: `i` and `n` are still there afterwards.
 
 ```cuff
-loop each word in ["red", "", "blue"] do:
+loop each str word in ["red", "", "blue"] do:
     if word is "" do:
         skip
     end
@@ -156,14 +156,14 @@ blue
 ## Lists and maps
 
 ```cuff
-set list items to [10, 20]
+list items = [10, 20]
 add 30 to items
-change items[1] to 11
-remove 2 from items
+items[1] = 11
+remove at 2 from items
 print(items)
 
-set map stock to {"apples": 3}
-change stock["pears"] to 5
+map stock = {"apples": 3}
+stock["pears"] = 5
 print(stock["pears"], stock)
 ```
 
@@ -172,24 +172,23 @@ print(stock["pears"], stock)
 5 {"apples": 3, "pears": 5}
 ```
 
-`remove 2 from items` takes out the element at position 2; removing a value instead of a position is done by naming a
-value that is not a number, such as a string. Lists and maps are shared, not copied: if two names refer to the same list, a change through one shows through the
-other; `copy(items)` makes an independent list. `change`, `add` and `remove` work on anything that holds a value, however deep: `add 5 to grid[1]` appends to the inner list, and `change grid[2][3] to 0` changes one item. The [list](../reference/dlc/list.md) and [map](../reference/dlc/map.md) libraries add sorting, joining, keys
+`remove at 2 from items` takes out the element at position 2; `remove 30 from items` would take out the first element equal to `30` instead. Lists and maps are shared, not copied: if two names refer to the same list, a change through one shows through the
+other; `copy(items)` makes an independent list. Assignment, `add` and `remove` work on anything that holds a value, however deep: `add 5 to grid[1]` appends to the inner list, and `grid[2][3] = 0` changes one item. The [list](../reference/dlc/list.md) and [map](../reference/dlc/map.md) libraries add sorting, joining, keys
 and more.
 
 ## Functions
 
 ```cuff
-func announce(text) do:
+func announce(str text) do:
     print(">> " + text)
 end
 
-func add(number a, number b) do:
+func sum(number a, number b) do:
     return a + b
 end
 
 announce("start")
-print(add(2, 3))
+print(sum(2, 3))
 ```
 
 ```output
@@ -197,8 +196,8 @@ print(add(2, 3))
 5
 ```
 
-`return value` gives a value back from any function, and a function that ends without one gives `empty`. Parameters may carry a type (`number a`), which is checked at
-the call, and may have a default (`str greeting to "Hello"`). Functions can call themselves, and a function may be called above the line that declares it. A short function fits on one line: `func twice(x) do: return x * 2 end`. There are no
+`return value` gives a value back from any function, and a function that ends without one gives `empty`. Every parameter has a type (`number a`; `any` takes a value of any type), which is checked at
+the call, and may have a default (`str greeting = "Hello"`). Functions can call themselves, and a function may be called above the line that declares it. A short function fits on one line: `func twice(number x) do: return x * 2 end`. There are no
 closures: a function does not see your global variables unless it asks, with `global x`.
 
 ### Global variables and functions
@@ -206,11 +205,11 @@ closures: a function does not see your global variables unless it asks, with `gl
 A function sees only its own variables and its parameters. To use or change a variable of the main program, name it with `global` first:
 
 ```cuff
-set number counter to 0
+number counter = 0
 
 func bump() do:
     global counter
-    change counter to counter + 1
+    counter = counter + 1
 end
 
 bump()
@@ -226,7 +225,7 @@ Constants are bridged the same way, to read them. Functions are the exception: e
 the outside world can say so with `pure`, which makes any use of a global an error:
 
 ```cuff
-pure func square(n) do:
+pure func square(number n) do:
     return n * n
 end
 print(square(7))
@@ -242,7 +241,7 @@ An `async` function does not run where it is called. The call is put in a queue,
 order they were made. `await` runs a call right there instead:
 
 ```cuff
-async func job(name) do:
+async func job(str name) do:
     print("ran " + name)
 end
 
@@ -268,9 +267,9 @@ Nothing runs in parallel; `async` only changes *when* a call runs.
 An `or_else` block runs if the statement before it fails with an error that can be caught:
 
 ```cuff
-set number n to to_number("abc") or_else do:
+number n = to_number("abc") or_else do:
     print("not a number, using 1")
-    change n to 1
+    n = 1
 end
 print(n)
 ```
@@ -280,7 +279,7 @@ not a number, using 1
 1
 ```
 
-`or_else as err` hands the handler the error as an object, with a `message`, a `code` and the line where it happened, and `fail` raises an error of your own:
+`or_else as Error err` hands the handler the error as an object, with a `message`, a `code` and the line where it happened, and `fail` raises an error of your own:
 
 ```cuff
 func half(number n) do:
@@ -290,7 +289,7 @@ func half(number n) do:
     return n / 2
 end
 
-print(half(7)) or_else as err do:
+print(half(7)) or_else as Error err do:
     print(err.code, err.message)
 end
 ```
@@ -319,8 +318,8 @@ print(math_sqrt(81), str_upper("done"), length("한글"))
 A pattern describes text by shape instead of by exact characters. It is written `p"..."`, and a few functions take it: `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count`, with the text first.
 
 ```cuff
-set str code to "order SN-2024-0042 shipped"
-set match found to match(code, p"SN-([num]4)-([num]+)")
+str code = "order SN-2024-0042 shipped"
+any found = match(code, p"SN-([num]4)-([num]+)")
 if found do:
     print("matched")
 end
@@ -335,12 +334,12 @@ matched
 `matches` tests whether a whole text fits a pattern, and the flag `i` after the pattern ignores case. `is` only ever compares values:
 
 ```cuff
-set str answer to "yes"
+str answer = "yes"
 if answer matches p"YES"i do:
     print("case does not matter with the i flag")
 end
 
-set str code to "AB-1234"
+str code = "AB-1234"
 if code matches p"[up]2-[num]4" do:
     print("shape matches")
 end
@@ -364,10 +363,10 @@ A class describes a kind of thing, and objects made from it each carry their own
 
 ```cuff
 class Counter do:
-    set number count to 0
+    number count = 0
 
     func bump() do:
-        change self.count to self.count + 1
+        self.count = self.count + 1
     end
 end
 
@@ -378,7 +377,7 @@ class LoudCounter extends Counter do:
     end
 end
 
-set LoudCounter c to LoudCounter()
+LoudCounter c = LoudCounter()
 c.bump()
 with c do:
     bump()

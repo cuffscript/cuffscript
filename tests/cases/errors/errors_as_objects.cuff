@@ -1,17 +1,17 @@
-note: fail raises an Error; or_else as binds it; engine errors arrive as the same Error.
+note: fail raises an Error; or_else as Error binds it; engine errors arrive as the same Error.
 class ValidationError extends Error do:
-    set str field to ""
+    str field = ""
 
-    func init(str message, str field to "") do:
+    func init(str message, str field = "") do:
         super.init(message)
-        change self.field to field
+        self.field = field
     end
 end
 
 class NotFound extends Error do:
 end
 
-func check_age(age) do:
+func check_age(any age) do:
     if age < 0 do:
         fail ValidationError("age cannot be negative", "age")
     end
@@ -21,8 +21,8 @@ func check_age(age) do:
     return age
 end
 
-func try_age(age) do:
-    check_age(age) or_else as err do:
+func try_age(any age) do:
+    check_age(age) or_else as Error err do:
         if err isa ValidationError do:
             print(f"invalid {err.field}: {err.message}")
         else if err isa Error do:
@@ -35,13 +35,13 @@ try_age(-5)
 try_age(200)
 
 note: the fields of an Error
-set Error plain to Error("custom text")
+Error plain = Error("custom text")
 print(plain.message, plain.code, plain.line, plain.column, plain.hint is "")
 print(plain)
 print(plain isa Error, type_of(plain))
 
 note: engine errors are Errors too
-print(1 / 0) or_else as e do:
+print(1 / 0) or_else as Error e do:
     print(e.code)
     print(e.message)
     print(e.line, e.column)
@@ -49,8 +49,8 @@ print(1 / 0) or_else as e do:
 end
 
 use DLC:list
-set list items to [1, 2]
-print(items[5]) or_else as e do:
+list items = [1, 2]
+print(items[5]) or_else as Error e do:
     print(e.code, e.message)
 end
 
@@ -61,7 +61,7 @@ end
 
 note: rethrow, and branch by class
 func outer() do:
-    try_inner() or_else as err do:
+    try_inner() or_else as Error err do:
         print("outer saw:", err.message)
         fail NotFound("wrapped: " + err.message)
     end
@@ -69,23 +69,23 @@ end
 func try_inner() do:
     fail "inner problem"
 end
-outer() or_else as err do:
+outer() or_else as Error err do:
     print(type_of(err), err isa NotFound, err isa ValidationError)
     print(err)
 end
 
 note: fail err keeps an engine error unchanged
-func divide(a, b) do:
+func divide(any a, any b) do:
     return a / b
 end
-divide(1, 0) or_else as err do:
+divide(1, 0) or_else as Error err do:
     print("first", err.code)
-    divide(1, 0) or_else as inner do:
+    divide(1, 0) or_else as Error inner do:
         print("again", inner.code)
     end
 end
 
-set Error made to NotFound("lookup failed")
+Error made = NotFound("lookup failed")
 print(made.code, made.message)
 print(made)
 
@@ -93,6 +93,6 @@ note: an Error raised with fail knows where it was raised
 func boom() do:
     fail "located"
 end
-boom() or_else as e do:
+boom() or_else as Error e do:
     print(e.line, e.column, e.message)
 end

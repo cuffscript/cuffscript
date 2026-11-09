@@ -124,7 +124,7 @@ namespace cuff
         std::vector<const FunctionDecl *> userById_;
         static constexpr size_t kCallPoolCap = 256;
         std::vector<std::vector<Value>> argsPool_;
-        std::vector<std::vector<std::pair<uint32_t, Value>>> envVarsPool_;
+        std::vector<std::vector<Environment::Slot>> envVarsPool_;
 
         CUFF_ALWAYS_INLINE std::vector<Value> takeArgsBuffer()
         {
@@ -362,14 +362,14 @@ namespace cuff
         static const char *preludeSource()
         {
             return "class Error do:\n"
-                   "    set str message to \"\"\n"
-                   "    set str code to \"E7-001\"\n"
-                   "    set number line to 0\n"
-                   "    set number column to 0\n"
-                   "    set str hint to \"\"\n"
+                   "    str message = \"\"\n"
+                   "    str code = \"E7-001\"\n"
+                   "    number line = 0\n"
+                   "    number column = 0\n"
+                   "    str hint = \"\"\n"
                    "\n"
-                   "    func init(str message to \"\") do:\n"
-                   "        change self.message to message\n"
+                   "    func init(str message = \"\") do:\n"
+                   "        self.message = message\n"
                    "    end\n"
                    "\n"
                    "    func to_str() do:\n"
@@ -709,8 +709,8 @@ namespace cuff
             case StmtKind::Declaration:
                 execDeclaration(stmtAs<DeclarationStmt>(stmt), env);
                 return ExecOutcome::normal();
-            case StmtKind::Change:
-                execChange(stmtAs<ChangeStmt>(stmt), env);
+            case StmtKind::Assign:
+                execAssign(stmtAs<AssignStmt>(stmt), env);
                 return ExecOutcome::normal();
             case StmtKind::Global:
                 execGlobal(stmtAs<GlobalStmt>(stmt), env);
@@ -791,19 +791,28 @@ namespace cuff
         {
             throw CuffRuntimeError(ErrorCode::DeclarationTypeMismatch,
                                    "cannot assign a " + typeNameOf(v) + " value to " + typeName + " " + what + " '" + name + "'",
-                                   loc, "the declared type (" + typeName + ") and the assigned value's type must match at 'set'");
+                                   loc, "a variable keeps the type it was declared with (" + typeName + "); use 'any' for a variable that holds different types");
         }
 
-        // Whether a value that is not `empty` satisfies a declared type. A class accepts its own objects and those of
-        // its subclasses.
-        bool typeAccepts(const TypeSpec &type, const Value &v, const SourceLocation &loc)
+        // Slots keep the type they were declared with as one number: a built-in type is its TypeKind (0, `any`, accepts
+        // everything) and a class is its name's id above kClassTypeBase.
+        static constexpr uint32_t kClassTypeBase = 16;
+
+        static uint32_t typeCode(const TypeSpec &type)
         {
-            switch (type.kind)
+            return type.kind == TypeKind::Class ? kClassTypeBase + type.classNameId : static_cast<uint32_t>(type.kind);
+        }
+
+        // Whether a value satisfies a type: a built-in kind, or the class named by `classNameId`, whose objects and those
+        // of its subclasses it accepts. `empty` satisfies `empty` and `any` only.
+        bool acceptsType(TypeKind kind, uint32_t classNameId, const Value &v)
+        {
+            switch (kind)
             {
             case TypeKind::Any:
                 return true;
             case TypeKind::Empty:
-                return false; // a non-empty value can never satisfy `empty`
+                return v.isEmpty();
             case TypeKind::Number:
                 return v.isNumber();
             case TypeKind::Str:
@@ -822,13 +831,18 @@ namespace cuff
                 return v.isObject();
             case TypeKind::Class:
             {
-                const ClassInfo *cls = findClass(type.classNameId);
-                if (!cls)
-                    throwUnknownClass(type.className, loc);
-                return v.isObject() && v.asObject()->cls->isSubclassOf(cls);
+                const ClassInfo *cls = findClass(classNameId);
+                return cls && v.isObject() && v.asObject()->cls->isSubclassOf(cls);
             }
             }
             return true;
+        }
+
+        bool typeAccepts(const TypeSpec &type, const Value &v, const SourceLocation &loc)
+        {
+            if (type.kind == TypeKind::Class && !findClass(type.classNameId))
+                throwUnknownClass(type.className, loc);
+            return acceptsType(type.kind, type.classNameId, v);
         }
 
         void checkDeclaredType(const TypeSpec &type, const Value &v, const std::string &name, const SourceLocation &loc,
@@ -836,12 +850,35 @@ namespace cuff
         {
             if (type.kind == TypeKind::Any)
                 return;
-            if (type.kind == TypeKind::Class && !findClass(type.classNameId))
-                throwUnknownClass(type.className, loc);
-            if (v.isEmpty())
-                return;
             if (!typeAccepts(type, v, loc))
                 throwDeclarationMismatch(type.name(), v, name, loc, what);
+        }
+
+        // An assignment keeps a variable to the type it was declared with.
+        CUFF_ALWAYS_INLINE void checkAssigned(uint32_t type, const Value &v, const std::string &name, const SourceLocation &loc)
+        {
+            if (type == 0)
+                return;
+            const bool isClass = type >= kClassTypeBase;
+            if (!acceptsType(isClass ? TypeKind::Class : static_cast<TypeKind>(type), isClass ? type - kClassTypeBase : 0, v))
+                throwAssignedMismatch(type, v, name, loc);
+        }
+
+        [[noreturn]] CUFF_NOINLINE void throwAssignedMismatch(uint32_t type, const Value &v, const std::string &name,
+                                                              const SourceLocation &loc)
+        {
+            TypeSpec spec;
+            if (type >= kClassTypeBase)
+            {
+                spec.kind = TypeKind::Class;
+                const ClassInfo *cls = findClass(type - kClassTypeBase);
+                spec.className = cls ? cls->name : "?";
+            }
+            else
+            {
+                spec.kind = static_cast<TypeKind>(type);
+            }
+            throwDeclarationMismatch(spec.name(), v, name, loc, "variable");
         }
 
         void execDeclaration(const DeclarationStmt &decl, Environment &env)
@@ -860,7 +897,7 @@ namespace cuff
             checkDeclaredType(decl.type, v, decl.name, decl.nameLoc);
             if (decl.isConstant && v.isList())
                 v = freezeList(v);
-            env.declare(decl.nameId, std::move(v), decl.isConstant);
+            env.declare(decl.nameId, std::move(v), decl.isConstant, typeCode(decl.type));
         }
 
         void execGlobal(const GlobalStmt &g, Environment &env)
@@ -898,7 +935,7 @@ namespace cuff
         {
             throw ConstantError(ErrorCode::ConstantReassignment,
                                 "cannot modify a constant list — it was declared with 'constant' and its contents are read-only",
-                                loc, "assigning it to another variable does not unfreeze it; build a new list instead, e.g. 'change x to y + []'");
+                                loc, "assigning it to another variable does not unfreeze it; build a new list instead, e.g. 'x = y + []'");
         }
 
         [[noreturn]] CUFF_COLD void throwPureGlobalAccess(const std::string &name, const SourceLocation &loc) const
@@ -1024,6 +1061,7 @@ namespace cuff
         {
             Value *var = nullptr;
             Environment *owner = nullptr;
+            uint32_t type = 0;           // what the variable was declared as
             Value holder;                // a member of a `with` object: the object
             uint32_t fieldIndex = 0;
             bool isMember = false;
@@ -1034,10 +1072,11 @@ namespace cuff
             Located found;
             for (Environment *e = &env; e; e = e->parentScope())
             {
-                if (Value *v = e->localValue(id))
+                if (Environment::Slot *slot = e->localSlot(id))
                 {
-                    found.var = v;
+                    found.var = &slot->second;
                     found.owner = e;
+                    found.type = slot->type;
                     return found;
                 }
                 if (e->hasWithObject())
@@ -1057,6 +1096,7 @@ namespace cuff
                     Environment::Lookup look = e->resolve(id);
                     found.var = look.value;
                     found.owner = look.owner;
+                    found.type = look.type;
                     return found;
                 }
             }
@@ -1084,10 +1124,11 @@ namespace cuff
             return *v.asObject();
         }
 
-        void writeField(ObjectData &o, size_t index, Value v, const SourceLocation &loc) const
+        void writeField(ObjectData &o, size_t index, Value v, const SourceLocation &loc)
         {
             const ClassInfo::Field &f = o.cls->fields[index];
             checkFieldAccess(f, loc);
+            checkDeclaredType(f.decl->type, v, f.name, loc, "field");
             if (f.isConstant)
             {
                 if (!o.constructing)
@@ -1100,7 +1141,7 @@ namespace cuff
             o.fields[index] = std::move(v);
         }
 
-        // ---- places: where `change`, `add` and `remove` write -------------------------------------------------------
+        // ---- places: where an assignment, `add` and `remove` write -------------------------------------------------------
 
         struct PlaceOp
         {
@@ -1116,6 +1157,7 @@ namespace cuff
         {
             Value *var = nullptr;
             Environment *owner = nullptr;
+            uint32_t type = 0;       // what the variable was declared as
             bool constant = false;
             Value object;            // `self`, a `.name`, or a member found through `with`
             bool synthetic = false;  // the first field is the place's own name, not one of its steps
@@ -1151,7 +1193,7 @@ namespace cuff
 
         enum class PlaceUse
         {
-            Change,
+            Assign,
             Collection
         };
 
@@ -1182,18 +1224,20 @@ namespace cuff
                 }
                 r.var = l.var;
                 r.owner = l.owner;
+                r.type = l.type;
             }
             else
             {
                 Environment::Lookup look = env.resolve(pl.nameId);
                 r.var = look.value;
                 r.owner = look.owner;
+                r.type = look.type;
             }
             if (!r.var)
             {
-                if (use == PlaceUse::Change)
-                    throwUnresolved(pl.nameId, pl.name, "cannot change undefined variable '" + pl.name + "'", pl.loc,
-                                    "declare it first with 'set', or bridge a global with 'global " + pl.name + "'");
+                if (use == PlaceUse::Assign)
+                    throwUnresolved(pl.nameId, pl.name, "cannot assign to undefined variable '" + pl.name + "'", pl.loc,
+                                    "declare it first, for example 'number " + pl.name + " = 0', or bridge a global with 'global " + pl.name + "'");
                 throwUnresolved(pl.nameId, pl.name, "undefined collection '" + pl.name + "'", pl.loc);
             }
             r.constant = env.isConstantIn(r.owner, pl.nameId);
@@ -1298,7 +1342,7 @@ namespace cuff
             throw TypeError("cannot index-assign into a " + typeNameOf(container) + " value", op.loc);
         }
 
-        CUFF_ALWAYS_INLINE void execChange(const ChangeStmt &c, Environment &env)
+        CUFF_ALWAYS_INLINE void execAssign(const AssignStmt &c, Environment &env)
         {
             const Place &pl = c.target;
 
@@ -1310,6 +1354,7 @@ namespace cuff
                 if (look.value && !env.isConstantIn(look.owner, pl.nameId))
                 {
                     Value v = evalExpr(*c.value, env);
+                    checkAssigned(look.type, v, pl.name, pl.loc);
                     *look.value = std::move(v);
                     return;
                 }
@@ -1328,17 +1373,17 @@ namespace cuff
                 }
                 if (holder && holder->isObject())
                 {
-                    changeField(c, env, *holder);
+                    assignField(c, env, *holder);
                     return;
                 }
             }
-            execChangePlace(c, env);
+            execAssignPlace(c, env);
         }
 
         // Stores into the one field a place names. The holder is read again after the new value is worked out, as the
         // general path does: evaluating the value may have put another object in the variable, and a slot is never
         // moved by evaluating an expression.
-        CUFF_NOINLINE void changeField(const ChangeStmt &c, Environment &env, const Value &holder)
+        CUFF_NOINLINE void assignField(const AssignStmt &c, Environment &env, const Value &holder)
         {
             const PlaceStep &s = c.target.steps[0];
             Value newVal = evalExpr(*c.value, env);
@@ -1346,10 +1391,10 @@ namespace cuff
             writeField(o, fieldIndexOrThrow(o, s.nameId, s.name, s.loc), std::move(newVal), s.loc);
         }
 
-        CUFF_NOINLINE void execChangePlace(const ChangeStmt &c, Environment &env)
+        CUFF_NOINLINE void execAssignPlace(const AssignStmt &c, Environment &env)
         {
             const Place &pl = c.target;
-            PlaceRoot root = resolveRoot(pl, env, PlaceUse::Change, c.loc);
+            PlaceRoot root = resolveRoot(pl, env, PlaceUse::Assign, c.loc);
 
             if (root.var)
             {
@@ -1360,6 +1405,7 @@ namespace cuff
                     // Evaluating an expression never adds a variable to the scope it runs in, so the slot found
                     // above is still where the variable lives.
                     Value v = evalExpr(*c.value, env);
+                    checkAssigned(root.type, v, pl.name, pl.loc);
                     *root.var = std::move(v);
                     return;
                 }
@@ -1417,8 +1463,11 @@ namespace cuff
                 if (target.asList()->isConstant)
                     throwConstantListMutation(co.loc);
                 auto &items = target.asList()->items;
-                if (operand.isNumber())
+                if (co.atPosition)
                 {
+                    if (!operand.isNumber())
+                        throw TypeError("'remove at' needs a position (a number), got " + typeNameOf(operand), co.loc,
+                                        "to remove an element by its value write `remove value from list`");
                     size_t real = resolveIndex1Based(expectWholeNumber(operand.asNumber(), "list index", co.loc), items.size(), co.loc);
                     items.erase(items.begin() + static_cast<long>(real));
                 }
@@ -1433,6 +1482,8 @@ namespace cuff
             }
             else if (target.isMap())
             {
+                if (co.atPosition)
+                    throw TypeError("'remove at' needs a list, got a map", co.loc, "remove a key with `remove \"key\" from map`");
                 if (!operand.isStr())
                     throw TypeError("map keys are strings; cannot remove using a " + typeNameOf(operand), co.loc);
                 target.asMap()->remove(operand.asStr());
@@ -1446,7 +1497,7 @@ namespace cuff
 
         void assignLoopVar(const LoopStmt &loop, Value v, Environment &env)
         {
-            if (!env.declareLoopVar(loop.repeatVarId, std::move(v)))
+            if (!env.declareLoopVar(loop.repeatVarId, std::move(v), typeCode(loop.varType)))
             {
                 throw ConstantError(ErrorCode::ConstantReassignment,
                                     "cannot use constant '" + loop.repeatVar + "' as a loop variable", loop.loc);
@@ -1489,6 +1540,7 @@ namespace cuff
                     throw TypeError("'loop repeat' bounds must be numbers", loop.loc);
                 long long start = expectWholeNumber(startV.asNumber(), "'loop repeat' start bound", loop.loc);
                 long long end = expectWholeNumber(endV.asNumber(), "'loop repeat' end bound", loop.loc);
+                checkDeclaredType(loop.varType, startV, loop.repeatVar, loop.typeLoc, "loop variable");
                 if (start <= end)
                 {
                     for (long long i = start; i <= end; ++i)
@@ -1537,6 +1589,7 @@ namespace cuff
                 for (Value &item : items)
                 {
                     tick(loop.loc);
+                    checkDeclaredType(loop.varType, item, loop.repeatVar, loop.typeLoc, "loop variable");
                     assignLoopVar(loop, std::move(item), env);
                     if (runLoopBody(loop, env, result))
                         return result;
@@ -1670,17 +1723,21 @@ namespace cuff
                 if (!e.recoverable)
                     throw;
 
-                // If a declaration threw before declare ran, bind the name to `empty` so the fallback can `change` it.
+                // If a declaration threw before declare ran, bind the name to `empty` so the fallback can assign it.
                 if (oe.primaryStmt->kind == StmtKind::Declaration)
                 {
                     const auto &decl = stmtAs<DeclarationStmt>(*oe.primaryStmt);
                     if (!env.isDeclaredHere(decl.nameId))
-                        env.declare(decl.nameId, Value::makeEmpty(), false);
+                        env.declare(decl.nameId, Value::makeEmpty(), false, typeCode(decl.type));
                 }
 
                 Environment blockEnv(Environment::Kind::BlockScope, env);
                 if (!oe.errorName.empty())
-                    blockEnv.declare(oe.errorNameId, makeErrorValue(e), false);
+                {
+                    Value error = makeErrorValue(e);
+                    checkDeclaredType(oe.errorType, error, oe.errorName, oe.typeLoc);
+                    blockEnv.declare(oe.errorNameId, std::move(error), false, typeCode(oe.errorType));
+                }
                 return execBlock(oe.fallbackBody, blockEnv);
             }
         }
@@ -2355,7 +2412,7 @@ namespace cuff
                                    loc, "declared as '" + typeName + " " + decl.params[i] + "' in the parameter list");
         }
 
-        // Only called for functions with a typed parameter, so untyped calls pay nothing.
+        // Only called for functions with a parameter that is not `any`, so the others pay nothing.
         void checkParamTypes(const std::string &name, const FunctionDecl &decl, const std::vector<Value> &args,
                              const SourceLocation &loc)
         {
@@ -2363,8 +2420,6 @@ namespace cuff
             for (size_t i = 0; i < n; ++i)
             {
                 const Value &v = args[i];
-                if (v.isEmpty())
-                    continue;
                 if (!typeAccepts(decl.paramTypes[i], v, loc))
                     throwParamTypeMismatch(name, decl, i, v, loc);
             }
@@ -2661,7 +2716,7 @@ namespace cuff
             funcEnv.reserve(decl.params.size());
             const size_t given = args.size();
             for (size_t i = 0; i < given; ++i)
-                funcEnv.declare(decl.paramIds[i], std::move(args[i]), false);
+                funcEnv.declare(decl.paramIds[i], std::move(args[i]), false, typeCode(decl.paramTypes[i]));
             if (given < decl.params.size())
                 fillDefaultArgs(decl, funcEnv, given, loc);
 
@@ -2679,9 +2734,9 @@ namespace cuff
             for (size_t i = given; i < decl.params.size(); ++i)
             {
                 Value fallback = evalExpr(*decl.paramDefaults[i], funcEnv);
-                if (decl.hasTypedParams && !fallback.isEmpty() && !typeAccepts(decl.paramTypes[i], fallback, loc))
+                if (decl.hasTypedParams && !typeAccepts(decl.paramTypes[i], fallback, loc))
                     throwParamTypeMismatch(decl.name, decl, i, fallback, loc);
-                funcEnv.declare(decl.paramIds[i], std::move(fallback), false);
+                funcEnv.declare(decl.paramIds[i], std::move(fallback), false, typeCode(decl.paramTypes[i]));
             }
         }
 
@@ -2882,7 +2937,7 @@ namespace cuff
                 throw;
             }
             for (const auto &kv : moduleEnv.localVars())
-                env.declare(kv.first, kv.second, moduleEnv.isConstantHere(kv.first));
+                env.declare(kv.first, kv.second, moduleEnv.isConstantHere(kv.first), kv.type);
             mark.committed = true;
         }
 

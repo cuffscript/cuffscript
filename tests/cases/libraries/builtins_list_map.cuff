@@ -20,7 +20,7 @@ print(list_sort(["b", "a", "c"]))
 print(list_reverse([1, 2, 3]))
 print(list_join(["a", "b"], "-"))
 
-set map m to {"x": 1, "y": 2}
+map m = {"x": 1, "y": 2}
 print(map_keys(m))
 print(map_values(m))
 print(map_has_key(m, "x"))

@@ -11,8 +11,6 @@ namespace cuff
     inline const std::unordered_map<std::string, TokenType> &keywordMap()
     {
         static const std::unordered_map<std::string, TokenType> m = {
-            {"set", TokenType::SET},
-            {"change", TokenType::CHANGE},
             {"constant", TokenType::CONSTANT},
             {"global", TokenType::GLOBAL},
             {"add", TokenType::ADD},
@@ -32,6 +30,7 @@ namespace cuff
             {"from", TokenType::FROM},
             {"in", TokenType::IN},
             {"to", TokenType::TO},
+            {"at", TokenType::AT},
             {"do", TokenType::DO},
             {"end", TokenType::END},
             {"note", TokenType::NOTE},

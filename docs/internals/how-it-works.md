@@ -14,7 +14,7 @@ A program goes through the same four steps every time (`Interpreter::run` and `e
 ```
 
 - **Step 1** is why a syntax error anywhere, even in a function nobody calls, stops the program before its first line.
-- **Step 2** is why a function or a class can be used above the place it is written. It is a pass over the top level of the tree, not a feature of calls. Functions are recorded under their name, one entry per name, so a later function of the same name replaces an earlier one. Classes are built after their parents, whatever the order in the file. A statement such as `set number total to 5` is not a declaration in this sense: it is run in step 3, when its line is reached.
+- **Step 2** is why a function or a class can be used above the place it is written. It is a pass over the top level of the tree, not a feature of calls. Functions are recorded under their name, one entry per name, so a later function of the same name replaces an earlier one. Classes are built after their parents, whatever the order in the file. A statement such as `number total = 5` is not a declaration in this sense: it is run in step 3, when its line is reached.
 - **Step 3** runs `use` as the statement it is, so a module's functions are collected when execution reaches its line, not before. A module is itself a program, run through the same steps, once.
 - **Step 4** is the end of the program text, not the end of the process. If an error ends the run at any step, the queue is emptied without running anything in it.
 
@@ -41,6 +41,8 @@ A scope is a set of variables. The engine has two kinds:
 - A **function scope** is made for each call and starts empty. It is not linked to the caller's scope, and it cannot see the program's variables. The only way in is `global`, which links a name in the function to the program's variable of that name.
 - A **block scope** is chained to the scope around it and falls back to it. `with` makes one; the bodies of `if` and the loops do not, they run in the scope they are written in. A variable made in a loop, or in an `if`, therefore stays after it.
 
+Every variable carries the type it was declared with next to its value, and an assignment checks the new value against it; `any` accepts every value. Which names a function declares is settled before it runs: the parser refuses a name that the function (or the top level) has already declared (`E2-010`), and it forgets the names of a block when the block ends, so a scope itself never has to decide between two declarations of one name that are alive at once.
+
 A name is looked up in the scope, then outward through block scopes, and stops at the function boundary. Inside `with` there is one step before that: the innermost object's members are tried first, which is why a member hides a variable of the same name inside the block, and `.name` goes straight to the member.
 
 ## Calls
@@ -49,7 +51,7 @@ Calling a function does these things, in this order: the arguments are evaluated
 
 A method call is the same, with `self` bound to the object and the class that *wrote* the method remembered next to it. `private` and `super` are checked against that class and not against the class of the object, which is why a child's method cannot read its parent's private field even though the object has it.
 
-An object is made by building its fields, from the oldest ancestor's down, each default evaluated and its type checked, and then running the nearest `init`. The types are not looked at again.
+An object is made by building its fields, from the oldest ancestor's down, each default evaluated and its type checked, and then running the nearest `init`. Every later store into a field is checked against the type again.
 
 ## Values and sharing
 

@@ -1,9 +1,9 @@
 note: E4-029
-set number counter to 0
+number counter = 0
 
 func bump() do:
     global counter
-    change counter to counter + 1
+    counter = counter + 1
 end
 
 pure func trigger_bump() do:

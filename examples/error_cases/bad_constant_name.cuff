@@ -1,2 +1,2 @@
 note: constant names must be all uppercase -> ConstantError
-set constant number bad_name to 5
+constant number bad_name = 5

@@ -1,47 +1,47 @@
 note: Lists and maps: adding, changing and removing, slicing, nested values, and sharing.
 
-set list inventory to ["sword", "shield"]
+list inventory = ["sword", "shield"]
 add "potion" to inventory
-change inventory[1] to "magic staff"
+inventory[1] = "magic staff"
 print(inventory)
-remove 2 from inventory
+remove at 2 from inventory
 print(inventory)
 remove "potion" from inventory
 print(inventory)
 
-set map profile to {"name": "Bob"}
-change profile["level"] to 50
+map profile = {"name": "Bob"}
+profile["level"] = 50
 print(profile)
 remove "level" from profile
 print(profile)
 
 note: change, add and remove work on anything that holds a value, however deep.
-set list grid to [[1, 2], [3, 4]]
+list grid = [[1, 2], [3, 4]]
 add 5 to grid[1]
-change grid[2][1] to 30
+grid[2][1] = 30
 print(grid)
-set map team to {"scores": [10, 20]}
+map team = {"scores": [10, 20]}
 add 30 to team["scores"]
 print(team)
 
 note: Slices take both ends; negative positions count from the end.
-set list nums to [10, 20, 30, 40, 50]
+list nums = [10, 20, 30, 40, 50]
 print(nums[2~4], nums[-1], nums[-3~-1])
-set str greeting to "Hello World"
+str greeting = "Hello World"
 print(greeting[1~5], greeting[-5~-1])
 
 note: Lists, maps and objects are shared, not copied. copy makes a separate list, one level deep.
-set list a to [1, 2, 3]
-set list b to a
+list a = [1, 2, 3]
+list b = a
 add 4 to b
 print(a)
-set list c to copy(a)
+list c = copy(a)
 add 5 to c
 print(a, c)
 
 note: A position that does not exist is an error, which or_else can catch.
-set number safe_value to nums[99] or_else do:
+number safe_value = nums[99] or_else do:
     print("position 99 does not exist; using 0")
-    change safe_value to 0
+    safe_value = 0
 end
 print(f"safe_value = {safe_value}")

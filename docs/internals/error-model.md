@@ -35,7 +35,7 @@ A program sees an error as an object of the built-in class `Error` (`message`, `
 Two kinds of error become one:
 
 - An error the program raises with `fail` is a `ProgramError` (`interpreter/ProgramError.h`, code `E7-001`). It carries the
-  `Error` object that was raised, which may be of a class the program wrote, and a handler written `or_else as e` receives that
+  `Error` object that was raised, which may be of a class the program wrote, and a handler written `or_else as Error e` receives that
   very object. `fail e` inside a handler raises it again with its class intact.
 - An error the engine raises (a recoverable `CuffError`) is turned into a new `Error` object at the handler, from its code,
   message, location and hint, so a handler can read the same fields whichever kind it caught. `fail e` of such an object raises

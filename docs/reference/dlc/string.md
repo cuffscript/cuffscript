@@ -29,7 +29,7 @@ place. An argument of the wrong type is `E4-005` and the wrong number of argumen
 
 ```cuff
 use DLC:string
-set str name to "  Cuff Script  "
+str name = "  Cuff Script  "
 print(length(name), length(str_trim(name)))
 print(str_upper("cuff"), str_lower("SCRIPT"), str_repeat("ab", 3))
 print(str_pad_left("7", 3, "0"), str_pad_right("ab", 4, ".") + "|")
@@ -73,7 +73,7 @@ To compare text ignoring case, use the `i` flag of a pattern (`name matches p"ye
 
 ```cuff
 use DLC:string
-set str word to "안녕"
+str word = "안녕"
 print(length(word), word[2], str_char_code(word), str_from_char_code(128512))
 ```
 

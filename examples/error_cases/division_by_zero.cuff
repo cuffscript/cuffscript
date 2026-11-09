@@ -1,4 +1,4 @@
 note: division by zero -> DivisionByZeroError
-set number x to 10
-set number y to 0
-set number z to x / y
+number x = 10
+number y = 0
+number z = x / y

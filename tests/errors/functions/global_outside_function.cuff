@@ -1,2 +1,2 @@
-set number x to 1
+number x = 1
 global x

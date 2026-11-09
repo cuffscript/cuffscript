@@ -76,7 +76,7 @@ map and is not available from `DLC:map` alone.
 A function that your program declares with the same name as a built-in or a library function replaces it for the whole program:
 
 ```cuff
-func print_twice(text) do:
+func print_twice(str text) do:
     print(text)
     print(text)
 end

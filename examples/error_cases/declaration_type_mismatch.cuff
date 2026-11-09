@@ -1,2 +1,2 @@
 note: declared type does not match the value type -> TypeError
-set number age to "not a number"
+number age = "not a number"

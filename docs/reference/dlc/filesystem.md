@@ -53,9 +53,9 @@ true false
 
 ```cuff
 use DLC:filesystem
-set boolean saved to file_write("missing_folder/out.txt", "x")
+boolean saved = file_write("missing_folder/out.txt", "x")
 print(saved)
-set str text to file_read("not_there.txt")
+any text = file_read("not_there.txt")
 if text is empty do:
     print("could not read the file")
 end
@@ -77,8 +77,8 @@ print(file_read("../secrets.txt"))
 use DLC:filesystem
 use DLC:string
 file_write("scores.txt", "ana 31\nben 27\n")
-set list lines to file_readlines("scores.txt")
-loop repeat i to 1 ~ length(lines) do:
+list lines = file_readlines("scores.txt")
+loop repeat number i = 1 ~ length(lines) do:
     print(i, str_upper(lines[i]))
 end
 file_remove("scores.txt")

@@ -22,7 +22,7 @@ Both `cases/` and `errors/` are divided by the part of the language a test is ab
 | `syntax` | program, statement, simple_statement, block_statement, body, comment | Lines and layout: comments, literals, f-strings, one-line bodies, trailing commas, the spellings that are refused and the hint each one gets. |
 | `values` | declaration, type, primary | The types, declarations and constants, truthiness, equality, number formatting, indexing of text, what a copy shares. |
 | `operators` | expression, or_expr, and_expr, not_expr, comparison, additive, multiplicative, unary, power | Every operator, precedence, short-circuit evaluation and the errors an operator raises. |
-| `collections` | place, change, add, remove, postfix, list_literal, map_literal, map_entry | Lists and maps: indexing, slices, places to any depth, `add`, `remove`, `change`, the order of map keys. |
+| `collections` | place, assignment, add, remove, postfix, list_literal, map_literal, map_entry | Lists and maps: indexing, slices, places to any depth, `add`, `remove`, assignment, the order of map keys. |
 | `control` | if, loop | Decisions, the three loops, `stop` and `skip`, the round a loop works from. |
 | `functions` | function, parameter, return, global, await_statement, call_args | Functions, defaults, typed parameters, `global`, `pure`, `async` and `await`, and what a call may do. |
 | `errors` | or_else, fail | Errors as objects, `or_else` on one statement and on a block, `fail`, and which errors can be caught. |

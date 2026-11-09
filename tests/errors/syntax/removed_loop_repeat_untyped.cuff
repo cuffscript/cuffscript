@@ -1,0 +1,4 @@
+note: E2-001
+loop repeat i to 1 ~ 3 do:
+    print(i)
+end

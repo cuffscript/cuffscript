@@ -1,3 +1,3 @@
-set returnable func twice(n) do:
+set returnable func twice(any n) do:
     return n * 2
 end

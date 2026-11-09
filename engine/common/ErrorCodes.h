@@ -20,7 +20,6 @@ namespace cuff
         InconsistentIndentation = 1004, // Indentation that does not line up with the enclosing block.
         ColonSpaceBeforeNotAllowed = 1005, // A space before the colon that opens a block.
         UnterminatedComment = 1006, // A block comment that is never closed.
-        InvalidAssignmentSymbol = 1007, // `=` written where `to` is required.
         UnexpectedToken = 2001, // The token found cannot appear here. Every syntax problem found while tokenizing or parsing is reported with this code.
         ExpectedToken = 2002, // A specific token was required.
         MalformedFunctionDecl = 2003, // A malformed function declaration.
@@ -30,6 +29,7 @@ namespace cuff
         InvalidAssignmentTarget = 2007, // Something that cannot be assigned to.
         NestingTooDeep = 2008, // Code nested deeper than the nesting limit, or a single expression longer than the expression limit.
         SourceTooLarge = 2009, // A program or shell entry larger than the source size limit.
+        DuplicateDeclaration = 2010, // A name declared again where the same function or program already declares it.
         RegexUnclosedGroup = 3001, // A `(` or named capture that is never closed, or a `<` that does not begin a `<name:...>` capture.
         RegexUnclosedBracket = 3002, // A `[` that is never closed.
         RegexInvalidColonSpacing = 3003, // Wrong spacing around the colon of a token such as `[one:a|b]`.

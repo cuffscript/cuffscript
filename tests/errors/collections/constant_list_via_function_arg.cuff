@@ -1,6 +1,6 @@
 note: E4-003
-set constant list T to [1, 2, 3]
-func mutate(x) do:
+constant list T = [1, 2, 3]
+func mutate(any x) do:
     add 4 to x
 end
 mutate(T)

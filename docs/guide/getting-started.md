@@ -43,9 +43,9 @@ echo 'print("hello")' | ./cuffc
 Save this as `greet.cuff`:
 
 ```cuff
-set str name to "World"
+str name = "World"
 
-func greet(person) do:
+func greet(str person) do:
     return f"Hello, {person}!"
 end
 
@@ -58,9 +58,9 @@ Hello, World!
 
 Line by line:
 
-- `set str name to "World"` declares a variable. `set` is followed by a type (`number`, `str`, `boolean`, `list`,
-  `map`), the name, the word `to`, and the value. The type is required, and the word is `to`, never `=`.
-- `func greet(person) do:` starts a function. `return` gives a value back. A block ends with `end`, and
+- `str name = "World"` declares a variable: a type (`number`, `str`, `boolean`, `list`, `map`, or `any` for a value of any
+  type), the name, `=` and the value. The type is required, and a variable keeps it. Later, `name = "Ann"` stores a new value.
+- `func greet(str person) do:` starts a function; every parameter has a type. `return` gives a value back. A block ends with `end`, and
   the body is indented.
 - `f"Hello, {person}!"` is an f-string: whatever is inside the braces is evaluated and inserted.
 - `print(...)` writes its arguments to the screen.
@@ -69,7 +69,7 @@ Line by line:
 
 ```text
 $ ./cli/cuffsh
->> set number x to 6
+>> number x = 6
 >> print(x * 7)
 42
 ```

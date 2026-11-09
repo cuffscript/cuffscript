@@ -1,2 +1,2 @@
-set number n to 5
+number n = 5
 print(n.size)

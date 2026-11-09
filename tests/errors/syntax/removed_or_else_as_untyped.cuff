@@ -1,0 +1,4 @@
+note: E2-001
+print(1 / 0) or_else as e do:
+    print(e)
+end

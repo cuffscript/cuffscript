@@ -1,0 +1,5 @@
+note: E2-001
+list items = [1, 2]
+loop each item in items do:
+    print(item)
+end

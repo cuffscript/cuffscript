@@ -1,6 +1,6 @@
 func risky() do:
     fail "first"
 end
-risky() or_else as err do:
+risky() or_else as Error err do:
     fail err
 end

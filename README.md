@@ -19,9 +19,9 @@ CuffScript is a lightweight scripting language designed for readable, natural-la
 The engine can be used through the command-line interpreter, embedded in a C++ application, or run in a browser through WebAssembly.
 
 ```cuff
-set str name to "World"
+str name = "World"
 
-func greet(person) do:
+func greet(str person) do:
     return f"Hello, {person}!"
 end
 
@@ -78,36 +78,36 @@ To read a script from standard input, run `cuffc` without a file. Use `--help` t
 ```cuff
 use DLC:list
 
-set list scores to [72, 95, 88, 61]
-set number total to 0
+list scores = [72, 95, 88, 61]
+number total = 0
 
-loop each score in scores do:
+loop each number score in scores do:
     if score >= 70 do:
-        change total to total + 1
+        total = total + 1
     end
 end
 
 print(f"{total} of {length(scores)} passed")
 
-set str code to "AB-1234"
+str code = "AB-1234"
 if code matches p"[up]2-[num]4" do:
     print("the code has the right shape")
 end
 
 class Player do:
-    set str name to "unknown"
-    set number points to 0
+    str name = "unknown"
+    number points = 0
 
     func init(str name) do:
-        change self.name to name
+        self.name = name
     end
 
     func score(number n) do:
-        change self.points to self.points + n
+        self.points = self.points + n
     end
 end
 
-set Player ann to Player("Ann")
+Player ann = Player("Ann")
 ann.score(30)
 print(f"{ann.name} has {ann.points} points")
 ```

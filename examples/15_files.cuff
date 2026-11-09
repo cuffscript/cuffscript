@@ -3,7 +3,7 @@ note: this example creates a temporary file and deletes it at the end, so it is 
 
 use DLC:filesystem
 
-set str path to "_example_notes.txt"
+str path = "_example_notes.txt"
 
 print(file_exist(path))
 print(file_write(path, "첫째 줄\n둘째 줄"))

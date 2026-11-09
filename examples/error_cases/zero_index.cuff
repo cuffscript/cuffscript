@@ -1,3 +1,3 @@
 note: index 0 does not exist (1-based) -> IndexError
-set list items to ["a", "b", "c"]
+list items = ["a", "b", "c"]
 print(items[0])

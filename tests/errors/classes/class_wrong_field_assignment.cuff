@@ -1,0 +1,6 @@
+note: E4-020
+class Counter do:
+    number count = 0
+end
+Counter c = Counter()
+c.count = "many"

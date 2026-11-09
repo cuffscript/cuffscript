@@ -1,5 +1,5 @@
 note: E4-010
-func combine(a, b) do:
+func combine(any a, any b) do:
     return a + b
 end
 print(combine(1))

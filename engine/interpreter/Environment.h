@@ -16,6 +16,16 @@ namespace cuff
     class Environment
     {
     public:
+        // A variable: its name, the type it was declared with (a number the interpreter defines; 0 accepts anything) and
+        // its value. The type fits in what would otherwise be padding.
+        struct Slot
+        {
+            uint32_t first;
+            uint32_t type;
+            Value second;
+            Slot(uint32_t name, uint32_t declared, Value v) : first(name), type(declared), second(std::move(v)) {}
+        };
+
         Environment() : parent_(nullptr), global_(this), isFunctionScope_(true) {}
 
         // Function scopes are isolated from callers; block scopes chain to their enclosing scope.
@@ -39,30 +49,32 @@ namespace cuff
         Environment &operator=(Environment &&) = delete;
         CUFF_ALWAYS_INLINE ~Environment() {}
 
-        CUFF_ALWAYS_INLINE void declare(uint32_t nameId, Value value, bool isConstant)
+        CUFF_ALWAYS_INLINE void declare(uint32_t nameId, Value value, bool isConstant, uint32_t type = 0)
         {
-            if (Value *existing = findLocal(nameId))
+            if (Slot *existing = findSlot(nameId))
             {
-                *existing = std::move(value);
+                existing->second = std::move(value);
+                existing->type = type;
                 setConstantFlag(nameId, isConstant);
                 return;
             }
-            append(nameId, std::move(value));
+            append(nameId, type, std::move(value));
             if (isConstant)
                 constants_.push_back(nameId);
         }
 
-        bool declareLoopVar(uint32_t nameId, Value value)
+        bool declareLoopVar(uint32_t nameId, Value value, uint32_t type)
         {
-            if (Value *existing = findLocal(nameId))
+            if (Slot *existing = findSlot(nameId))
             {
                 if (!constants_.empty() &&
                     std::find(constants_.begin(), constants_.end(), nameId) != constants_.end())
                     return false;
-                *existing = std::move(value);
+                existing->second = std::move(value);
+                existing->type = type;
                 return true;
             }
-            append(nameId, std::move(value));
+            append(nameId, type, std::move(value));
             return true;
         }
 
@@ -73,13 +85,13 @@ namespace cuff
 
         void reserve(size_t n) { vars_.reserve(n); }
 
-        void adoptStorage(std::vector<std::pair<uint32_t, Value>> &&storage)
+        void adoptStorage(std::vector<Slot> &&storage)
         {
             storage.clear();
             vars_ = std::move(storage);
         }
 
-        std::vector<std::pair<uint32_t, Value>> releaseStorage() { return std::move(vars_); }
+        std::vector<Slot> releaseStorage() { return std::move(vars_); }
 
         bool isDeclaredHere(uint32_t nameId) const
         {
@@ -99,6 +111,7 @@ namespace cuff
         {
             Value *value = nullptr;
             Environment *owner = nullptr;
+            uint32_t type = 0; // what the variable was declared as
         };
 
         // Local bindings win over a `global x` bridge. A function scope sees nothing outside itself
@@ -108,17 +121,17 @@ namespace cuff
             Environment *e = this;
             while (true)
             {
-                if (Value *v = e->findLocal(nameId))
-                    return {v, e};
+                if (Slot *s = e->findSlot(nameId))
+                    return {&s->second, e, s->type};
                 if (e->isFunctionScope_)
                 {
                     if (!e->globalDeclared_.empty() &&
                         std::find(e->globalDeclared_.begin(), e->globalDeclared_.end(), nameId) != e->globalDeclared_.end())
                     {
-                        if (Value *v = e->global_->findLocal(nameId))
-                            return {v, e->global_};
+                        if (Slot *s = e->global_->findSlot(nameId))
+                            return {&s->second, e->global_, s->type};
                     }
-                    return {nullptr, nullptr};
+                    return {nullptr, nullptr, 0};
                 }
                 e = e->parent_;
             }
@@ -140,9 +153,9 @@ namespace cuff
 
         Environment *parentScope() const { return parent_; }
         bool isFunctionScope() const { return isFunctionScope_; }
-        Value *localValue(uint32_t nameId) { return findLocal(nameId); }
+        Slot *localSlot(uint32_t nameId) { return findSlot(nameId); }
 
-        const std::vector<std::pair<uint32_t, Value>> &localVars() const { return vars_; }
+        const std::vector<Slot> &localVars() const { return vars_; }
         bool isConstantHere(uint32_t nameId) const
         {
             return std::find(constants_.begin(), constants_.end(), nameId) != constants_.end();
@@ -153,16 +166,16 @@ namespace cuff
         Environment *global_;
         bool isFunctionScope_;
         std::unique_ptr<Value> with_; // set only for a `with` block, so an ordinary scope pays nothing for it
-        std::vector<std::pair<uint32_t, Value>> vars_;
+        std::vector<Slot> vars_;
         std::vector<uint32_t> constants_;
         std::vector<uint32_t> globalDeclared_;
         std::unique_ptr<std::unordered_map<uint32_t, size_t>> index_;
         static constexpr size_t kIndexThreshold = 16;
 
         // vars_ is append-only, so the name index never goes stale.
-        void append(uint32_t nameId, Value value)
+        void append(uint32_t nameId, uint32_t type, Value value)
         {
-            vars_.emplace_back(nameId, std::move(value));
+            vars_.emplace_back(nameId, type, std::move(value));
             if (index_)
             {
                 index_->emplace(nameId, vars_.size() - 1);
@@ -176,17 +189,23 @@ namespace cuff
             }
         }
 
-        Value *findLocal(uint32_t nameId)
+        Slot *findSlot(uint32_t nameId)
         {
             if (index_)
             {
                 auto it = index_->find(nameId);
-                return it == index_->end() ? nullptr : &vars_[it->second].second;
+                return it == index_->end() ? nullptr : &vars_[it->second];
             }
             for (auto &kv : vars_)
                 if (kv.first == nameId)
-                    return &kv.second;
+                    return &kv;
             return nullptr;
+        }
+
+        Value *findLocal(uint32_t nameId)
+        {
+            Slot *s = findSlot(nameId);
+            return s ? &s->second : nullptr;
         }
 
         void setConstantFlag(uint32_t nameId, bool isConstant)

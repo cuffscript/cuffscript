@@ -4,8 +4,8 @@
 use DLC:list
 ```
 
-List functions. They return new lists and never change the list you pass in. To change a list in place use the `add`,
-`change` and `remove` statements ([language reference](../language.md#51-changing-places-change-add-remove)). The new list is
+List functions. They return new lists and never change the list you pass in. To change a list in place use an assignment to an element and the `add` and
+`remove` statements ([language reference](../language.md#51-places-assignment-add-remove)). The new list is
 a shallow copy: lists and maps stored inside it are the same values as in the original, not copies. An argument of the
 wrong type is `E4-005` and the wrong number of arguments is `E4-010`.
 
@@ -26,7 +26,7 @@ wrong type is `E4-005` and the wrong number of arguments is `E4-010`.
 
 ```cuff
 use DLC:list
-set list xs to [5, 3, 9, 3]
+list xs = [5, 3, 9, 3]
 print(list_sort(xs), list_unique(xs), list_reverse(xs))
 print(list_sum(xs), list_average(xs), length(xs))
 print(list_join(["a", "b", "c"], "-"), list_flatten([[1, 2], [3], 4]))
@@ -57,7 +57,7 @@ print(list_range(1, 5, -1), list_range(2, 2))
 [] [2]
 ```
 
-To repeat something a number of times, `loop repeat i to 1 ~ 10 do:` needs no list at all.
+To repeat something a number of times, `loop repeat number i = 1 ~ 10 do:` needs no list at all.
 
 ## Sorting
 
@@ -73,8 +73,8 @@ print(list_sort([2, "a"]))
 
 ```cuff
 use DLC:list
-set list original to [3, 1, 2]
-set list ordered to list_sort(original)
+list original = [3, 1, 2]
+list ordered = list_sort(original)
 print(original, ordered)
 ```
 

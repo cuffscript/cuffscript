@@ -1,30 +1,30 @@
 note: with: call several methods and use fields of one object without repeating its name.
 
 class Robot do:
-    set str name to "R2"
-    set number x to 0
-    set number y to 0
-    set str facing to "north"
-    set list log to []
+    str name = "R2"
+    number x = 0
+    number y = 0
+    str facing = "north"
+    list log = []
 
     func init(str name) do:
-        change self.name to name
+        self.name = name
     end
 
     func move(number steps) do:
-        change self.y to self.y + steps
+        self.y = self.y + steps
         add f"moved {steps}" to self.log
     end
 
     func turnleft() do:
         if self.facing is "north" do:
-            change self.facing to "west"
+            self.facing = "west"
         else if self.facing is "west" do:
-            change self.facing to "south"
+            self.facing = "south"
         else if self.facing is "south" do:
-            change self.facing to "east"
+            self.facing = "east"
         else do:
-            change self.facing to "north"
+            self.facing = "north"
         end
         add "turned left" to self.log
     end
@@ -34,8 +34,8 @@ class Robot do:
     end
 end
 
-set Robot rover to Robot("Rover")
-set Robot wall_e to Robot("Wall-E")
+Robot rover = Robot("Rover")
+Robot wall_e = Robot("Wall-E")
 
 with rover do:
     move(3)
@@ -45,9 +45,9 @@ with rover do:
 end
 
 note: the object's fields come before the outer variables of the same name
-set number y to 1000
+number y = 1000
 with wall_e do:
-    change y to y + 7
+    y = y + 7
     print(y, .y)
     print(name)
 end
@@ -64,7 +64,7 @@ end
 note: a variable made inside the block is gone after it, and return works through it
 func faster(Robot a, Robot b) do:
     with a do:
-        set number mine to y
+        number mine = y
         with b do:
             if mine > .y do:
                 return a.name

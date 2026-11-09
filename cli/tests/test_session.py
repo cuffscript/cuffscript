@@ -167,7 +167,7 @@ s.finish(0.2)
 # ---- non-interactive (piped) use ---------------------------------------------
 r = subprocess.run(
     [BIN],
-    input=b'set number x to 4\nprint(x * 2)\nprint("\xed\x95\x9c")\n',
+    input=b'number x = 4\nprint(x * 2)\nprint("\xed\x95\x9c")\n',
     capture_output=True,
 )
 check(
@@ -504,22 +504,22 @@ s = new()
 entry(
     s,
     "class Counter do:",
-    "    set number n to 0",
+    "    number n = 0",
     "    func bump() do:",
-    "        change self.n to self.n + 1",
+    "        self.n = self.n + 1",
     "        return self.n",
     "    end",
     "end",
 )
-s.send("set Counter c to Counter()\r", 0.4)
+s.send("Counter c = Counter()\r", 0.4)
 s.send("print(c.bump(), c.bump())\r", 0.4)
 check("a class declared in one entry is used by the next", "1 2" in s.nonblank(), s.nonblank())
 entry(s, "with c do:", "    bump()", "    print(n)", "end")
 check("a with block runs as one entry", "3" in s.nonblank(), s.nonblank())
-entry(s, "loop each x in [10, 20] do:", "    print(x)", "end")
+entry(s, "loop each number x in [10, 20] do:", "    print(x)", "end")
 check("a loop each block runs as one entry", "10" in s.nonblank() and "20" in s.nonblank(), s.nonblank())
-entry(s, "fail \"boom\" or_else as err do:", "    print(err.code)", "end")
-check("or_else as binds the error", "E7-001" in s.nonblank(), s.nonblank())
+entry(s, "fail \"boom\" or_else as Error err do:", "    print(err.code)", "end")
+check("or_else as Error binds the error", "E7-001" in s.nonblank(), s.nonblank())
 s.send("print(c.nope)\r", 0.4)
 check(
     "an unknown field is reported and the session goes on",

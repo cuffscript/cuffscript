@@ -2,6 +2,8 @@
 
 The words this documentation uses in a particular way, in alphabetical order. Each entry points to the page that defines the thing fully.
 
+**any.** The type of a variable, parameter, field or loop variable that accepts a value of every type, `empty` included. See [variables](language.md#31-declaring-a-variable).
+
 **AST (abstract syntax tree).** The tree the parser builds from the tokens of a program, and that the interpreter walks to run it. `cuffc --ast` prints it. See [Architecture](../internals/architecture.md).
 
 **async function.** A function declared `async func`. Calling it does not run it at once: the call is queued and runs after the main program, in order, unless it is run on the spot with `await`. Nothing runs in parallel. See [the language tour](../guide/language-tour.md#functions-that-run-later).
@@ -22,7 +24,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **class.** A description of a kind of thing: the fields its objects hold and the methods they have. Declared with `class Name do: ... end` at the top level of a file; its name starts with a capital letter. It is also a type name. See [classes](classes.md).
 
-**constant.** A variable declared `set constant`, whose name is written in capitals and which cannot be changed. A field can be a constant too. A constant list is also read-only through every name. See [the language reference](language.md#33-constants).
+**constant.** A variable declared `constant`, whose name is written in capitals and which cannot be changed. A field can be a constant too. A constant list is also read-only through every name. See [the language reference](language.md#33-constants).
 
 **display form.** How a value is turned into text by `print`, `to_str` and f-strings. See [types and values](language.md#2-types-and-values).
 
@@ -34,7 +36,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **engine.** The C++ headers under `engine/` that tokenize, parse and run CuffScript. `cuffc`, `cuffsh` and the WebAssembly package are front ends to it.
 
-**Error.** The built-in class that describes what went wrong, with the fields `message`, `code`, `line`, `column` and `hint`. A handler written `or_else as err` receives one; `fail` raises one; a class of your own may extend it. See [errors are objects](classes.md#errors-are-objects).
+**Error.** The built-in class that describes what went wrong, with the fields `message`, `code`, `line`, `column` and `hint`. A handler written `or_else as Error err` receives one; `fail` raises one; a class of your own may extend it. See [errors are objects](classes.md#errors-are-objects).
 
 **f-string.** A string written `f"..."` in which `{expression}` is replaced by the display form of the expression's value. `{{` and `}}` are literal braces.
 
@@ -42,7 +44,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **falsy / truthy.** Every value can be used as a condition. `false`, `0`, `empty`, the empty string, the empty list and the empty map are falsy; everything else is truthy, including the string `"0"`.
 
-**field.** A value that belongs to an object, declared in its class with `set` and reached with a dot: `player.score`, or `self.score` inside a method. See [fields](classes.md#fields).
+**field.** A value that belongs to an object, declared in its class like a variable and reached with a dot: `player.score`, or `self.score` inside a method. See [fields](classes.md#fields).
 
 **flag.** A letter after a pattern literal: `i` ignores case, `m` makes `[start]` and `[end]` work on each line. See [pattern syntax](patterns.md#28-the-flags-system).
 
@@ -78,7 +80,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **pattern.** A description of text by shape, such as `[up]2-[num]4`. A pattern literal is written `p"[up]2-[num]4"` and has the type `pattern`; `matches` and the text functions use it. See [pattern syntax](patterns.md).
 
-**place.** A spot that holds a value and that `change`, `add` and `remove` can work on: a variable, a list item, a map entry or a field, such as `x`, `grid[2][3]` or `self.items`. See [changing places](language.md#51-changing-places-change-add-remove).
+**place.** A spot that holds a value and that an assignment, `add` and `remove` can work on: a variable, a list item, a map entry or a field, such as `x`, `grid[2][3]` or `self.items`. See [places](language.md#51-places-assignment-add-remove).
 
 **position.** A place in a list or string. Positions start at 1, and a negative position counts from the end. `0` is an error.
 
@@ -104,6 +106,6 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **token.** The smallest piece of a program the tokenizer produces: a word, a number, a string, an operator. In a pattern, a *token* is a word in brackets such as `[num]`.
 
-**type.** One of `number`, `str`, `boolean`, `list`, `map`, `match`, `pattern`, `object`, `empty`, or the name of a class. `set` needs the type of the variable it declares.
+**type.** One of `any`, `number`, `str`, `boolean`, `list`, `map`, `match`, `pattern`, `object`, `empty`, or the name of a class. A declaration needs the type of the variable it declares, and the variable keeps it.
 
 **with.** The block `with object do: ... end`, inside which the members of the object can be used by their plain names. See [the `with` block](classes.md#the-with-block).

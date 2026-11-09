@@ -9,14 +9,14 @@ A class lists the values an object holds (its *fields*) and what it can do (its 
 
 ```cuff
 class Counter do:
-    set number count to 0
+    number count = 0
 
     func bump() do:
-        change self.count to self.count + 1
+        self.count = self.count + 1
     end
 end
 
-set Counter clicks to Counter()
+Counter clicks = Counter()
 clicks.bump()
 clicks.bump()
 print(clicks.count)
@@ -26,7 +26,7 @@ print(clicks.count)
 2
 ```
 
-- `set number count to 0` is a field with a starting value, written like a variable.
+- `number count = 0` is a field with a starting value, written like a variable.
 - `func bump()` is a method. Inside it, `self` is the object the method was called on, and a field is always written `self.count`.
 - `Counter()` makes a new object. Each object has its own fields, so two counters count separately.
 - `clicks.bump()` calls a method and `clicks.count` reads a field, both with a dot.
@@ -37,12 +37,12 @@ A method called `init` runs when an object is made, with the arguments you give.
 
 ```cuff
 class Player do:
-    set str name to "unknown"
-    set number score to 0
+    str name = "unknown"
+    number score = 0
 
-    func init(str name, number score to 0) do:
-        change self.name to name
-        change self.score to score
+    func init(str name, number score = 0) do:
+        self.name = name
+        self.score = score
     end
 
     func describe() do:
@@ -50,8 +50,8 @@ class Player do:
     end
 end
 
-set Player ann to Player("Ann", 30)
-set Player bob to Player("Bob")
+Player ann = Player("Ann", 30)
+Player bob = Player("Bob")
 print(ann.describe())
 print(bob.describe())
 ```
@@ -69,22 +69,22 @@ An object can go anywhere a value can: in a list, in a map, in a field, as an ar
 
 ```cuff
 class Player do:
-    set str name to ""
-    set number score to 0
+    str name = ""
+    number score = 0
 
-    func init(str name, number score to 0) do:
-        change self.name to name
-        change self.score to score
+    func init(str name, number score = 0) do:
+        self.name = name
+        self.score = score
     end
 end
 
-set list team to [Player("Ann", 30), Player("Bob", 12), Player("Cho", 21)]
-set number total to 0
-loop each p in team do:
-    change total to total + p.score
+list team = [Player("Ann", 30), Player("Bob", 12), Player("Cho", 21)]
+number total = 0
+loop each Player p in team do:
+    total = total + p.score
 end
 print(total)
-change team[2].score to team[2].score + 5
+team[2].score = team[2].score + 5
 print(team[2].score)
 ```
 
@@ -93,7 +93,7 @@ print(team[2].score)
 17
 ```
 
-`add`, `change` and `remove` accept the same kind of target, however deep: `team[2].score`, `self.items`, `grid[1]`.
+An assignment, `add` and `remove` accept the same kind of target, however deep: `team[2].score`, `self.items`, `grid[1]`.
 
 ## Objects are shared, not copied
 
@@ -101,15 +101,15 @@ Giving an object a second name does not copy it. Both names lead to the same obj
 
 ```cuff
 class Box do:
-    set list things to []
+    list things = []
 end
 
-set Box a to Box()
-set Box b to a
+Box a = Box()
+Box b = a
 add "pen" to b.things
 print(a.things)
 
-set Box c to a.copy()
+Box c = a.copy()
 add "cup" to c.things
 print(a.things, c.things)
 ```
@@ -127,7 +127,7 @@ A class can `extend` another to reuse it. The child has everything its parent ha
 
 ```cuff
 class Shape do:
-    set str label to "shape"
+    str label = "shape"
 
     func area() do:
         return 0
@@ -139,11 +139,11 @@ class Shape do:
 end
 
 class Square extends Shape do:
-    set number side to 1
+    number side = 1
 
     func init(number side) do:
-        change self.label to "square"
-        change self.side to side
+        self.label = "square"
+        self.side = side
     end
 
     func area() do:
@@ -152,11 +152,11 @@ class Square extends Shape do:
 end
 
 class Circle extends Shape do:
-    set number radius to 1
+    number radius = 1
 
     func init(number radius) do:
-        change self.label to "circle"
-        change self.radius to radius
+        self.label = "circle"
+        self.radius = radius
     end
 
     func area() do:
@@ -168,8 +168,8 @@ class Circle extends Shape do:
     end
 end
 
-set list shapes to [Square(2), Circle(1)]
-loop each s in shapes do:
+list shapes = [Square(2), Circle(1)]
+loop each Shape s in shapes do:
     print(s.describe())
 end
 ```
@@ -190,7 +190,7 @@ end
 class Square extends Shape do:
 end
 
-set Shape s to Square()
+Shape s = Square()
 print(s isa Square, s isa Shape, type_of(s))
 ```
 
@@ -204,13 +204,13 @@ Put `private` in front of a field or a method that only the class should touch. 
 
 ```cuff
 class Wallet do:
-    private set number cents to 0
+    private number cents = 0
 
     func add_cents(number amount) do:
         if amount < 0 do:
             fail "cannot add a negative amount"
         end
-        change self.cents to self.cents + amount
+        self.cents = self.cents + amount
     end
 
     func total() do:
@@ -218,10 +218,10 @@ class Wallet do:
     end
 end
 
-set Wallet w to Wallet()
+Wallet w = Wallet()
 w.add_cents(250)
 print(w.total())
-print(w.cents) or_else as e do:
+print(w.cents) or_else as Error e do:
     print(e.code)
 end
 ```
@@ -237,12 +237,12 @@ E4-034
 
 ```cuff
 class Point do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 
     func init(number x, number y) do:
-        change self.x to x
-        change self.y to y
+        self.x = x
+        self.y = y
     end
 
     func to_str() do:
@@ -265,19 +265,19 @@ When a block works on one object, `with` saves repeating its name. Inside the bl
 
 ```cuff
 class Turtle do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 
     func right(number n) do:
-        change self.x to self.x + n
+        self.x = self.x + n
     end
 
     func up(number n) do:
-        change self.y to self.y + n
+        self.y = self.y + n
     end
 end
 
-set Turtle t to Turtle()
+Turtle t = Turtle()
 with t do:
     right(3)
     up(2)
@@ -298,19 +298,19 @@ Because the object's names win, `.x` is there for the cases where you want to sa
 
 ```cuff
 class OutOfStock extends Error do:
-    set str item to ""
+    str item = ""
 end
 
 func take(str item, number wanted, number have) do:
     if wanted > have do:
-        set OutOfStock problem to OutOfStock(f"not enough {item}")
-        change problem.item to item
+        OutOfStock problem = OutOfStock(f"not enough {item}")
+        problem.item = item
         fail problem
     end
     return have - wanted
 end
 
-take("tea", 5, 2) or_else as err do:
+take("tea", 5, 2) or_else as Error err do:
     if err isa OutOfStock do:
         print("restock", err.item)
     else do:

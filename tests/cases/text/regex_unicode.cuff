@@ -15,7 +15,7 @@ note: mixed ASCII + multi-byte
 print("Hi안녕" matches p"[let]2[any]2")
 
 note: named capture spanning multi-byte text
-set match m to match("이름: 홍길동", p"이름: <name:[any]+>")
+match m = match("이름: 홍길동", p"이름: <name:[any]+>")
 print(m["name"])
 
 note: per spec, [let]/[str]/[word] are English-only (ASCII letters)

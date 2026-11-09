@@ -30,27 +30,10 @@ namespace cuff
         return true;
     }
 
-    // Words that are keywords of a statement but still usable as the name of a variable, parameter or member.
-    inline bool isBareIdentifierKeyword(TokenType t)
-    {
-        switch (t)
-        {
-        case TokenType::ADD:
-        case TokenType::TO:
-        case TokenType::IN:
-        case TokenType::GLOBAL:
-        case TokenType::NOT:
-        case TokenType::FROM:
-            return true;
-        default:
-            return false;
-        }
-    }
-
-    // A token that can be used as a name.
+    // A token that can be used as a name: a reserved word never can.
     inline bool isNameToken(const Token &t)
     {
-        return t.is(TokenType::IDENTIFIER) || isBareIdentifierKeyword(t.type);
+        return t.is(TokenType::IDENTIFIER);
     }
 
     // Where the parser is in the program, as far as the rules of `self`, `super`, `.name` and `class` are concerned.
@@ -140,6 +123,28 @@ namespace cuff
 
     class ParserCore;
 
+    // The names a block declares are forgotten when the block ends: a sibling block may use them again.
+    struct NameScope
+    {
+        std::vector<uint32_t> &names;
+        size_t mark;
+        explicit NameScope(std::vector<uint32_t> &n) : names(n), mark(n.size()) {}
+        ~NameScope() { names.resize(mark); }
+        NameScope(const NameScope &) = delete;
+        NameScope &operator=(const NameScope &) = delete;
+    };
+
+    // A function starts with no names declared: it cannot see the variables of the code around it.
+    struct FunctionNames
+    {
+        std::vector<uint32_t> &names;
+        std::vector<uint32_t> saved;
+        explicit FunctionNames(std::vector<uint32_t> &n) : names(n), saved(std::move(n)) { names.clear(); }
+        ~FunctionNames() { names = std::move(saved); }
+        FunctionNames(const FunctionNames &) = delete;
+        FunctionNames &operator=(const FunctionNames &) = delete;
+    };
+
     // Restores the parse context when a construct that changes it is left (also when parsing it fails).
     struct ContextGuard
     {
@@ -158,6 +163,7 @@ namespace cuff
         size_t pos = 0;
         SourceRef source; // the text the tokens came from; stamped onto every function declared (see SourceText.h)
         ParseContext ctx;
+        std::vector<uint32_t> declared; // the names that the blocks around the statement being parsed have declared
 
         explicit ParserCore(std::vector<Token> t, SourceRef src = nullptr) : tokens(std::move(t)), source(std::move(src)) {}
 
@@ -208,6 +214,29 @@ namespace cuff
                 if (peek(1).is(TokenType::STRING))
                     return "use `matches p\"" + peek(1).value + "\"i` for a case-insensitive pattern test";
                 return "use `matches p\"...\"i` for a case-insensitive pattern test";
+            }
+            if (t.is(TokenType::ASSIGN))
+                return "`=` stores a value in a variable; to compare two values write `is`";
+            const Token *before = pos > 0 ? &tokens[pos - 1] : nullptr;
+            const bool afterWord = before && (before->is(TokenType::IDENTIFIER) || before->is(TokenType::FUNCTION));
+            switch (t.type)
+            {
+            case TokenType::ADD:
+            case TokenType::TO:
+            case TokenType::IN:
+            case TokenType::GLOBAL:
+            case TokenType::NOT:
+            case TokenType::FROM:
+            case TokenType::AT:
+                if (afterWord)
+                    return "'" + t.value + "' is a reserved word, so it cannot be used as a name";
+                break;
+            case TokenType::IDENTIFIER:
+                if (before && before->is(TokenType::IDENTIFIER) && !peek(1).is(TokenType::ASSIGN))
+                    return "to declare '" + t.value + "' write `" + before->value + " " + t.value + " = value`";
+                break;
+            default:
+                break;
             }
             return "";
         }
@@ -339,6 +368,18 @@ namespace cuff
             if (!isNameToken(current()))
                 failUnexpected(errMsg);
             return advance();
+        }
+
+        // A name given to a new variable. Within one function (or the top level of a program) a name is declared once,
+        // wherever the block that declares it sits inside the ones around it.
+        void declareName(const Token &name)
+        {
+            const uint32_t id = internName(name.value);
+            if (std::find(declared.begin(), declared.end(), id) != declared.end())
+                throw SyntaxError(ErrorCode::DuplicateDeclaration, "'" + name.value + "' is already declared here",
+                                  name.location,
+                                  "give it a new value with `" + name.value + " = ...`, or choose another name");
+            declared.push_back(id);
         }
 
         // The name after a '.': any word, even one that is a keyword elsewhere (`text.repeat(3)`), because a dot leaves

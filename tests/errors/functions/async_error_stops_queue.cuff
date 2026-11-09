@@ -4,7 +4,7 @@ async func task_a() do:
     print("A ran")
 end
 async func task_b() do:
-    change undeclared_var to 5
+    undeclared_var = 5
 end
 async func task_c() do:
     print("C ran (should not happen)")

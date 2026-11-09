@@ -1,33 +1,33 @@
 note: default parameters, one-line functions, return from anywhere.
-func greet(name, greeting to "Hello") do:
+func greet(any name, any greeting = "Hello") do:
     return f"{greeting}, {name}!"
 end
 print(greet("Ann"))
 print(greet("Bob", "Hi"))
 
-func tail(list items to [], number n to 1) do: return length(items) - n end
+func tail(list items = [], number n = 1) do: return length(items) - n end
 use DLC:list
 print(tail([1, 2, 3]), tail([1, 2, 3], 2), tail())
 
 note: a default is worked out at each call and can use the parameters before it
-set number calls to 0
+number calls = 0
 func next_id() do:
     global calls
-    change calls to calls + 1
+    calls = calls + 1
     return calls
 end
-func make(id to next_id(), label to f"item-{id}") do:
+func make(any id = next_id(), any label = f"item-{id}") do:
     return label
 end
 print(make(), make(), make(7), make(7, "x"))
 print(calls)
 
 note: return works in every function; without a value the result is empty
-func shout(text) do:
+func shout(any text) do:
     print(text + "!")
 end
 print(shout("hey") is empty)
-func early(n) do:
+func early(any n) do:
     if n < 0 do:
         return "negative"
     end
@@ -40,7 +40,7 @@ end
 print(noop() is empty)
 
 note: types on parameters
-func area(number w, number h to 1) do:
+func area(number w, number h = 1) do:
     return w * h
 end
 print(area(3), area(3, 4))

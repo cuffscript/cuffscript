@@ -1,6 +1,6 @@
 note: a range counts both ends and runs backwards when it starts higher
-loop repeat i to 3 ~ 1 do: print(i) end
-loop repeat i to 2 ~ 2 do: print("once", i) end
+loop repeat number i = 3 ~ 1 do: print(i) end
+loop repeat number i = 2 ~ 2 do: print("once", i) end
 
 note: ** binds tighter than a minus on its left, and groups to the right
 print(-2 ** 2, (-2) ** 2, 2 ** 3 ** 2)

@@ -9,7 +9,7 @@ Short, complete recipes for common jobs. Each one runs as shown, and the output 
 ```cuff
 use DLC:list
 use DLC:math
-set list scores to [72, 95, 88, 61]
+list scores = [72, 95, 88, 61]
 print(list_sum(scores), list_average(scores))
 print(math_min(scores), math_max(scores))
 ```
@@ -22,10 +22,10 @@ print(math_min(scores), math_max(scores))
 **The same sum with a loop**, when you need to do something to each element on the way:
 
 ```cuff
-set list prices to [3.5, 2, 10]
-set number total to 0
-loop each price in prices do:
-    change total to total + price
+list prices = [3.5, 2, 10]
+number total = 0
+loop each number price in prices do:
+    total = total + price
 end
 print(total)
 ```
@@ -37,7 +37,7 @@ print(total)
 **FizzBuzz**
 
 ```cuff
-loop repeat n to 1 ~ 15 do:
+loop repeat number n = 1 ~ 15 do:
     if n % 15 is 0 do:
         print("FizzBuzz")
     else if n % 3 is 0 do:
@@ -71,8 +71,8 @@ FizzBuzz
 **Build a list of squares**
 
 ```cuff
-set list squares to []
-loop repeat n to 1 ~ 5 do:
+list squares = []
+loop repeat number n = 1 ~ 5 do:
     add n * n to squares
 end
 print(squares)
@@ -85,9 +85,9 @@ print(squares)
 **Keep only the elements that match a test**
 
 ```cuff
-set list numbers to [4, 9, 16, 25, 36]
-set list evens to []
-loop each n in numbers do:
+list numbers = [4, 9, 16, 25, 36]
+list evens = []
+loop each number n in numbers do:
     if n % 2 is 0 do:
         add n to evens
     end
@@ -103,8 +103,8 @@ print(evens)
 
 ```cuff
 use DLC:list
-set list scores to [72, 95, 88, 61, 79]
-set list ordered to list_reverse(list_sort(scores))
+list scores = [72, 95, 88, 61, 79]
+list ordered = list_reverse(list_sort(scores))
 print(ordered[1~3])
 ```
 
@@ -115,7 +115,7 @@ print(ordered[1~3])
 **A countdown**, written with a range that counts down:
 
 ```cuff
-loop repeat i to 3 ~ 1 do:
+loop repeat number i = 3 ~ 1 do:
     print(i)
 end
 print("go")
@@ -134,10 +134,10 @@ go
 
 ```cuff
 use DLC:string
-set str word to "stressed"
-set str reversed to ""
-loop repeat i to length(word) ~ 1 do:
-    change reversed to reversed + word[i]
+str word = "stressed"
+str reversed = ""
+loop repeat number i = length(word) ~ 1 do:
+    reversed = reversed + word[i]
 end
 print(reversed)
 ```
@@ -150,11 +150,11 @@ desserts
 
 ```cuff
 use DLC:string
-func is_palindrome(text) do:
-    set str clean to str_lower(text)
-    set str back to ""
-    loop repeat i to length(clean) ~ 1 do:
-        change back to back + clean[i]
+func is_palindrome(str text) do:
+    str clean = str_lower(text)
+    str back = ""
+    loop repeat number i = length(clean) ~ 1 do:
+        back = back + clean[i]
     end
     return clean is back
 end
@@ -169,8 +169,8 @@ true false
 
 ```cuff
 use DLC:list
-set str sentence to "the quick  brown fox"
-set list words to split(sentence, p"[sp]+")
+str sentence = "the quick  brown fox"
+list words = split(sentence, p"[sp]+")
 print(length(words), words)
 ```
 
@@ -182,13 +182,13 @@ print(length(words), words)
 
 ```cuff
 use DLC:map
-set list words to split("to be or not to be", p"[sp]+")
-set map seen to {}
-loop each w in words do:
+list words = split("to be or not to be", p"[sp]+")
+map seen = {}
+loop each str w in words do:
     if map_has_key(seen, w) do:
-        change seen[w] to seen[w] + 1
+        seen[w] = seen[w] + 1
     else do:
-        change seen[w] to 1
+        seen[w] = 1
     end
 end
 print(seen)
@@ -202,9 +202,9 @@ print(seen)
 
 ```cuff
 use DLC:string
-set list names to ["tea", "milk", "bread"]
-set list prices to [3, 2.5, 4]
-loop repeat i to 1 ~ length(names) do:
+list names = ["tea", "milk", "bread"]
+list prices = [3, 2.5, 4]
+loop repeat number i = 1 ~ length(names) do:
     print(str_pad_right(names[i], 8, ".") + str_pad_left(to_str(prices[i]), 5))
 end
 ```
@@ -220,8 +220,8 @@ bread...    4
 **Validate input**
 
 ```cuff
-set list inputs to ["ann@example.com", "not an email", "010-1234-5678"]
-loop each text in inputs do:
+list inputs = ["ann@example.com", "not an email", "010-1234-5678"]
+loop each str text in inputs do:
     if text matches p"[email]" do:
         print(text, "is an email")
     else if text matches p"[phone]" do:
@@ -241,7 +241,7 @@ not an email is neither
 **Pull every number out of a text**
 
 ```cuff
-set list found to find_all("3 apples, -2 pears and 10 plums", p"[int]")
+list found = find_all("3 apples, -2 pears and 10 plums", p"[int]")
 print(found)
 ```
 
@@ -252,10 +252,10 @@ print(found)
 `find` gives text, so convert before adding up:
 
 ```cuff
-set list found to find_all("3 apples, 2 pears and 10 plums", p"[num]+")
-set number total to 0
-loop each digits in found do:
-    change total to total + to_number(digits)
+list found = find_all("3 apples, 2 pears and 10 plums", p"[num]+")
+number total = 0
+loop each str digits in found do:
+    total = total + to_number(digits)
 end
 print(total)
 ```
@@ -267,13 +267,13 @@ print(total)
 **Parse `key=value` lines into a map**
 
 ```cuff
-set str config to "host=localhost\nport=8080\nmode=fast"
-set list lines to split(config, p"[nl]")
-set map settings to {}
-loop each line in lines do:
-    set match pair to match(line, p"<key:[word]+>=<value:[any]+>")
+str config = "host=localhost\nport=8080\nmode=fast"
+list lines = split(config, p"[nl]")
+map settings = {}
+loop each str line in lines do:
+    any pair = match(line, p"<key:[word]+>=<value:[any]+>")
     if pair is not empty do:
-        change settings[pair["key"]] to pair["value"]
+        settings[pair["key"]] = pair["value"]
     end
 end
 print(settings)
@@ -286,7 +286,7 @@ print(settings)
 **Mask part of a text**
 
 ```cuff
-set str card to "card 1234-5678-9012-3456"
+str card = "card 1234-5678-9012-3456"
 print(replace(card, p"[num]4-[num]4-[num]4", "****-****-****"))
 ```
 
@@ -300,20 +300,20 @@ card ****-****-****-3456
 
 ```cuff
 use DLC:list
-func min_max(numbers) do:
-    set number low to numbers[1]
-    set number high to numbers[1]
-    loop repeat i to 2 ~ length(numbers) do:
+func min_max(list numbers) do:
+    number low = numbers[1]
+    number high = numbers[1]
+    loop repeat number i = 2 ~ length(numbers) do:
         if numbers[i] < low do:
-            change low to numbers[i]
+            low = numbers[i]
         end
         if numbers[i] > high do:
-            change high to numbers[i]
+            high = numbers[i]
         end
     end
     return [low, high]
 end
-set list result to min_max([4, 9, 2, 7])
+list result = min_max([4, 9, 2, 7])
 print(result[1], result[2])
 ```
 
@@ -324,7 +324,7 @@ print(result[1], result[2])
 **Recursion**
 
 ```cuff
-func factorial(n) do:
+func factorial(number n) do:
     if n <= 1 do:
         return 1
     end
@@ -341,18 +341,18 @@ print(factorial(10))
 
 ```cuff
 use DLC:map
-set map memo to {}
-func fib(n) do:
+map memo = {}
+func fib(number n) do:
     global memo
     if n <= 2 do:
         return 1
     end
-    set str key to to_str(n)
+    str key = to_str(n)
     if map_has_key(memo, key) do:
         return memo[key]
     end
-    set number value to fib(n - 1) + fib(n - 2)
-    change memo[key] to value
+    number value = fib(n - 1) + fib(n - 2)
+    memo[key] = value
     return value
 end
 print(fib(50))
@@ -367,11 +367,11 @@ print(fib(50))
 **Use a default when something fails**
 
 ```cuff
-set number first to to_number("12") or_else do:
-    change first to 0
+number first = to_number("12") or_else do:
+    first = 0
 end
-set number second to to_number("twelve") or_else do:
-    change second to 0
+number second = to_number("twelve") or_else do:
+    second = 0
 end
 print(first, second)
 ```
@@ -383,16 +383,16 @@ print(first, second)
 **Try again a few times**
 
 ```cuff
-set number attempts to 0
-set boolean done to false
+number attempts = 0
+boolean done = false
 loop while !done and attempts < 3 do:
-    change attempts to attempts + 1
-    set number answer to 10 / (attempts - 2) or_else do:
+    attempts = attempts + 1
+    number answer = 10 / (attempts - 2) or_else do:
         print("attempt", attempts, "failed")
-        change answer to empty
+        answer = empty
     end
     if answer is not empty do:
-        change done to true
+        done = true
         print("worked on attempt", attempts, "with", answer)
     end
 end
@@ -406,9 +406,9 @@ worked on attempt 1 with -10
 
 ```cuff
 use DLC:map
-set map user to {"name": "Ann"}
-set str city to user["city"] or_else do:
-    change city to "unknown"
+map user = {"name": "Ann"}
+str city = user["city"] or_else do:
+    city = "unknown"
 end
 print(user["name"], city)
 ```
@@ -420,15 +420,15 @@ Ann unknown
 **Raise an error of your own**, and look at it in the handler:
 
 ```cuff
-func parse_age(text) do:
-    set number age to to_number(text)
+func parse_age(str text) do:
+    number age = to_number(text)
     if age < 0 do:
         fail f"age cannot be negative: {age}"
     end
     return age
 end
 
-print(parse_age("-4")) or_else as err do:
+print(parse_age("-4")) or_else as Error err do:
     print(err.message)
 end
 ```
@@ -443,13 +443,13 @@ age cannot be negative: -4
 
 ```cuff
 class Account do:
-    private set number balance to 0
+    private number balance = 0
 
     func deposit(number amount) do:
         if amount <= 0 do:
             fail "deposit must be positive"
         end
-        change self.balance to self.balance + amount
+        self.balance = self.balance + amount
     end
 
     func report() do:
@@ -457,11 +457,11 @@ class Account do:
     end
 end
 
-set Account savings to Account()
+Account savings = Account()
 savings.deposit(40)
 savings.deposit(2.5)
 print(savings.report())
-savings.deposit(-1) or_else as err do:
+savings.deposit(-1) or_else as Error err do:
     print(err.message)
 end
 ```
@@ -475,12 +475,12 @@ deposit must be positive
 
 ```cuff
 class Point do:
-    set number x to 0
-    set number y to 0
+    number x = 0
+    number y = 0
 
     func init(number x, number y) do:
-        change self.x to x
-        change self.y to y
+        self.x = x
+        self.y = y
     end
 
     func to_str() do:
@@ -488,8 +488,8 @@ class Point do:
     end
 end
 
-set list path to [Point(0, 0), Point(2, 1)]
-loop each p in path do:
+list path = [Point(0, 0), Point(2, 1)]
+loop each Point p in path do:
     print(p)
 end
 ```
@@ -503,11 +503,11 @@ end
 
 ```cuff
 class Bag do:
-    set list items to []
+    list items = []
 end
 
-set Bag a to Bag()
-set Bag b to a.copy()
+Bag a = Bag()
+Bag b = a.copy()
 add "pen" to a.items
 add "cup" to b.items
 print(a.items, b.items)
@@ -517,20 +517,20 @@ print(a.items, b.items)
 ["pen", "cup"] ["pen", "cup"]
 ```
 
-(The copy is shallow: both bags still share the one list in `items`, as the output shows.) Copy the list as well when the two should be independent: `change b.items to copy(a.items)`.
+(The copy is shallow: both bags still share the one list in `items`, as the output shows.) Copy the list as well when the two should be independent: `b.items = copy(a.items)`.
 
 **Call several methods on one object** without repeating its name, with `with`:
 
 ```cuff
 class Robot do:
-    set number x to 0
+    number x = 0
 
     func right(number n) do:
-        change self.x to self.x + n
+        self.x = self.x + n
     end
 end
 
-set Robot r to Robot()
+Robot r = Robot()
 with r do:
     right(2)
     right(5)
@@ -550,7 +550,7 @@ end
 use DLC:filesystem
 use DLC:list
 file_write("scores.txt", "ana 31\nben 27\n")
-set list lines to file_readlines("scores.txt")
+list lines = file_readlines("scores.txt")
 print(length(lines), lines[1])
 file_remove("scores.txt")
 ```
@@ -564,9 +564,9 @@ file_remove("scores.txt")
 ```cuff
 use DLC:json
 use DLC:filesystem
-set map data to {"name": "Ann", "scores": [90, 85]}
+map data = {"name": "Ann", "scores": [90, 85]}
 file_write("data.json", to_json(data, 2))
-set map loaded to from_json(file_read("data.json"))
+map loaded = from_json(file_read("data.json"))
 print(loaded["scores"][2], loaded is data)
 file_remove("data.json")
 ```
@@ -580,12 +580,12 @@ file_remove("data.json")
 ```cuff
 use DLC:time
 use DLC:math
-set number started to time_now()
-set number total to 0
-loop repeat i to 1 ~ 100000 do:
-    change total to total + i
+number started = time_now()
+number total = 0
+loop repeat number i = 1 ~ 100000 do:
+    total = total + i
 end
-set number elapsed to time_now() - started
+number elapsed = time_now() - started
 print(total, elapsed >= 0)
 ```
 
@@ -600,8 +600,8 @@ print(total, elapsed >= 0)
 ```cuff
 use DLC:random
 use DLC:list
-set number roll to random_int(1, 6)
-set list deck to random_shuffle([1, 2, 3, 4, 5])
+number roll = random_int(1, 6)
+list deck = random_shuffle([1, 2, 3, 4, 5])
 print(roll >= 1 and roll <= 6, length(deck), list_sum(deck))
 ```
 
