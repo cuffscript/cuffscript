@@ -1,3 +1,16 @@
+## v5.1.0 - 2026-11-10
+
+## Description
+
+- **Added: `DLC:datetime`.** Calendar dates and times: `datetime_parts`, `datetime_make`, `datetime_format`, `datetime_parse` and `datetime_offset`. An instant is the number of seconds `time_now()` gives, a time zone is an offset in minutes east of UTC that the script passes in (the library has no time zone database, and `datetime_offset` reads the machine's own), and one pattern (`YYYY-MM-DD[T]HH:mm:ss.SSSZ`) writes and reads text. A date that does not exist, or text that does not fit, gives `empty`; an instant outside years 1 to 9999 is `E4-025`. See the [[library page](https://claude.ai/chat/reference/dlc/datetime.md)](reference/dlc/datetime.md).
+- **Added: folders in `DLC:filesystem`.** `file_isdir`, `file_list` (the names in a folder, sorted by bytes), `file_makedir` (also the missing folders on the way), `file_removedir` (an empty folder only), `file_copy` and `file_move`. Neither of the last two replaces an existing destination, nothing removes a folder that has something in it, the allowed folder itself is never moved or removed, and every path goes through the same sandbox check as before, symbolic links included.
+- **Changed: a variable is looked up a little faster.** The result of a lookup is the slot and its scope, two pointers that come back in registers, where 5.0.0 returned three fields through memory. Counted in instructions on the benchmark programs, a store into a variable or field in a hot loop now costs 3.5% more than in 4.0.1 (it was 8.5% in 5.0.0), a function call or object creation 2.2% to 2.3% more, and the rest 1.4% or less.
+- **Fixed: the cost figures of 5.0.0.** The "4% to 7%" in the 5.0.0 notes came from wall-clock times, which vary by about 5% between two runs of the same binary, and understated the cost. Cost is now counted in instructions, which do not vary (design notes, item 65).
+- **Changed: one function that nothing called is removed**, `utf8::boundaries`. `ValueMap::getMutable` is also unused inside the engine and stays, because it is public and an embedding program may call it.
+- **Checked, nothing to change: stability and build flags.** About 146,000 mutated and generated programs (every built-in with extreme arguments, random patterns, random JSON, edited examples) ran under AddressSanitizer and UndefinedBehaviorSanitizer with no crash, no hang and no report, and the threads test is clean under ThreadSanitizer. `-O2`, `-Os`, `--gc-sections` and hidden visibility were measured and not adopted (design notes, item 65).
+
+---
+
 ## v5.0.1 - 2026-11-09
 
 ## Description
