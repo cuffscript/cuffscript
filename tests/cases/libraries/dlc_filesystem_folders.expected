@@ -3,15 +3,15 @@ true
 true
 true true
 false
-["B.txt", "b.txt", "inner", "ä.txt"]
+["Zed.txt", "apple.txt", "inner", "kiwi.txt"]
 []
 empty empty
-true bee
+true apple
 false
 false false
 false
 true false
-false umlaut
+false kiwi
 true true
 false false
 ["copy.txt", "deep", "moved.txt"]
