@@ -41,9 +41,10 @@ cannot do yet. Every item links to the page that defines the behaviour. The [des
 ## Libraries
 
 - **`DLC:network` is plain HTTP.** There is no TLS, no custom headers, no cookies and no access to response headers; `https://` is refused. A redirect chain longer than the limit ends with the last redirect response. See [`DLC:network`](dlc/network.md).
-- **`DLC:filesystem` works on files only.** It cannot list, create or remove folders, and it stays inside the sandbox folder. See [`DLC:filesystem`](dlc/filesystem.md).
+- **`DLC:filesystem` stays inside the sandbox folder and never replaces or deletes by surprise.** It cannot remove a folder that has something in it, copy a folder, or read file times and permissions, and `file_copy` and `file_move` stop at an existing destination. See [`DLC:filesystem`](dlc/filesystem.md).
 - **`DLC:random` is not secure and not private to a program.** It is one generator for the whole process, and it must not be used for secrets. See [`DLC:random`](dlc/random.md).
-- **`DLC:time` is the wall clock** and has no calendar or formatting.
+- **`DLC:time` is the wall clock** and has no calendar or formatting; those are in `DLC:datetime`.
+- **`DLC:datetime` has no time zone names.** A zone is an offset in minutes that the script gives (or `datetime_offset`, which reads the machine's), so it knows nothing about daylight saving rules, month or weekday names, or years outside 1 to 9999. See [`DLC:datetime`](dlc/datetime.md).
 - **`DLC:json` writes and reads UTF-8 text**, rejects what the standard rejects (comments, trailing commas, `NaN`), and cannot write a `match` or a `pattern`. An object is written as its public fields.
 
 ## Running it

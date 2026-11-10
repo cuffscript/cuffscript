@@ -87,7 +87,7 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `regex/PatternData.h` | The value behind a `pattern`: the compiled pattern with its source text and flags. |
 | `dlc/DLCCommon.h` | Argument checking shared by every library, number parsing for `to_number`, case mapping. |
 | `dlc/MethodTable.h` | The one list of built-in methods: which function runs for `value.name(...)`, on which kinds of value, from which library. |
-| `dlc/MathDLC.h`, `StringDLC.h`, `ListDLC.h`, `MapDLC.h`, `ConvertDLC.h`, `TimeDLC.h`, `RandomDLC.h`, `JsonDLC.h` | One library each: [`DLC:math`](../reference/dlc/math.md) and the others. |
+| `dlc/MathDLC.h`, `StringDLC.h`, `ListDLC.h`, `MapDLC.h`, `ConvertDLC.h`, `TimeDLC.h`, `DatetimeDLC.h`, `RandomDLC.h`, `JsonDLC.h` | One library each: [`DLC:math`](../reference/dlc/math.md) and the others. |
 | `dlc/FilesystemDLC.h`, `NetworkDLC.h` | The two libraries that act on the outside world. |
 | `net/HttpClient.h` | The plain-HTTP client behind `DLC:network`, including the blocked-address check. |
 

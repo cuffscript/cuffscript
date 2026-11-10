@@ -125,7 +125,7 @@ Ann has 30 points
 - Classes with fields, methods, inheritance and private members, and a `with` block
 - A built-in pattern-matching language with word-style tokens (`[num]`, `[email]`) instead of cryptic symbols, and patterns as values (`p"..."`)
 - Async functions, modules, and recoverable errors that are objects (`or_else as`, `fail`)
-- Ten built-in libraries: math, strings, lists, maps, conversion, time, random numbers, JSON, files and a small HTTP client
+- Eleven built-in libraries: math, strings, lists, maps, conversion, time, dates, random numbers, JSON, files and a small HTTP client
 - Error reports with the source line, a caret under the position, and a hint, and a [catalogue](docs/reference/errors.md) of every error code
 - Limits on nesting, recursion, size and matching work, so a script can fail without crashing its host
 - A C++ API for embedding the engine, plus a WebAssembly build target

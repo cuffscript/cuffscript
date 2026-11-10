@@ -20,8 +20,8 @@ if elapsed < 0 do:
 end
 ```
 
-There is no calendar or formatting support: the library gives you the clock, and measuring how long something took is its
-main use. The values come from the system's wall clock, which an administrator or a time service can set backwards, so a
+Calendar dates and formatting are in [`DLC:datetime`](datetime.md), which takes the number `time_now()` gives. This library gives you
+the clock, and measuring how long something took is its main use. The values come from the system's wall clock, which an administrator or a time service can set backwards, so a
 difference between two readings can in rare cases be negative or wrong. The `--timeout` budget uses the engine's own steady
 clock, not this one, so changing the system time never shortens or extends it.
 

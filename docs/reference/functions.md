@@ -14,11 +14,22 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`contains`](dlc/string.md) | `DLC:string` | `contains` |
 | [`copy`](builtins.md) | always available | `copy` |
 | [`count`](builtins.md) | always available | `count` |
+| [`datetime_format`](dlc/datetime.md) | `DLC:datetime` |  |
+| [`datetime_make`](dlc/datetime.md) | `DLC:datetime` |  |
+| [`datetime_offset`](dlc/datetime.md) | `DLC:datetime` |  |
+| [`datetime_parse`](dlc/datetime.md) | `DLC:datetime` |  |
+| [`datetime_parts`](dlc/datetime.md) | `DLC:datetime` |  |
 | [`file_add`](dlc/filesystem.md) | `DLC:filesystem` |  |
+| [`file_copy`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_exist`](dlc/filesystem.md) | `DLC:filesystem` |  |
+| [`file_isdir`](dlc/filesystem.md) | `DLC:filesystem` |  |
+| [`file_list`](dlc/filesystem.md) | `DLC:filesystem` |  |
+| [`file_makedir`](dlc/filesystem.md) | `DLC:filesystem` |  |
+| [`file_move`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_read`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_readlines`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_remove`](dlc/filesystem.md) | `DLC:filesystem` |  |
+| [`file_removedir`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_size`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_write`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`find`](builtins.md) | always available | `find` |

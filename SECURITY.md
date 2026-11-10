@@ -81,7 +81,7 @@ downgraded). This is a meaningfully different trust boundary from everything els
 
 ## DLC:filesystem
 
-`use DLC:filesystem` gives a script real local file access: `file_exist`, `file_size`, `file_read`, `file_readlines`, `file_write`, `file_add` and `file_remove`. Unlike `DLC:network`,
+`use DLC:filesystem` gives a script real local file access: `file_exist`, `file_size`, `file_read`, `file_readlines`, `file_write`, `file_add`, `file_remove`, `file_isdir`, `file_list`, `file_makedir`, `file_removedir`, `file_copy` and `file_move`. Unlike `DLC:network`,
 it follows the same sandbox-by-default model that module loading uses, not a separate, more permissive one:
 
 - **Confined to the same root as `use ... from`.** Every path is resolved relative to, and checked against, the script's own directory (or `--root` / `Options::rootDir`, whichever the
@@ -95,7 +95,8 @@ it follows the same sandbox-by-default model that module loading uses, not a sep
   inside the root whose target lies outside it (a file link or a directory link you would write through) is rejected with `E5-008`, for reading and writing alike. Symlinks that stay inside
   the root are followed normally. The one gap is inherent to check-then-use: something *other than the script* (another process) creating or swapping a symlink between the check and the
   open could still redirect an access. Scripts have no way to create symlinks themselves, but do not expose a root that untrusted processes can write to. `file_remove` deletes regular files
-  only (a folder is never removed) and goes straight to `std::filesystem::remove`: there is no trash and no undo.
+  only and `file_removedir` an empty folder only (nothing removes a folder that has something in it, and the allowed folder itself is never removed or moved), and both go straight to
+  `std::filesystem::remove`: there is no trash and no undo. `file_copy` and `file_move` never replace an existing destination.
 - **There is no size cap dedicated to `DLC:filesystem`** beyond the language's own limits. Reading a file larger than the string limit, or a file with more lines than the collection limit,
   fails cleanly with `E4-026` (`SizeLimitExceeded`) instead of exhausting memory. Writing has no cap of its own: set one at the host or operating-system level (disk quotas, a size-limited mount)
   if the language limits are not enough for your deployment.

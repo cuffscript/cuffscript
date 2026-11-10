@@ -5,6 +5,7 @@
 #include "../dlc/MathDLC.h"
 #include "../dlc/StringDLC.h"
 #include "../dlc/TimeDLC.h"
+#include "../dlc/DatetimeDLC.h"
 #include "../dlc/RandomDLC.h"
 #include "../dlc/ListDLC.h"
 #include "../dlc/MapDLC.h"
@@ -258,6 +259,7 @@ namespace cuff
             {"math", [](NativeTable &reg, const DLCOptions &) { registerMathDLC(reg); }},
             {"string", [](NativeTable &reg, const DLCOptions &) { registerStringDLC(reg); }},
             {"time", [](NativeTable &reg, const DLCOptions &) { registerTimeDLC(reg); }},
+            {"datetime", [](NativeTable &reg, const DLCOptions &) { registerDatetimeDLC(reg); }},
             {"random", [](NativeTable &reg, const DLCOptions &) { registerRandomDLC(reg); }},
             {"list", [](NativeTable &reg, const DLCOptions &) { registerListDLC(reg); }},
             {"map", [](NativeTable &reg, const DLCOptions &) { registerMapDLC(reg); }},

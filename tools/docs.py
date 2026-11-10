@@ -205,7 +205,7 @@ def block_errors(descriptions, records):
     return "\n".join(out)
 
 
-LIBRARIES = ["math", "string", "time", "random", "list", "map", "convert", "json", "network", "filesystem"]
+LIBRARIES = ["math", "string", "time", "datetime", "random", "list", "map", "convert", "json", "network", "filesystem"]
 
 
 def functions_by_library(records):

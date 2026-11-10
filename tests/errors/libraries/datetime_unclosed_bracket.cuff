@@ -1,0 +1,3 @@
+note: a [ in a pattern needs its closing ]
+use DLC:datetime
+print(datetime_format(0, "YYYY[x"))

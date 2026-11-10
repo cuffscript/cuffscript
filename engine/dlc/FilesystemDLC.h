@@ -4,6 +4,7 @@
 
 #include "../common/PathSandbox.h"
 #include <filesystem>
+#include <algorithm>
 #include <fstream>
 
 namespace cuff
@@ -49,6 +50,15 @@ namespace cuff
         if (!isInsideRoot(canon, opts.root))
             throwFilesystemAccessDenied(fn, rawPath, loc);
         return canon;
+    }
+
+    // The path argument `i` of `fn`, checked and resolved the way every function of the library does it.
+    inline std::filesystem::path sandboxedArg(const char *fn, std::vector<Value> &args, size_t i,
+                                              const FilesystemDLCOptions &opts, const SourceLocation &loc)
+    {
+        if (!opts.enabled)
+            throwFilesystemDisabled(fn, loc);
+        return resolveSandboxedPath(fn, expectStr(fn, args, i, loc), opts, loc);
     }
 
     inline void registerFilesystemDLC(std::unordered_map<std::string, NativeFn> &reg, FilesystemDLCOptions opts)
@@ -176,6 +186,97 @@ namespace cuff
                 return Value::makeBool(false);
             bool removed = std::filesystem::remove(resolved, ec);
             return Value::makeBool(removed && !ec);
+        };
+
+        reg["file_isdir"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_isdir", args, 1, loc);
+            auto resolved = sandboxedArg("file_isdir", args, 0, opts, loc);
+            std::error_code ec;
+            return Value::makeBool(std::filesystem::is_directory(resolved, ec) && !ec);
+        };
+
+        reg["file_list"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_list", args, 1, loc);
+            auto resolved = sandboxedArg("file_list", args, 0, opts, loc);
+            std::error_code ec;
+            if (!std::filesystem::is_directory(resolved, ec) || ec)
+                return Value::makeEmpty();
+            std::vector<std::string> names;
+            std::filesystem::directory_iterator it(resolved, ec);
+            if (ec)
+                return Value::makeEmpty();
+            for (const std::filesystem::directory_iterator end; it != end; it.increment(ec))
+            {
+                if (ec)
+                    return Value::makeEmpty();
+                if (names.size() >= limits::kMaxCollectionItems)
+                    throw CuffRuntimeError(ErrorCode::SizeLimitExceeded, "file_list(): folder has too many entries", loc);
+                names.push_back(it->path().filename().u8string());
+            }
+            if (ec)
+                return Value::makeEmpty();
+            std::sort(names.begin(), names.end());
+            auto list = std::make_shared<ValueList>();
+            list->items.reserve(names.size());
+            for (std::string &name : names)
+                list->items.push_back(Value::makeStr(std::move(name)));
+            return Value::makeList(list);
+        };
+
+        reg["file_makedir"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_makedir", args, 1, loc);
+            auto resolved = sandboxedArg("file_makedir", args, 0, opts, loc);
+            std::error_code ec;
+            std::filesystem::create_directories(resolved, ec);
+            // create_directories() says false for a folder that was already there, which is a success here.
+            return Value::makeBool(std::filesystem::is_directory(resolved, ec));
+        };
+
+        reg["file_removedir"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_removedir", args, 1, loc);
+            auto resolved = sandboxedArg("file_removedir", args, 0, opts, loc);
+            std::error_code ec;
+            // Only an empty folder, and never the allowed folder itself; remove() would also delete a file.
+            if (!std::filesystem::is_directory(resolved, ec) || ec || resolved == resolveSandboxedPath("file_removedir", ".", opts, loc))
+                return Value::makeBool(false);
+            return Value::makeBool(std::filesystem::remove(resolved, ec) && !ec);
+        };
+
+        reg["file_copy"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_copy", args, 2, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_copy", loc);
+            auto from = resolveSandboxedPath("file_copy", expectStr("file_copy", args, 0, loc), opts, loc);
+            auto to = resolveSandboxedPath("file_copy", expectStr("file_copy", args, 1, loc), opts, loc);
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(from, ec) || ec)
+                return Value::makeBool(false);
+            // copy_options::none: an existing destination is an error, not an overwrite.
+            bool copied = std::filesystem::copy_file(from, to, std::filesystem::copy_options::none, ec);
+            return Value::makeBool(copied && !ec);
+        };
+
+        reg["file_move"] = [opts](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgCount("file_move", args, 2, loc);
+            if (!opts.enabled)
+                throwFilesystemDisabled("file_move", loc);
+            auto from = resolveSandboxedPath("file_move", expectStr("file_move", args, 0, loc), opts, loc);
+            auto to = resolveSandboxedPath("file_move", expectStr("file_move", args, 1, loc), opts, loc);
+            std::error_code ec;
+            auto kind = std::filesystem::symlink_status(from, ec).type();
+            if (ec || (kind != std::filesystem::file_type::regular && kind != std::filesystem::file_type::directory))
+                return Value::makeBool(false);
+            // The allowed folder itself is never moved, and rename() would silently replace an existing destination.
+            if (from == resolveSandboxedPath("file_move", ".", opts, loc) || std::filesystem::exists(to, ec) || ec)
+                return Value::makeBool(false);
+            std::filesystem::rename(from, to, ec);
+            return Value::makeBool(!ec);
         };
     }
 

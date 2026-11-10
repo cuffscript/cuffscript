@@ -1,0 +1,3 @@
+note: an offset is minutes, less than a day either way
+use DLC:datetime
+print(datetime_parts(0, 1440))

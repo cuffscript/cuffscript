@@ -1,0 +1,53 @@
+use DLC:datetime
+
+note: the epoch, the last second before it, and both ends of the supported years
+print(datetime_parts(0))
+print(datetime_parts(-1))
+print(datetime_parts(-62135596800))
+print(datetime_parts(253402300799))
+
+note: a zone is minutes east of UTC; 1700000000 is 22:13:20 UTC on Tuesday 14 November 2023
+print(datetime_parts(1700000000))
+print(datetime_parts(1700000000, 540))
+print(datetime_parts(1700000000, -330))
+
+note: making an instant, with and without a zone, and the dates that do not exist
+print(datetime_make(1970, 1, 1))
+print(datetime_make(2023, 11, 14, 22, 13, 20))
+print(datetime_make(2023, 11, 15, 7, 13, 20, 540))
+print(datetime_make(2023, 11, 14, 12, 30))
+print(datetime_make(2023, 11, 14, 12, 30, 0.5))
+print(datetime_make(2024, 2, 29), datetime_make(2023, 2, 29), datetime_make(1900, 2, 29), datetime_make(2000, 2, 29))
+print(datetime_make(2023, 13, 1), datetime_make(2023, 0, 1), datetime_make(2023, 4, 31), datetime_make(0, 1, 1), datetime_make(10000, 1, 1))
+print(datetime_make(2023, 1, 1, 24), datetime_make(2023, 1, 1, 0, 60), datetime_make(2023, 1, 1, 0, 0, 60))
+
+note: format tokens, text in brackets, and the zone
+print(datetime_format(1700000000, "YYYY-MM-DD HH:mm:ss"))
+print(datetime_format(1700000000.123, "YYYY-MM-DD[T]HH:mm:ss.SSSZ"))
+print(datetime_format(1700000000.123, "YYYY-MM-DD[T]HH:mm:ss.SSSZ", 540))
+print(datetime_format(1700000000, "HH:mm Z", -330))
+print(datetime_format(1700000000.9996, "ss.SSS"))
+print(datetime_format(1700000000, "[Class] ss [done] 한글"))
+print(datetime_format(0, ""))
+
+note: parse is the same patterns read backwards; anything that does not fit is empty
+print(datetime_parse("2023-11-14 22:13:20", "YYYY-MM-DD HH:mm:ss"))
+print(datetime_parse("2023-11-15T07:13:20+09:00", "YYYY-MM-DD[T]HH:mm:ssZ"))
+print(datetime_parse("2023-11-14T22:13:20Z", "YYYY-MM-DD[T]HH:mm:ssZ"))
+print(datetime_parse("2023-11-14T16:43:20-05:30", "YYYY-MM-DD[T]HH:mm:ssZ"))
+print(datetime_parse("2023-11-15 07:13:20", "YYYY-MM-DD HH:mm:ss", 540))
+print(datetime_parse("12:30", "HH:mm"))
+print(datetime_parse("10:00:00.250", "HH:mm:ss.SSS"))
+print(datetime_parse("2023-02-30", "YYYY-MM-DD"), datetime_parse("2023-2-3", "YYYY-MM-DD"), datetime_parse("2023-02-03 ", "YYYY-MM-DD"))
+print(datetime_parse("2023-02-03", "YYYY/MM/DD"), datetime_parse("", "YYYY"), datetime_parse("0000", "YYYY"))
+print(datetime_parse("24:00", "HH:mm"), datetime_parse("12:60", "HH:mm"), datetime_parse("00:00:60", "HH:mm:ss"))
+print(datetime_parse("2023-01-01T00:00+24:00", "YYYY-MM-DD[T]HH:mmZ"), datetime_parse("2023-01-01T00:00+0900", "YYYY-MM-DD[T]HH:mmZ"))
+
+note: format then parse gives the instant back
+number t = 1700000000
+print(datetime_parse(datetime_format(t, "YYYY-MM-DD[T]HH:mm:ssZ", 540), "YYYY-MM-DD[T]HH:mm:ssZ") is t)
+
+note: the machine's own offset depends on where the test runs, so only its shape is checked
+number here = datetime_offset(t)
+print(here % 1 is 0, here > -1440, here < 1440)
+print(datetime_offset() > -1440, datetime_offset() < 1440)

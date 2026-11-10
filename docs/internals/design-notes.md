@@ -1513,7 +1513,7 @@ Block scopes were considered and refused. They would change what an existing pro
 disappear after it), cost a scope per loop pass, and add a second set of rules to the guide, to solve a problem, the
 accidental redeclaration, that a check on the text solves without touching the run.
 
-## 65. v5.0.1: cost counted in instructions, and what a performance pass did not find
+## 65. v5.1.0: cost counted in instructions, and what a performance pass did not find
 
 The first cost figures of item 63 were wall-clock times, best of 31 runs. The same binary run twice against itself differs by up
 to 5% on a benchmark program, so a 4% to 7% difference between two builds says little, and it hid the real figure. Cost is now
@@ -1532,7 +1532,8 @@ Tried and **not adopted**, counted the same way: a sorted vector in place of the
 for `-O3` (6% smaller, and anywhere from 7% fewer to 7% more instructions, depending on the program); `-Os` (34% smaller, but 24% to
 49% more instructions); `-ffunction-sections` with `--gc-sections` (no change) and hidden symbol visibility (1% larger). Looking for
 dead code by listing every function, type and constant named once in the whole tree found two functions, `utf8::boundaries` and
-`ValueMap::getMutable`, which were removed (the engine source is 0.5 KB smaller).
+`ValueMap::getMutable`. Only the first was removed: the second is a public member of a header-only library that other programs
+embed, and removing it would save a few lines at the price of possibly breaking a caller we cannot see.
 
 Stability was checked by running about 146,000 programs under AddressSanitizer and UndefinedBehaviorSanitizer with `--timeout 3000`:
 71,000 copies of the examples, test cases and documentation examples with token and byte edits, truncations, shuffled lines, deep
@@ -1540,3 +1541,46 @@ nesting and boundary numbers, and 75,000 calls of every built-in and DLC functio
 JSON text. None crashed, none ran past its timeout and none drew a sanitizer report. A pattern that would backtrack for a very long
 time, such as `[any]*[any]*[any]*c` over 3,000 characters, is stopped by the match budget and answers in about 10 ms. The threads
 test is clean under ThreadSanitizer.
+
+## 66. v5.1.0: `DLC:datetime`, and folders in `DLC:filesystem`
+
+**Dates.** A script that has to print today's date, subtract two dates or read one from a log had nothing but `time_now()`. The new
+library takes and gives the same number (seconds since the epoch), so nothing converts between the two libraries, and everything else is
+arithmetic on the Gregorian calendar (days from a civil date, and back, by the usual integer algorithm), with no use of the C library for
+anything but the machine's own offset.
+
+- **A zone is an offset in minutes, not a name.** Names (`Asia/Seoul`) need the time zone database, which is large, differs between
+  platforms and changes several times a year, and a script's answer would then depend on the machine's copy of it. An offset the script
+  passes in gives the same answer everywhere. `datetime_offset` is the one function that asks the machine, and it is a separate call so
+  that the dependence is visible: `datetime_parts(t, datetime_offset(t))` is the local time and nothing else is.
+- **`datetime_make` and `datetime_parse` give `empty` for a date that does not exist or text that does not fit, and `datetime_parts` and
+  `datetime_format` raise `E4-025` outside years 1 to 9999.** The first two are asked about data that came from outside (a form, a log),
+  where "is this a date?" is the question and an error would force a catch around every call; the other two are given an instant the script
+  made itself, where a value out of range is a mistake. The same split as `file_read` (missing file: `empty`) and a path that leaves the
+  sandbox (error).
+- **One pattern language for both directions, with eight tokens.** `YYYY MM DD HH mm ss SSS Z`, text in `[brackets]`, anything else as itself.
+  Left out on purpose: month and weekday names (they are words of a language, and a table for each language is a library of its own),
+  the 12-hour clock, a two-digit year (the century is a guess) and a variable width (`D`, `H`), which make parsing ambiguous. `Z` is one
+  token, written `Z` for UTC and `+HH:mm` otherwise, which is what ISO 8601 and JSON timestamps use; a pattern that needs `+00:00` is
+  not offered. Parsing is strict (fixed widths, nothing left over), and a part the pattern does not mention is 1970, January or the 1st, so
+  `datetime_parse("12:30", "HH:mm")` is a time of day.
+- **No date arithmetic functions.** Adding seconds and days is `+`. Adding a month has a policy in it (31 January plus a month is 28, 29 or
+  3 March), and a script that needs one writes it with `datetime_parts` and `datetime_make`, where the choice is visible.
+- **Leap seconds do not exist and the weekday is ISO** (1 is Monday), so that 7 is Sunday and `weekday` can be compared and subtracted without
+  a table.
+
+**Folders.** `file_isdir`, `file_list`, `file_makedir`, `file_removedir`, `file_copy` and `file_move` keep to item 30: every path is confined by the
+same sandbox check before anything is touched, and an operating system failure is `false` or `empty`, not an error. `file_remove` still
+takes regular files only.
+
+- **`file_list` gives names, sorted by bytes.** The order of a directory is up to the file system, so a script's output would differ
+  between machines; sorting gives one order everywhere. A name is not a path, and a script that wants the path joins it, which is also
+  what `file_isdir` needs to tell a file from a folder.
+- **Nothing replaces anything.** `file_copy` and `file_move` stop at an existing destination (the underlying `rename` would silently replace a
+  file, so `file_move` looks first). A script that wants to overwrite removes the old file, which says so.
+- **`file_removedir` takes an empty folder only, and no function removes a folder with something in it.** A recursive delete in a
+  sandbox is one wrong path away from the whole sandbox, and clearing a folder is a short loop over `file_list` that anyone reading the script
+  can follow. `file_removedir` exists because a library that can make a folder and cannot unmake it leaves every test and script with
+  litter.
+- **The allowed folder itself is never moved or removed**, and every path, including both ends of a copy or move and a path through a
+  symbolic link, goes through the same sandbox check as before.

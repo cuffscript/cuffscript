@@ -28,7 +28,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **display form.** How a value is turned into text by `print`, `to_str` and f-strings. See [types and values](language.md#2-types-and-values).
 
-**DLC library.** One of the libraries a program loads with `use DLC:name`: `math`, `string`, `list`, `map`, `convert`, `time`, `random`, `json`, `filesystem` and `network`. See [libraries](dlc/README.md).
+**DLC library.** One of the libraries a program loads with `use DLC:name`: `math`, `string`, `list`, `map`, `convert`, `time`, `datetime`, `random`, `json`, `filesystem` and `network`. See [libraries](dlc/README.md).
 
 **embedding (host).** Using the engine from another program. The program that does so is the host; it decides the options, the budgets and what happens to output. See [Embedding the engine](../guide/embedding.md).
 

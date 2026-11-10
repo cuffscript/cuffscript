@@ -3,6 +3,6 @@
 namespace cuff::cli
 {
 
-    constexpr const char *kVersion = "5.0.1";
+    constexpr const char *kVersion = "5.1.0";
 
 } // namespace cuff::cli

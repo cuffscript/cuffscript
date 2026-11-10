@@ -32,13 +32,14 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | math | `use DLC:math` | 25 | [math](math.md) |
 | string | `use DLC:string` | 15 | [string](string.md) |
 | time | `use DLC:time` | 2 | [time](time.md) |
+| datetime | `use DLC:datetime` | 5 | [datetime](datetime.md) |
 | random | `use DLC:random` | 5 | [random](random.md) |
 | list | `use DLC:list` | 11 | [list](list.md) |
 | map | `use DLC:map` | 7 | [map](map.md) |
 | convert | `use DLC:convert` | 3 | [convert](convert.md) |
 | json | `use DLC:json` | 2 | [json](json.md) |
 | network | `use DLC:network` | 2 | [network](network.md) |
-| filesystem | `use DLC:filesystem` | 7 | [filesystem](filesystem.md) |
+| filesystem | `use DLC:filesystem` | 13 | [filesystem](filesystem.md) |
 <!-- END GENERATED: dlc-table -->
 
 All functions are also listed together in the [function index](../functions.md).

@@ -1,0 +1,3 @@
+note: the supported years are 1 to 9999
+use DLC:datetime
+print(datetime_parts(1000000000000))
