@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <limits>
 
 namespace cuff
 {
@@ -123,7 +124,12 @@ namespace cuff
         {
             if (!std::isfinite(seconds) || seconds < kMinSeconds || seconds > kMaxSeconds)
                 return 0;
-            const std::time_t t = static_cast<std::time_t>(std::floor(seconds));
+            // A 32-bit time_t (32-bit Android, for one) ends in 2038; converting a later instant to it is undefined.
+            const double whole = std::floor(seconds);
+            if (whole < static_cast<double>(std::numeric_limits<std::time_t>::min()) ||
+                whole > static_cast<double>(std::numeric_limits<std::time_t>::max()))
+                return 0;
+            const std::time_t t = static_cast<std::time_t>(whole);
             std::tm lt;
 #ifdef _WIN32
             if (localtime_s(&lt, &t) != 0)

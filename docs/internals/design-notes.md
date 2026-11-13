@@ -11,7 +11,7 @@ Items 1 to 45 were written for the 3.x language. Where they show code with `set 
 describes (the order of `async` calls, limits, error locations, and so on) holds unless a later item says otherwise.
 Items 46 to 61 record the decisions of 4.0.0 and 4.0.1. Items 62 to 64 record 5.0.0, which are the language as it is now; where
 they disagree with items 4, 6, 28, 36, 46 and 53 (the spellings `set`, `change` and `to`, the soft keywords, the type check at
-declaration only, the removal of a number as a position, the optional parameter types) they win. Items 67 to 69 record 5.2.0,
+declaration only, the removal of a number as a position, the optional parameter types) they win. Items 67 to 70 record 5.2.0,
 in which the engine became a bytecode machine. The items before them that describe how the engine runs a program (`execStatement`,
 `evalExpr`, `Environment`, `ExecOutcome`, the stack a call uses: items 13, 21, 22, 24, 29, 30 and 45 among them) describe the
 tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so.
@@ -1638,12 +1638,12 @@ Cost, counted in instructions as in item 65 (`valgrind --tool=callgrind`, releas
 | `calls` | 1.5 million calls with a default parameter | 3,570 M | 817 M | 4.4x |
 | `loops` | 5 million passes of `loop repeat` and `loop while` in a function | 4,903 M | 752 M | 6.5x |
 | `toplevel` | The same loops at the top level | 4,903 M | 1,265 M | 3.9x |
-| `fields` | 1.5 million field reads, stores and method calls | 4,541 M | 1,140 M | 4.0x |
-| `objects` | 800 thousand objects made, with `init` and method calls | 4,666 M | 1,627 M | 2.9x |
-| `collections` | Lists, maps and f-strings | 1,737 M | 977 M | 1.8x |
-| `text` | Library calls on text and lists | 199 M | 159 M | 1.2x |
-| Start-up | `print("hello")` | 2.98 M | 2.77 M | 7% fewer |
-| The examples and test cases of 5.1.0, once each | 87 programs | 317 M | 297 M | 6% fewer |
+| `fields` | 1.5 million field reads, stores and method calls | 4,541 M | 1,146 M | 4.0x |
+| `objects` | 800 thousand objects made, with `init` and method calls | 4,666 M | 1,634 M | 2.9x |
+| `collections` | Lists, maps and f-strings | 1,737 M | 979 M | 1.8x |
+| `text` | Library calls on text and lists | 199 M | 161 M | 1.2x |
+| Start-up | `print("hello")` | 2.98 M | 2.76 M | 7% fewer |
+| The examples and test cases of 5.1.0, once each | 87 programs | 317 M | 296 M | 7% fewer |
 
 The last two rows are what a short script sees, and the machine is not what makes them lower. Compiling is not free: a
 statement of the top level is compiled and then run once, and on such code what the machine saves in running it the
@@ -1652,8 +1652,8 @@ its top level in 74 thousand instructions, and 5.2.0 in 76 thousand to run it an
 is cheaper. The parser and the interpreter each measure the thread's stack before they begin, glibc finds the first
 thread's stack by reading `/proc/self/maps`, and 5.1.0 did that three times for `cuffc hello.cuff`, at about 125,000
 instructions each. 5.2.0 keeps the answer for as long as the stack limit is the same ([Resource limits](resource-limits.md)).
-That saves about 245,000 instructions on every run, which over the 87 programs is slightly more than the 20 million by
-which they come out lower: on code that runs once, compiling and the faster machine about cancel out. The key is the stack
+That saves about 245,000 instructions on every run, which over the 87 programs is about the 21 million by which they come
+out lower: on code that runs once, compiling and the faster machine about cancel out. The key is the stack
 limit because glibc and Bionic derive the first thread's stack from it, so `setrlimit` in an embedding program is seen at
 the next parse or run; and the answer is not kept with musl, which measures the stack by how far it has grown. Wall-clock
 times follow the instruction counts (`fib` 246 ms to 47 ms, `loops` 302 ms to 46 ms on the development machine). A program that spends its time in libraries gains
@@ -1663,7 +1663,7 @@ Two more things got cheaper on the way that are not the machine: `%` on two whol
 value as `fmod`, down to the sign of a zero result, at a seventh of its time (20 million pairs compared bit for bit, the limits
 of a double among them); and a whole number is turned into text by writing its digits, where `snprintf` was called before.
 
-What it costs: the stripped `cuffc` is 1,000 KB where it was 881 KB (13.5% larger), and the engine source is 781 KB where it was
+What it costs: the stripped `cuffc` is 1,008 KB where it was 881 KB (14.4% larger), and the engine source is 796 KB where it was
 613 KB. A compiler and a machine are more code than a tree walk. Memory is the other way round: a program at the call depth
 limit peaks at 5.5 MB where it peaked at 7.4 MB, because a frame is a few registers and a call no longer has a scope with a
 table of its own.
@@ -1756,10 +1756,59 @@ one name in fifty into the only route there is.
 Other platforms. The MinGW-w64 build of `cuffc` and of every unit test was run under Wine and gives the output of the Linux build on
 every example and test; Wine looks file names up without regard to case, so it also reproduces the `dlc_filesystem_folders` failure
 that Windows and macOS showed, and shows the rewritten test passing. The WebAssembly build was made with Emscripten 3.1.6 (an old
-one: `STACK_SIZE` had to be written `TOTAL_STACK`) and run under Node 22 on every example and test. It passes them, with two
-exceptions that are not new: a program whose nesting is inside the engine (a default value that makes its own class, the
-regular-expression recursion limit) overflows the JavaScript call stack before the engine's own budget is reached, because
-with Emscripten's exception handling every C++ call in a `try` goes through a JavaScript frame. 5.1.0 fails the second of these
-in the same way, and failed a third that 5.2.0 passes: a script's own runaway recursion, which was nested C++ calls then and is
-frames of the machine now. Not checked, and said so in the changelog: macOS, Windows itself, a browser, and the Emscripten
+one: `STACK_SIZE` had to be written `TOTAL_STACK`) and run under Node 22 on every example and test. It passes them, with three
+exceptions of one kind that is not new: a program whose nesting is inside the engine (a default value that makes its own class,
+and a pattern group repeated many times, in `regex_recursion_limit` and `phenomena/regex_run_length`) overflows the JavaScript call
+stack before the engine's own limits are reached, because with Emscripten's exception handling every C++ call in a `try` goes
+through a JavaScript frame. 5.1.0 fails all three in the same way, and fails two things that 5.2.0 passes: a script's own runaway
+recursion, which was nested C++ calls then and is frames of the machine now, and a repeat of one character over a thousand
+characters, which nested then and is a scan now (item 70). Not checked, and said so in the changelog: macOS, Windows itself, a browser, and the Emscripten
 version the release is built with.
+
+## 70. v5.2.0: what a review of the rest of the engine found
+
+With the machine checked against its predecessor (item 69), the parts around it were looked at with tools of their own: the suite on
+a build with checked containers (`-D_GLIBCXX_DEBUG`) and on a Clang build with AddressSanitizer, UndefinedBehaviorSanitizer and the
+float checks GCC leaves out (`float-cast-overflow`, `float-divide-by-zero`); every library function and method called hundreds of
+times with arguments chosen at the edges (zero and negative zero, 2<sup>53</sup>, infinities, NaN, surrogate code points, empty and
+very long text, a list that contains itself); four thousand programs with random bytes inserted, removed or swapped; and the engine
+hosted by programs that change what the process looks like (its locale, its open files). The sanitizers and the mutated programs
+found nothing. The rest found the following, all present in 5.1.0 as well.
+
+- **The locale of the process reached scripts.** `strtod` and `printf` use the decimal point of the C library's locale, and
+  `toupper` its letter case. A host that calls `setlocale(LC_ALL, "")` on a German machine read `1.5` in a script as `1` (so
+  `1.5 is 1` was `true`) and printed `0,25`; on a Turkish machine `str_upper("istanbul")` was `iSTANBUL`. Numbers now go through
+  `engine/common/NumberText.h`: a number is parsed with `strtod` as before, and only when `strtod` stops at the `.` is the text
+  given again with the locale's own point, which `printf` reports; printed numbers have whatever the locale put in place of the
+  point replaced by `.`. Both cost nothing where the locale already writes `.`. `strtod_l` and `uselocale` were the
+  alternative; they differ on every platform (glibc has no `snprintf_l`, Windows spells them `_strtod_l` and `_create_locale`),
+  and `std::from_chars` for floating point is a deleted function in the libc++ that Emscripten 3.1.6 ships, libc++ being also
+  the C++ library of macOS. Letter tests and case are ASCII arithmetic (`engine/common/Ascii.h`).
+  `tests/unit/locale_test.cpp` runs scripts under such locales where the machine has them; GitHub's Linux runners usually do not,
+  its macOS and Windows runners do.
+- **A request with more than 1,024 files open ended the process.** The client waited for its socket with `select()`, whose set
+  cannot hold a descriptor numbered 1,024 or more; glibc's checking aborts there, and without the check the stack is overwritten.
+  A host that serves many connections passes that number easily. The wait is `poll()` on POSIX systems; Windows keeps `select()`,
+  whose set holds handles rather than bit positions. The same change made every wait end at the request's deadline: a socket timeout
+  set to the whole budget let one read that started late wait the whole budget again, so a 15-second request could take 29.
+- **URLs and redirects.** A query right after the host or the port (`http://host?x=1`) was taken as part of it, a fragment was sent
+  to the server, an IPv6 host went into `Host` without brackets, and a relative `Location` was resolved against the root of the
+  host, so `next` from `/a/b` went to `/next` and `../c` was sent as it was. A `Location` is now resolved by RFC 3986, section 5.2,
+  as a browser resolves a link. A chunk size or `Content-Length` that is not a number was read as `0`, which cut the body short
+  without a word; it is a malformed response (`E4-028`) now.
+- **A repeat of one character could not run past about 1,500 characters.** The matcher keeps its place by nesting (item 10), and a
+  repeat nested once for every character it took, so `[any]*` over a 5,000-character text, or `[num]+` over a long run of digits,
+  ended in `E3-103`. A repeat whose element is one character test is now matched by a scan: it finds where the run ends and tries
+  the rest of the pattern from each shorter end in turn, the order in which the nesting path tries them, so what a pattern matches
+  is unchanged. Random patterns run through both versions (800 programs, 160,000 calls) agree everywhere except where 5.1.0
+  ran out of its step budget and 5.2.0 did not; there, 5.1.0 given a step budget ten thousand times larger gives what 5.2.0
+  gives. Characters taken by a scan count towards the time budget but
+  not the step budget, which is for backtracking. A repeated group still nests (`docs/guide/phenomena.md`), and making that
+  iterative would mean replacing the matcher, which was not done.
+- **Sizes on 32-bit platforms.** `list_join` computed the length of the separators as a product, and an f-string added up its
+  pieces before checking the total; on a 32-bit `size_t` (WebAssembly, 32-bit Android) either can wrap round and pass the size
+  check. Both now check as they add. `datetime_offset` converted an instant to `time_t` without asking whether it fits, which is
+  undefined after 2038 where `time_t` has 32 bits; it gives `0` there, as it does whenever the system cannot say.
+- **Smaller things.** `cuffc --ast` printed a number with six significant digits (`Number(1.23457e+06)`); a module was remembered by
+  `path::string()`, which throws on Windows for a name outside the ANSI code page; a test added in this release assumed that a
+  thread gets exactly the stack it asks for, which arm64 macOS does not do (it adds 12 KiB that the thread's own record shares).

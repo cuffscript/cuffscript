@@ -44,6 +44,10 @@ std::cout.rdbuf(previous);
 
 Error reports are never written by the engine: they come back in `result.error` for the host to print where it wants.
 
+The locale of the process does not reach a script. A host may call `setlocale` (many toolkits do it at start-up): numbers are still read
+and written with `.` as the decimal point, in source text, `to_number`, JSON and output, and letter case is still that of the
+[string library](../reference/dlc/string.md), whatever the C library would do under that locale.
+
 ## The two entry points
 
 | Use | When |

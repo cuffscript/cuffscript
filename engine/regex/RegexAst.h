@@ -1,10 +1,10 @@
 #pragma once
 
+#include "../common/Ascii.h"
 #include <string>
 #include <vector>
 #include <memory>
 #include <functional>
-#include <cctype>
 
 namespace cuff::regex
 {
@@ -20,7 +20,7 @@ namespace cuff::regex
 
     inline bool isWordChar(unsigned char c)
     {
-        return std::isalnum(c) || c == '_';
+        return ascii::isLetterOrDigit(c) || c == '_';
     }
 
     enum class RNodeKind

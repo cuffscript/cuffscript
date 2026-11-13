@@ -2,6 +2,8 @@
 
 #include "../parser/ASTNodes.h"
 #include "../common/TokenTypes.h"
+#include "../interpreter/Value.h"
+#include <locale>
 #include <string>
 #include <sstream>
 #include <variant>
@@ -15,6 +17,7 @@ namespace cuff
         static std::string printTokens(const std::vector<Token> &tokens)
         {
             std::ostringstream os;
+            os.imbue(std::locale::classic());
             for (const auto &t : tokens)
             {
                 os << "[" << tokenTypeName(t.type) << "]";
@@ -38,6 +41,7 @@ namespace cuff
         static std::string print(const Program &program)
         {
             std::ostringstream os;
+            os.imbue(std::locale::classic());
             for (const auto &stmt : program.statements)
             {
                 printStmt(os, *stmt, 0);
@@ -349,7 +353,7 @@ namespace cuff
             case ExprKind::Number:
             {
                 const auto &n = std::get<NumberLiteral>(expr.data);
-                os << "Number(" << n.value << ")\n";
+                os << "Number(" << formatCuffNumber(n.value) << ")\n";
                 break;
             }
             case ExprKind::String:

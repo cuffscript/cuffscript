@@ -59,14 +59,16 @@ namespace cuff
             expectArgCount("list_join", args, 2, loc);
             const auto &items = expectList("list_join", args, 0, loc).items;
             const std::string &sep = expectStr("list_join", args, 1, loc);
-            size_t total = items.empty() ? 0 : sep.size() * (items.size() - 1);
+            // Added up a piece at a time, so the total never passes twice the limit: separator times count could wrap
+            // around a 32-bit size_t (WebAssembly, 32-bit Android) and slip past the check.
+            size_t total = 0;
             for (size_t i = 0; i < items.size(); ++i)
             {
                 if (!items[i].isStr())
                     throw TypeError("list_join() requires every element to be a str (index " + std::to_string(i + 1) +
                                         " is a " + valueTypeName(items[i].type()) + ") — use to_str() first",
                                     loc);
-                total += items[i].asStr().size();
+                total += (i ? sep.size() : 0) + items[i].asStr().size();
                 ensureStringSize(total, loc);
             }
             std::string out;

@@ -4,6 +4,7 @@
 #include "../bytecode/Bytecode.h"
 #include "../bytecode/Compiler.h"
 #include "../common/Arithmetic.h"
+#include "../common/Ascii.h"
 #include "../common/Attributes.h"
 #include "../common/Limits.h"
 #include "../common/Utf8.h"
@@ -29,7 +30,6 @@
 #include <filesystem>
 #include <cmath>
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cstdint>
 
@@ -831,8 +831,8 @@ namespace cuff
         static std::string upperAscii(const std::string &s)
         {
             std::string out = s;
-            std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c)
-                           { return std::toupper(c); });
+            for (char &c : out)
+                c = ascii::upper(c);
             return out;
         }
 
@@ -2871,11 +2871,14 @@ namespace cuff
         // An f-string, once each of its expressions is a str in consecutive registers.
         CUFF_NOINLINE void concat(Value &out, const Reg *parts, const FStringExpr &fs)
         {
+            // Checked after each piece: a sum of many large pieces could wrap around a 32-bit size_t.
             size_t total = 0;
             size_t k = 0;
             for (const auto &seg : fs.segments)
+            {
                 total += seg.isExpression ? parts[k++].v.asStr().size() : seg.text.size();
-            checkStringSize(total, fs.loc);
+                checkStringSize(total, fs.loc);
+            }
             std::string text;
             text.reserve(total);
             k = 0;
@@ -3955,7 +3958,7 @@ namespace cuff
                                   "module '" + shown + "' resolves outside the allowed directory", loc,
                                   "keep imported modules inside the script's directory, or run with --root <dir> to widen it");
 
-            const std::string key = canon.string();
+            const std::string key = canon.u8string();  // string() throws on Windows for a name outside the ANSI code page
 
             if (importedPaths_.count(key))
                 return;

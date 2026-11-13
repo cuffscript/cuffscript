@@ -64,7 +64,8 @@ checker before sending a change. `--list` also prints the first tests that cover
 | `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which text it is drawn from (a module, an earlier entry of a `Session`, for every way a function can fail), and that a reported line and column always agree with the offset. |
 | `phenomena_test.cpp` | What has been printed when an error ends a run: a syntax error stops everything, a runtime error keeps the earlier lines, a waiting `async` call is dropped. The rest of [Phenomena](../guide/phenomena.md) is in `tests/cases/phenomena/`. |
 | `limits_test.cpp` | The limits and how they relate: long chains, the call depth, what does and does not use native stack, the stack plan, how the stack that is left is measured and kept (per thread, and anew when the stack limit changes), a small real thread stack, and the limits on classes, members and inheritance depth. |
-| `dlc_guards_test.cpp` | The network and filesystem guards. |
+| `dlc_guards_test.cpp` | The network and filesystem guards: which addresses a request may reach, how a URL is read and where a redirect leads, a request made while the process has more than 1024 files open, and what the filesystem functions may touch. |
+| `locale_test.cpp` | That a script means the same whatever locale the host process has set: numbers read and written with `.` under a locale that writes `,`, and letter case under one in which the upper case of `i` is not `I`. Each half runs where the machine has such a locale and says when it was skipped. |
 | `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time, including programs that declare classes and make objects. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
 
 ## The shell suite

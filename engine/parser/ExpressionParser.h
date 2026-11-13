@@ -5,6 +5,7 @@
 #include "LiteralParser.h"
 #include "../common/TokenTypes.h"
 #include "../common/CuffError.h"
+#include "../common/NumberText.h"
 #include "../tokenizer/Tokenizer.h"
 #include "../lexer/Lexer.h"
 #include <cerrno>
@@ -560,8 +561,7 @@ namespace cuff
         {
         case TokenType::NUMBER:
         {
-            errno = 0;
-            double val = std::strtod(tok.value.c_str(), nullptr);
+            double val = numtext::parse(tok.value);
             if (errno == ERANGE && std::isinf(val))
                 throw SyntaxError(ErrorCode::InvalidNumberLiteral, "number literal is too large", tok.location);
             p.advance();

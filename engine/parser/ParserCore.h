@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../common/Ascii.h"
 #include "../common/Token.h"
 #include "../common/TokenTypes.h"
 #include "../common/Attributes.h"
@@ -8,7 +9,6 @@
 #include "../common/SourceText.h"
 #include "ASTNodes.h"
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <vector>
 #include <string>
@@ -22,10 +22,10 @@ namespace cuff
             return false;
         if (t.value.empty())
             return false;
-        if (!(std::isalpha(static_cast<unsigned char>(t.value[0])) || t.value[0] == '_'))
+        if (!(ascii::isLetter(static_cast<unsigned char>(t.value[0])) || t.value[0] == '_'))
             return false;
         for (char c : t.value)
-            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+            if (!(ascii::isLetterOrDigit(static_cast<unsigned char>(c)) || c == '_'))
                 return false;
         return true;
     }

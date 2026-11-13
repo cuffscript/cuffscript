@@ -29,9 +29,11 @@ end
 
 ## What is sent
 
-The request is HTTP/1.1 with `Host`, `Accept: */*`, a `User-Agent` that names CuffScript, and `Connection: close`; `network_post` adds
-`Content-Type` and `Content-Length`. There is no way to add headers, cookies or authentication, and no way to read response
-headers; a script that needs them has to use another tool.
+The address is `http://host[:port][/path][?query]`. The host may be an IPv6 address in brackets (`http://[2001:db8::1]/`),
+and a `#fragment` at the end is not sent, as a browser does not send it. The request is HTTP/1.1 with `Host`, `Accept: */*`,
+a `User-Agent` that names CuffScript, and `Connection: close`; `network_post` adds `Content-Type` and `Content-Length`.
+There is no way to add headers, cookies or authentication, and no way to read response headers; a script that needs them
+has to use another tool.
 
 The body of the response is returned as text. A response sent in chunks is reassembled, and a response with no body
 (for example `204`) gives an empty string.
@@ -40,7 +42,7 @@ The body of the response is returned as text. A response sent in chunks is reass
 
 `301`, `302`, `303`, `307` and `308` responses that carry a `Location` header are followed, up to the redirect limit in [limits](../limits.md).
 
-- A relative `Location` is resolved against the current host.
+- A relative `Location` is resolved against the address that was requested, as a browser resolves a link (RFC 3986): from `http://host/a/b`, `c` is `http://host/a/c`, `../c` is `http://host/c`, `/c` is `http://host/c` and `?page=2` is `http://host/a/b?page=2`.
 - `303`, and `301` or `302` after a `POST`, turn the next request into a `GET` and drop the body; `307` and `308` repeat the request unchanged, with the same method, body and content type.
 - A redirect to an `https://` address, or to an address the library blocks, is an error like any request to one.
 - When the answer after the last allowed redirect is still a redirect, that response is returned as it is, with its `3xx` status and `ok` set to `false`; it is not an error.

@@ -456,8 +456,10 @@ int main()
             if (pthread_create(&t, &attr, ask, &asked) == 0)
             {
                 pthread_join(t, nullptr);
-                check(asked.left > 0 && asked.left <= 256 * 1024,
-                      "a thread with a 256 KiB stack is told about that stack: " + std::to_string(asked.left));
+                // A thread may get more stack than it asked for, and is told about all of it: on arm64 macOS a stack
+                // is 12 KiB larger than requested, because the thread's own record shares its top page.
+                check(asked.left > 128 * 1024 && asked.left < 512 * 1024,
+                      "a thread that asked for a 256 KiB stack is told about that stack: " + std::to_string(asked.left));
                 const size_t after = cuff::availableStackBytes();
                 const size_t apart = mine > after ? mine - after : after - mine;
                 check(apart < 4096, "and the first thread is still told about its own: " + std::to_string(mine) + ", " + std::to_string(after));

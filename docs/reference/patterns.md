@@ -813,6 +813,13 @@ When the threshold is exceeded, it raises a `Regex Runtime Error` (`E3-101` for 
 stops matching safely, to keep the system from running away. These errors can be caught with `or_else`. The other
 limits that apply to patterns (their size, nesting and repeat counts) are on the [limits](limits.md) page.
 
+Each attempt to match from one position may take 200,000 steps of backtracking and half a second, and one call (a `find_all`
+over a whole text, say) five seconds plus two for each MiB of the text, up to ten minutes. A run of one repeated
+character, such as `[any]*` or `[num]+`, is scanned and spends no steps however long it is; trying the rest of the pattern
+from each place the run could end does. The recursion depth is spent by a repeated group, a few levels each time round, which
+is why `(ab)+` stops at a few hundred rounds where `[ab]+` goes on to the end of the text
+([phenomena](../guide/phenomena.md#a-repeated-character-runs-as-long-as-the-text-a-repeated-group-does-not)).
+
 ---
 
 ## 34. Practical example 1 — validating sign-up form data

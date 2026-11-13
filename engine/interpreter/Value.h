@@ -2,6 +2,7 @@
 
 #include "../common/Attributes.h"
 #include "../common/Limits.h"
+#include "../common/NumberText.h"
 #include "../common/StrData.h"
 #include "../regex/PatternData.h"
 #include "ClassModel.h"
@@ -641,8 +642,7 @@ namespace cuff
             out.append(p, static_cast<size_t>(end - p));
             return;
         }
-        const int len = std::snprintf(buf, sizeof buf, "%.15g", d);
-        out.append(buf, static_cast<size_t>(len));
+        out.append(buf, numtext::format15g(buf, sizeof buf, d));
     }
 
     inline std::string formatCuffNumber(double d)

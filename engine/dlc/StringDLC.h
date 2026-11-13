@@ -3,7 +3,6 @@
 #include "DLCCommon.h"
 
 #include <algorithm>
-#include <cctype>
 
 namespace cuff
 {

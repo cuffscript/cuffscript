@@ -7,7 +7,6 @@
 #include "../common/Utf8.h"
 #include <string>
 #include <vector>
-#include <cctype>
 
 namespace cuff::regex
 {

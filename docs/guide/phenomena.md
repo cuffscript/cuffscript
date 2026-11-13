@@ -436,6 +436,42 @@ E4-017 1000
 
 **Why.** A call takes a frame in the engine's bytecode machine, and the machine keeps those frames in memory of its own; it does not call itself to run a call. So what bounds recursion is the number of calls that are active at once ([limits](../reference/limits.md)), and a function with locals, a loop and nested blocks reaches exactly the depth a one-line function does, on every platform. In an interpreter that runs a call by calling itself, the second function would run out of stack well before the first, at a depth that depends on the machine ([the bytecode machine](../internals/bytecode.md#calls)).
 
+### A repeated character runs as long as the text; a repeated group does not
+
+<!-- test: phenomena/regex_run_length -->
+```cuff
+note: a repeated token is followed by a scan, a repeated group by one level of the matcher each time round
+use DLC:string
+str digits = str_repeat("7", 100000)
+print(digits matches p"[num]+", length(find(digits + "x", p"[num]+x")))
+
+str pairs = str_repeat("ab", 5000)
+print(pairs matches p"[ab]+")
+boolean whole = pairs matches p"(ab)+" or_else as Error e do:
+    print(e.code)
+    whole = false
+end
+print(whole)
+```
+
+```output
+true 100001
+true
+E3-103
+false
+```
+
+**Why.** The pattern matcher tries the rest of a pattern after each way the part before it can match, and it keeps its place by
+nesting, one level inside the last. A repeat of one character (a letter, `[num]`, `[any]`, a set such as `[ab]`) needs no levels:
+the matcher scans how far the run goes and then tries the rest of the pattern from its end, giving back one character at a time
+for as long as that fails. A repeat of anything larger, a group, a `[one:...]` choice or a preset such as `[int]`, nests a few
+levels each time round, and the levels are capped so that matching cannot use up the native stack. A group can therefore repeat
+some hundreds of times within one match, fewer the more it holds (`(a)+` 998 times, `(abc)+` 599); beyond that the match ends with
+`E3-103`, which `or_else` can catch ([patterns](../reference/patterns.md#33-execution-limits-and-safety-nets-regex-redos-defense)).
+
+**Use it.** Over a long text, repeat a character or a set rather than a group: `[ab]+` instead of `(ab)+` when the order does not
+matter, or `split` the text into lines first and match each line.
+
 ## Numbers and operators
 
 ### A number prints rounded and compares exactly

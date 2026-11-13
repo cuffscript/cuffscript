@@ -354,7 +354,7 @@ namespace cuff
                     fail("digit expected in exponent");
                 while (!atEnd() && peek() >= '0' && peek() <= '9') ++pos_;
             }
-            double d = std::strtod(t_.substr(start, pos_ - start).c_str(), nullptr);
+            double d = numtext::parse(t_.substr(start, pos_ - start));
             if (!std::isfinite(d))
                 fail("number is out of range");
             return Value::makeNumber(d);

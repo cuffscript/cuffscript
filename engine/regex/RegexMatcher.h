@@ -155,6 +155,13 @@ namespace cuff::regex
                                               loc_,
                                               "simplify the pattern — avoid nested unbounded quantifiers like ([any]+)+");
             }
+            countTime();
+        }
+
+        // The time budget, looked at every 4096 steps of either kind: a backtracking step (tick) or a character
+        // scanned in a run (matchCharRun), which is linear in the text and so does not spend the step budget.
+        void countTime()
+        {
             if ((++totalSteps_ & 0xFFF) == 0)
             {
                 const auto now = std::chrono::steady_clock::now();
@@ -241,10 +248,11 @@ namespace cuff::regex
             return false;
         }
 
-        bool matchCharTest(RNode &node, size_t pos, const Cont &k)
+        // Where one character that passes the test ends, or npos when the character at `pos` does not pass.
+        size_t charTestEnd(const RNode &node, size_t pos) const
         {
             if (pos >= text_->size())
-                return false;
+                return std::string::npos;
 
             unsigned char lead = static_cast<unsigned char>((*text_)[pos]);
             size_t len = cuff::utf8::seqLen(lead);
@@ -254,31 +262,37 @@ namespace cuff::regex
             if (node.isAnyCodepoint)
             {
                 if (len == 1 && lead == '\n')
-                    return false;
-                return k(pos + len);
+                    return std::string::npos;
+                return pos + len;
             }
 
             if (!node.multiByteLiteral.empty())
             {
                 const std::string &lit = node.multiByteLiteral;
                 if (pos + lit.size() > text_->size())
-                    return false;
+                    return std::string::npos;
                 if (text_->compare(pos, lit.size(), lit) != 0)
-                    return false;
-                return k(pos + lit.size());
+                    return std::string::npos;
+                return pos + lit.size();
             }
 
             if (len > 1)
             {
                 // A multi-byte codepoint can only satisfy a negated set.
                 if (!node.negated)
-                    return false;
-                return k(pos + len);
+                    return std::string::npos;
+                return pos + len;
             }
 
             if (!charEquals(lead, node.charTest))
-                return false;
-            return k(pos + 1);
+                return std::string::npos;
+            return pos + 1;
+        }
+
+        bool matchCharTest(RNode &node, size_t pos, const Cont &k)
+        {
+            const size_t end = charTestEnd(node, pos);
+            return end != std::string::npos && k(end);
         }
 
         bool isWordCharAt(size_t pos) const
@@ -545,8 +559,59 @@ namespace cuff::regex
             return false;
         }
 
+        // A repeat of a single character test, such as [any]*, [num]+ or x2~5: the ends of 1, 2, 3, ... characters are
+        // found by a scan, and the rest of the match is tried from them, the most first for a greedy repeat and the
+        // fewest first for a lazy one. That is the order the general path below takes, without recursing once for each
+        // character, so a run can be as long as the text instead of as long as the recursion budget.
+        bool matchCharRun(RNode &node, size_t pos, const Cont &k)
+        {
+            const RNode &test = *node.child;
+            const size_t least = static_cast<size_t>(node.minCount);
+            const size_t most = node.maxCount < 0 ? std::string::npos : static_cast<size_t>(node.maxCount);
+            if (node.lazy)
+            {
+                size_t count = 0, at = pos;
+                while (true)
+                {
+                    if (count >= least && k(at))
+                        return true;
+                    if (count == most)
+                        return false;
+                    const size_t next = charTestEnd(test, at);
+                    if (next == std::string::npos)
+                        return false;
+                    at = next;
+                    ++count;
+                    countTime();
+                }
+            }
+            // The first `single` characters took one byte each, so the end of the c-th of them is pos + c; where
+            // each character after those ends is kept.
+            size_t count = 0, at = pos, single = 0;
+            std::vector<size_t> ends;
+            while (count != most)
+            {
+                const size_t next = charTestEnd(test, at);
+                if (next == std::string::npos)
+                    break;
+                if (single == count && next == at + 1)
+                    ++single;
+                else
+                    ends.push_back(next);
+                at = next;
+                ++count;
+                countTime();
+            }
+            for (size_t c = count + 1; c-- > least;)
+                if (k(c <= single ? pos + c : ends[c - single - 1]))
+                    return true;
+            return false;
+        }
+
         bool matchQuantified(RNode &node, size_t pos, int count, const Cont &k)
         {
+            if (count == 0 && node.child->kind == RNodeKind::CharTest)
+                return matchCharRun(node, pos, k);
             tick();
             bool canStop = count >= node.minCount;
             bool canContinue = (node.maxCount < 0) || (count < node.maxCount);

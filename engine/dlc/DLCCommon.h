@@ -2,6 +2,7 @@
 
 #include "../interpreter/Value.h"
 #include "../common/Limits.h"
+#include "../common/Ascii.h"
 #include "../common/Utf8.h"
 #include "../common/CuffError.h"
 #include "../common/SourceLocation.h"
@@ -13,7 +14,6 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
-#include <cctype>
 #include <cstring>
 
 namespace cuff
@@ -232,10 +232,7 @@ namespace cuff
             if (sd.ascii())
             {
                 for (char ch : s)
-                {
-                    unsigned char c = static_cast<unsigned char>(ch);
-                    out += static_cast<char>(upper ? std::toupper(c) : std::tolower(c));
-                }
+                    out += upper ? ascii::upper(ch) : ascii::lower(ch);
                 return Value::makeStr(std::move(out));
             }
             for (size_t i = 0; i < s.size();)
@@ -264,12 +261,12 @@ namespace cuff
             if (i < e && (text[i] == '+' || text[i] == '-'))
                 ++i;
             size_t digits = 0;
-            while (i < e && std::isdigit(static_cast<unsigned char>(text[i])))
+            while (i < e && ascii::isDigit(static_cast<unsigned char>(text[i])))
                 ++i, ++digits;
             if (i < e && text[i] == '.')
             {
                 ++i;
-                while (i < e && std::isdigit(static_cast<unsigned char>(text[i])))
+                while (i < e && ascii::isDigit(static_cast<unsigned char>(text[i])))
                     ++i, ++digits;
             }
             if (digits == 0)
@@ -280,16 +277,14 @@ namespace cuff
                 if (i < e && (text[i] == '+' || text[i] == '-'))
                     ++i;
                 size_t expDigits = 0;
-                while (i < e && std::isdigit(static_cast<unsigned char>(text[i])))
+                while (i < e && ascii::isDigit(static_cast<unsigned char>(text[i])))
                     ++i, ++expDigits;
                 if (expDigits == 0)
                     return false;
             }
             if (i != e)
                 return false;
-            std::string clean = text.substr(b, e - b);
-            errno = 0;
-            double d = std::strtod(clean.c_str(), nullptr);
+            double d = numtext::parse(text.substr(b, e - b));
             if (!std::isfinite(d))
                 return false;
             out = d;

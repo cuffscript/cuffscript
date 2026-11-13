@@ -62,6 +62,7 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `common/StrData.h`, `Utf8.h`, `Width.h` | Shared immutable string storage with cached code point counts; UTF-8 helpers; terminal column widths. |
 | `common/NameInterner.h` | Turns identifier names into small numbers; the one locked process-wide table. |
 | `common/Arithmetic.h` | The floored remainder shared by `%` and `math_mod`. |
+| `common/NumberText.h`, `Ascii.h` | Reading and writing a number, and ASCII letter tests and case, the same under every locale the host may have set. |
 | `common/PathSandbox.h` | The containment check used for modules and files. |
 
 ## `engine/`: errors, limits and options

@@ -2,6 +2,7 @@
 
 #include "../bytecode/Bytecode.h"
 #include "../parser/ASTNodes.h"
+#include <locale>
 #include <sstream>
 #include <string>
 
@@ -16,6 +17,7 @@ namespace cuff
         static std::string print(const bc::Proto &p)
         {
             std::ostringstream os;
+            os.imbue(std::locale::classic());
             header(os, p);
             for (size_t pc = 0; pc < p.code.size(); ++pc)
                 instruction(os, p, pc);

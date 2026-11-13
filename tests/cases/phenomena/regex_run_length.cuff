@@ -1,0 +1,12 @@
+note: a repeated token is followed by a scan, a repeated group by one level of the matcher each time round
+use DLC:string
+str digits = str_repeat("7", 100000)
+print(digits matches p"[num]+", length(find(digits + "x", p"[num]+x")))
+
+str pairs = str_repeat("ab", 5000)
+print(pairs matches p"[ab]+")
+boolean whole = pairs matches p"(ab)+" or_else as Error e do:
+    print(e.code)
+    whole = false
+end
+print(whole)
