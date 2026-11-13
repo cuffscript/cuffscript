@@ -1,6 +1,7 @@
 # Architecture
 
-CuffScript is a tree-walking interpreter written as header-only C++17. Everything that defines the language is in
+CuffScript is a bytecode interpreter written as header-only C++17: a program is parsed into a syntax tree, compiled piece
+by piece into instructions for a register machine, and run by that machine. Everything that defines the language is in
 `engine/`; programs that use it (`main.cpp` for `cuffc`, `cli/` for `cuffsh`, `wasm/` for WebAssembly) are thin.
 
 ## From text to a running program
@@ -19,7 +20,10 @@ CuffScript is a tree-walking interpreter written as header-only C++17. Everythin
      |  Parser         tokens -> Program (AST)             parser/    |
      v                 each FunctionDecl remembers its SourceRef      |
  Program  <-- parseProgram() chains the three stages    ParseProgram.h
-     |  Interpreter    walks the tree                     interpreter/
+     |  Compiler       a function, or one statement of the top     bytecode/
+     v                 level, becomes bytecode when it is first needed
+ bytecode
+     |  Interpreter    the machine that runs it          interpreter/
      v
  output, or a CuffError ------> renderErrorWithSnippet() --> the report text
 ```
@@ -30,11 +34,12 @@ CuffScript is a tree-walking interpreter written as header-only C++17. Everythin
 | `engine/tokenizer/` | Scans characters into tokens and turns indentation into block tokens. |
 | `engine/lexer/` | Classifies words as keywords and checks the rules for colons. |
 | `engine/parser/` | One parser per kind of construct, over a shared `ParserCore`. The AST types are in `ASTNodes.h`. |
-| `engine/interpreter/` | The evaluator, the values, scopes, the native function table, and the module loader. |
+| `engine/bytecode/` | The instruction set and what compiled code is, and the compiler from syntax tree to bytecode. |
+| `engine/interpreter/` | The machine that runs bytecode, the values, classes and objects, the native function table, and the module loader. |
 | `engine/regex/` | The pattern language: parser, AST and matcher with step, time and recursion budgets. |
 | `engine/dlc/` | The libraries behind `use DLC:...`. One header per library. |
 | `engine/net/` | The plain-HTTP client used by `DLC:network`. |
-| `engine/debug/` | The AST printer behind `cuffc --ast`. |
+| `engine/debug/` | The printers behind `cuffc --ast` and `cuffc --bytecode`. |
 
 ## The entry points
 
@@ -61,8 +66,8 @@ repository).
 
 ## Where state lives
 
-- The interpreter holds the global scope, the table of user functions, the table of classes, the queue of `async` calls, the loaded modules and
-  the module sources. A `Session` keeps one interpreter for as long as it lasts. The class table belongs to the interpreter, not to the process, so two `Session`s can declare different classes of the same name.
+- The interpreter holds the program's variables, the table of user functions with their compiled code, the table of classes, the machine's
+  frames and registers, the queue of `async` calls, the loaded modules and the module sources. A `Session` keeps one interpreter for as long as it lasts. The class table belongs to the interpreter, not to the process, so two `Session`s can declare different classes of the same name.
 - Values are small tagged unions. Strings are shared and immutable; lists, maps and objects are shared and mutable, which is why
   assigning one to a second name shares it.
 - Two pieces of state are process-wide, and both are locked: the table that turns identifier names into numbers
@@ -70,7 +75,7 @@ repository).
   process, so `random_seed` in one `Session` changes the sequence every other `Session` sees. One `Session` per thread therefore
   needs no further care. The rest is per `Session`, or per-thread bookkeeping of how much stack is left.
 - A `Session` keeps every program it has run alive for as long as it lasts, because the interpreter holds pointers to the functions
-  inside them. A long-lived `Session` therefore grows with the amount of code it has run, until `reset()` starts it again.
+  inside them, and compiled code points back into the syntax tree for the position of an error. A long-lived `Session` therefore grows with the amount of code it has run, until `reset()` starts it again.
 
 ## The object model
 
@@ -82,8 +87,8 @@ is one hash probe whatever the depth of inheritance. Names are the numbers from 
 An object is a `shared_ptr` to its class and a vector of field values, so it is shared the way a list is. Making one allocates it,
 works out the default of every field from the oldest ancestor down, and runs the nearest `init`. A method call runs the method's
 function with `self` bound to the object and with the class that *wrote* the method remembered, because `private` and `super`
-start from that class and not from the class of the object. `with` is a scope that looks a name up in the innermost object's
-members before looking outward.
+start from that class and not from the class of the object. Inside a `with` block a name is looked up in the innermost object's
+members before it is looked up outward.
 
 The built-in `Error` class is written in the language itself and registered like any other class when an interpreter starts.
 `fail` raises a `ProgramError` carrying the object, and the handlers of `or_else as` receive an `Error` object: the very
@@ -94,7 +99,8 @@ runs with the value as its first argument. A user function or class method with 
 
 ## Related reading
 
-- [How it works](how-it-works.md) for what the interpreter does once the tree exists, and [Phenomena](../guide/phenomena.md) for what follows from it.
+- [How it works](how-it-works.md) for the rules a running program follows, and [Phenomena](../guide/phenomena.md) for what follows from them.
+- [The bytecode machine](bytecode.md) for compiled code, the instruction set and how the machine runs it.
 - [Source locations and error reports](source-locations.md) for how an error finds its line.
 - [The error model](error-model.md) for what an error is and who may catch it.
 - [Resource limits](resource-limits.md) for how the engine stays inside the stack and memory it has.

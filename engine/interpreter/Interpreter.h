@@ -1,12 +1,12 @@
 #pragma once
 
 #include "Value.h"
+#include "../bytecode/Bytecode.h"
+#include "../bytecode/Compiler.h"
 #include "../common/Arithmetic.h"
 #include "../common/Attributes.h"
 #include "../common/Limits.h"
 #include "../common/Utf8.h"
-#include "Environment.h"
-#include "Signals.h"
 #include "NativeFunctions.h"
 #include "ProgramError.h"
 #include "../common/CuffError.h"
@@ -33,9 +33,20 @@
 #include <chrono>
 #include <cstdint>
 
+// The machine jumps from one instruction to the next through a table of labels where the compiler has them
+// (GCC, Clang) and through a switch elsewhere; -DCUFF_VM_SWITCH asks for the switch everywhere.
+#if !defined(CUFF_VM_SWITCH) && (defined(__GNUC__) || defined(__clang__))
+#define CUFF_VM_LABELS 1
+#else
+#define CUFF_VM_LABELS 0
+#endif
+
 namespace cuff
 {
 
+    // Runs a program: compiles each function, and each statement of the top level, to bytecode (bytecode/Compiler.h)
+    // the first time it is needed, and executes that in one loop (runLoop). A call from the program to one of its own
+    // functions is a new frame in the same loop, so it uses none of the thread's stack.
     class Interpreter final : private ObjectDisplayHook
     {
     public:
@@ -44,10 +55,12 @@ namespace cuff
             std::string rootDir; // modules must resolve inside this directory (default: the script's directory)
             uint64_t maxSteps = 0;
             uint32_t timeoutMs = 0;
-            size_t stackBudgetBytes = 0; // native stack the evaluator may use; 0 = derive from the real stack size
+            size_t stackBudgetBytes = 0; // native stack the engine may use; 0 = derive from the real stack size
             bool networkEnabled = true;
             bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
             bool filesystemEnabled = true;
+            // Called with each piece of code the compiler makes, as it is made (`cuffc --bytecode` prints them).
+            std::function<void(const bc::Proto &)> onCompiled;
         };
 
         Interpreter() { initialize(); }
@@ -56,10 +69,12 @@ namespace cuff
         Interpreter(const Interpreter &) = delete;
         Interpreter &operator=(const Interpreter &) = delete;
 
-        // How much native stack the evaluator may use. `soft` is where evalExpr/execStatement give up with the
-        // catchable E4-017; `hard` is the floor below which even leaf work such as regex matching refuses to
-        // start, so something deep inside a program that is already near `soft` still fails with an error
-        // rather than overflowing.
+        // How much native stack the engine may use. A program's own calls use none; what does is work that nests
+        // inside the machine: the compiler following nested expressions, an object's `to_str` run from inside
+        // print, a field's default value that makes another object, a module that loads a module. `soft` is where
+        // that work gives up with the catchable E4-017; `hard` is the floor below which even leaf work such as
+        // regex matching refuses to start, so something deep inside a program that is already near `soft` still
+        // fails with an error rather than overflowing.
         struct StackPlan
         {
             size_t soft;
@@ -89,7 +104,6 @@ namespace cuff
             return plan;
         }
 
-
         void run(const Program &program, const std::string &scriptDir)
         {
             scriptDir_ = scriptDir.empty() ? std::string(".") : scriptDir;
@@ -97,6 +111,7 @@ namespace cuff
             const uintptr_t sp = stackPointer();
             const StackPlan plan = planStack(config_.stackBudgetBytes, availableStackBytes());
             stackLimit_ = sp > plan.soft ? sp - plan.soft : 0;
+            compiler_.setStackLimit(stackLimit_);
             StackFloorScope floorScope(sp > plan.hard ? sp - plan.hard : 0);
             DisplayHookScope displayScope(this);
             ++runEpoch_;
@@ -106,25 +121,161 @@ namespace cuff
                 deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.timeoutMs);
             try
             {
-                execProgram(program, globalEnv_);
+                execProgram(program, globals_, false, false, nullptr);
             }
             catch (...)
             {
-                // An error ends the run: queued async jobs that have not started must not run later. A
-                // one-shot interpreter is simply discarded, but cuffsh keeps one alive across entries.
+                // An error ends the run: queued async jobs that have not started must not run later, and whatever
+                // an error that is not the program's own (out of memory) left on the machine is cleared. A one-shot
+                // interpreter is simply discarded, but cuffsh keeps one alive across entries.
                 taskQueue_.clear();
+                unwindTo(0);
                 throw;
             }
         }
 
     private:
+        using Reg = bc::Reg;
+        using Proto = bc::Proto;
+        using Instr = bc::Instr;
+        using Op = bc::Op;
+
+        // One running function, top-level statement or default value.
+        struct Frame
+        {
+            const Instr *ip;             // where it continues: saved when it calls, read when an error unwinds
+            Reg *regs;
+            Proto *proto;
+            Value *ret;                  // where its result goes
+            const ClassInfo *owner;      // the class that wrote the running method: what `private` and `super` refer to
+            ObjectData *constructing;    // the object whose `init` this is; the call's result is that object
+            bc::VarTable *vars;          // a top-level statement: the variables of its program
+            const SourceLocation *callLoc; // a call made by the engine itself; a call from bytecode has its instruction
+            uint32_t argc;
+            uint32_t segment;
+            uint32_t dynBase;
+            bool isPure;
+            bool inFunction;
+            bool counted;                // a function call: one of the limits::kMaxCallDepth
+            bool noStamp;                // the error leaving it points into the caller's text, not its own
+        };
+
+        struct UserFn
+        {
+            const FunctionDecl *decl = nullptr;
+            Proto *proto = nullptr;
+        };
+
+        // A variable a module's `use` put into a scope whose text does not declare it.
+        struct DynVar
+        {
+            uint32_t nameId;
+            int32_t scope;
+            Reg cell;
+        };
+
+        struct Segment
+        {
+            std::unique_ptr<Reg[]> cells;
+            size_t size = 0;
+        };
+
+        // How a field gets its value when an object is made. Most defaults are a literal, which needs no code run.
+        struct FieldInit
+        {
+            enum Kind : uint8_t
+            {
+                Constant,
+                NewList,
+                NewMap,
+                Thunk
+            } kind = Constant;
+            bool fits = false; // the value is known to be of the field's type
+            Value constant;
+            Proto *thunk = nullptr;
+        };
+
+        // What the machine keeps for a class once it has been used: how to fill a new object, and the compiled `init`.
+        struct ClassRuntime
+        {
+            std::vector<FieldInit> inits;
+            std::vector<Value> defaults; // every default is a literal of its field's type: a new object starts as a copy of these
+            bool plain = false;
+            Proto *init = nullptr;
+        };
+
         Config config_;
-        Environment globalEnv_;
+        bc::VarTable globals_;
+        bc::Compiler compiler_{globals_};
         std::unordered_map<std::string, NativeFn> natives_;
-        std::vector<const FunctionDecl *> userById_;
+        std::vector<UserFn> userById_;
+        std::unordered_map<const void *, std::unique_ptr<Proto>> protos_; // by FunctionDecl, or FieldDecl for a default
+        std::vector<std::unique_ptr<Proto>> retired_;
+        std::vector<Proto *> snapshotProtos_;
         static constexpr size_t kCallPoolCap = 256;
         std::vector<std::vector<Value>> argsPool_;
-        std::vector<std::vector<Environment::Slot>> envVarsPool_;
+
+        // The machine's stack. Frames and registers are kept in blocks that never move, so a pointer to either stays
+        // good while something else (a native function that prints an object, a module being loaded) runs the loop
+        // again on top of them.
+        static constexpr size_t kFrameBlock = 128;
+        static constexpr size_t kFirstSegmentCells = 1024;
+        static constexpr size_t kMaxSegmentCells = 64 * 1024;
+        static constexpr size_t kNoFrame = static_cast<size_t>(-1);
+        std::vector<std::unique_ptr<Frame[]>> frameBlocks_;
+        size_t frameCount_ = 0;
+        Frame *top_ = nullptr; // the running frame: frameAt(frameCount_ - 1)
+        std::vector<Segment> segments_;
+        uint32_t curSeg_ = 0;
+        Reg *segEnd_ = nullptr;
+        std::vector<DynVar> dynVars_;
+        size_t uncatchable_ = kNoFrame; // the frame whose own `or_else` must not catch the error in flight
+
+        std::vector<const NativeFn *> nativeById_;
+        std::vector<std::unique_ptr<Program>> loadedModules_;
+        std::unordered_set<std::string> importedPaths_;
+        std::string scriptDir_ = ".";
+        std::filesystem::path moduleRoot_;
+        int moduleDepth_ = 0;
+
+        // ---- classes -------------------------------------------------------------------------------------------
+        // The registry belongs to this interpreter (there is no process-wide class table), indexed by name id like
+        // userById_. A class declared again by a later run (a shell entry) replaces the earlier one; objects that
+        // already exist keep the class they were made from.
+        std::vector<std::shared_ptr<ClassInfo>> classById_;
+        std::vector<uint64_t> classEpoch_;
+        uint64_t runEpoch_ = 0;
+        size_t classCount_ = 0;
+        uint32_t classSerial_ = 0;
+        std::shared_ptr<ClassInfo> errorClass_;
+        std::unique_ptr<Program> preludeProgram_;
+        uint32_t initId_ = 0, toStrId_ = 0;
+
+        struct BoundMethod
+        {
+            const MethodEntry *entry;
+            uint32_t functionId;
+        };
+        std::unordered_map<uint32_t, std::vector<BoundMethod>> builtinMethods_;
+        size_t errMessageIdx_ = 0, errCodeIdx_ = 0, errLineIdx_ = 0, errColumnIdx_ = 0, errHintIdx_ = 0;
+
+        struct QueuedTask
+        {
+            const FunctionDecl *decl;
+            std::vector<Value> args;
+            Value self;                  // the receiver of an async method
+            const ClassInfo *owner = nullptr;
+        };
+        std::deque<QueuedTask> taskQueue_;
+
+        int callDepth_ = 0;
+        static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
+
+        uintptr_t stackLimit_ = 0;
+        uint64_t stepsLeft_ = UINT64_MAX;
+        uint32_t tickCount_ = 0;
+        bool timed_ = false;
+        std::chrono::steady_clock::time_point deadline_;
 
         CUFF_ALWAYS_INLINE std::vector<Value> takeArgsBuffer()
         {
@@ -135,6 +286,7 @@ namespace cuff
             v.clear();
             return v;
         }
+
         CUFF_ALWAYS_INLINE void returnArgsBuffer(std::vector<Value> &&v)
         {
             if (argsPool_.size() < kCallPoolCap)
@@ -155,17 +307,6 @@ namespace cuff
             CUFF_ALWAYS_INLINE ~PooledArgs() { interp->returnArgsBuffer(std::move(v)); }
         };
 
-        struct EnvPoolReturner
-        {
-            Interpreter *interp;
-            Environment *env;
-            ~EnvPoolReturner()
-            {
-                if (interp->envVarsPool_.size() < kCallPoolCap)
-                    interp->envVarsPool_.push_back(env->releaseStorage());
-            }
-        };
-
         // While a run is in progress, printing an object (print, f-strings, to_str) may have to run its `to_str`
         // method, which only this interpreter can do.
         struct DisplayHookScope
@@ -175,155 +316,56 @@ namespace cuff
             ~DisplayHookScope() { activeObjectDisplay() = previous; }
         };
 
-        std::vector<const NativeFn *> nativeById_;
-        std::vector<std::unique_ptr<Program>> loadedModules_;
-        std::unordered_set<std::string> importedPaths_;
-        std::string scriptDir_ = ".";
-        std::filesystem::path moduleRoot_;
-        int moduleDepth_ = 0;
-
-        // ---- classes -------------------------------------------------------------------------------------------
-        // The registry belongs to this interpreter (there is no process-wide class table), indexed by name id like
-        // userById_. A class declared again by a later run (a shell entry) replaces the earlier one; objects that
-        // already exist keep the class they were made from.
-        std::vector<std::shared_ptr<ClassInfo>> classById_;
-        std::vector<uint64_t> classEpoch_;
-        uint64_t runEpoch_ = 0;
-        size_t classCount_ = 0;
-        std::shared_ptr<ClassInfo> errorClass_;
-        std::unique_ptr<Program> preludeProgram_;
-        uint32_t initId_ = 0, toStrId_ = 0;
-
-        // The built-in methods of non-object values, by method name (see dlc/MethodTable.h).
-        struct BoundMethod
-        {
-            const MethodEntry *entry;
-            uint32_t functionId;
-        };
-        std::unordered_map<uint32_t, std::vector<BoundMethod>> builtinMethods_;
-        size_t errMessageIdx_ = 0, errCodeIdx_ = 0, errLineIdx_ = 0, errColumnIdx_ = 0, errHintIdx_ = 0;
-
-        struct QueuedTask
-        {
-            const FunctionDecl *decl;
-            std::vector<Value> args;
-            Value self;                  // the receiver of an async method
-            const ClassInfo *owner = nullptr;
-        };
-        std::deque<QueuedTask> taskQueue_;
-
-        int callDepth_ = 0;
-        bool inFunctionBody_ = false;
-        bool currentFunctionPure_ = false;
-        const Value *currentSelf_ = nullptr;       // the receiver of the method that is running
-        const ClassInfo *currentOwner_ = nullptr;  // the class that wrote the method that is running
-        static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
-
-        // Deeply nested blocks use more stack per call than the depth cap assumes, so each step also checks the real
-        // stack.
-        uintptr_t stackLimit_ = 0;
-        uint64_t stepsLeft_ = UINT64_MAX;
-        uint32_t tickCount_ = 0;
-        bool timed_ = false;
-        std::chrono::steady_clock::time_point deadline_;
-
         struct StackFloorScope
         {
             explicit StackFloorScope(uintptr_t floor) { stackFloor() = floor; }
             ~StackFloorScope() { stackFloor() = 0; }
         };
 
+        // ---- budgets ---------------------------------------------------------------------------------------------
 
-        struct FrameGuard
-        {
-            Interpreter *interp;
-            bool prevInFunc;
-            bool prevPure;
-            const Value *prevSelf;
-            const ClassInfo *prevOwner;
-            FrameGuard(Interpreter *i, bool pure, const Value *self, const ClassInfo *owner) : interp(i)
-            {
-                prevInFunc = i->inFunctionBody_;
-                prevPure = i->currentFunctionPure_;
-                prevSelf = i->currentSelf_;
-                prevOwner = i->currentOwner_;
-                i->inFunctionBody_ = true;
-                i->currentFunctionPure_ = pure;
-                i->currentSelf_ = self;
-                i->currentOwner_ = owner;
-                ++i->callDepth_;
-            }
-            ~FrameGuard()
-            {
-                interp->inFunctionBody_ = prevInFunc;
-                interp->currentFunctionPure_ = prevPure;
-                interp->currentSelf_ = prevSelf;
-                interp->currentOwner_ = prevOwner;
-                --interp->callDepth_;
-            }
-        };
-
-        // A field's default value is computed outside any method: no `self`, no private access, and no variables of
-        // the code that happens to be creating the object.
-        struct DefaultValueScope
-        {
-            Interpreter *interp;
-            bool prevInFunc;
-            const Value *prevSelf;
-            const ClassInfo *prevOwner;
-            explicit DefaultValueScope(Interpreter *i)
-                : interp(i), prevInFunc(i->inFunctionBody_), prevSelf(i->currentSelf_), prevOwner(i->currentOwner_)
-            {
-                i->inFunctionBody_ = false;
-                i->currentSelf_ = nullptr;
-                i->currentOwner_ = nullptr;
-            }
-            ~DefaultValueScope()
-            {
-                interp->inFunctionBody_ = prevInFunc;
-                interp->currentSelf_ = prevSelf;
-                interp->currentOwner_ = prevOwner;
-            }
-        };
-
-        // The object whose `init` is running may have its constant fields given their value.
-        struct ConstructingScope
-        {
-            ObjectData &object;
-            explicit ConstructingScope(ObjectData &o) : object(o) { object.constructing = true; }
-            ~ConstructingScope() { object.constructing = false; }
-        };
-
-        template <typename Node>
-        CUFF_ALWAYS_INLINE void guardStack(const Node &node)
+        // Checked wherever the engine is about to nest: before it runs the loop again from inside a native function,
+        // a default value or a module.
+        CUFF_ALWAYS_INLINE void guardNative(const SourceLocation &loc) const
         {
             if (stackPointer() < stackLimit_)
-                stackExhausted(node);
+                throwStackExhausted(loc);
         }
 
-        [[noreturn]] CUFF_COLD void stackExhausted(const Expr &e) const
-        {
-            throwStackExhausted(std::visit([](const auto &n)
-                                           { return n.loc; }, e.data));
-        }
-        [[noreturn]] CUFF_COLD void stackExhausted(const Stmt &s) const
-        {
-            throwStackExhausted(std::visit([](const auto &n)
-                                           { return n.loc; }, s.data));
-        }
         [[noreturn]] CUFF_COLD static void throwStackExhausted(const SourceLocation &loc)
         {
             throw StackOverflowError("native stack budget exhausted — calls and blocks are nested too deeply", loc);
         }
 
+        // The same check for work whose text is not that of the code that is running.
+        void guardNative(const SourceLocation &loc, const SourceRef &source) const
+        {
+            if (stackPointer() >= stackLimit_)
+                return;
+            StackOverflowError e("native stack budget exhausted — calls and blocks are nested too deeply", loc);
+            e.attachSource(source);
+            throw e;
+        }
+
+        // One step of the budget: a pass of a loop, a call, an object made.
         CUFF_ALWAYS_INLINE void tick(const SourceLocation &loc)
         {
-            if (--stepsLeft_ == 0)
-                budgetExceeded(ErrorCode::ExecutionStepLimit,
-                               "execution step limit (" + std::to_string(config_.maxSteps) + ") exceeded", loc);
-            if (timed_ && (++tickCount_ & 0x3FF) == 0 && std::chrono::steady_clock::now() > deadline_)
-                budgetExceeded(ErrorCode::ExecutionTimeout,
-                               "execution time limit (" + std::to_string(config_.timeoutMs) + " ms) exceeded", loc);
+            if (CUFF_UNLIKELY(--stepsLeft_ == 0))
+                stepsExhausted(loc);
+            if (CUFF_UNLIKELY(timed_) && (++tickCount_ & 0x3FF) == 0)
+                checkDeadline(loc);
+        }
+
+        [[noreturn]] CUFF_COLD void stepsExhausted(const SourceLocation &loc) const
+        {
+            budgetExceeded(ErrorCode::ExecutionStepLimit, "execution step limit (" + std::to_string(config_.maxSteps) + ") exceeded", loc);
+        }
+
+        CUFF_NOINLINE void checkDeadline(const SourceLocation &loc) const
+        {
+            if (std::chrono::steady_clock::now() > deadline_)
+                budgetExceeded(ErrorCode::ExecutionTimeout, "execution time limit (" + std::to_string(config_.timeoutMs) + " ms) exceeded",
+                               loc);
         }
 
         [[noreturn]] CUFF_COLD static void budgetExceeded(ErrorCode code, const std::string &msg, const SourceLocation &loc)
@@ -349,10 +391,11 @@ namespace cuff
                 throwSizeLimit("collection", loc);
         }
 
-
         void initialize()
         {
             registerBuiltins(natives_);
+            segmentFor(0, kFirstSegmentCells);
+            segEnd_ = segments_[0].cells.get() + segments_[0].size;
             initialIdsAndPrelude();
         }
 
@@ -528,6 +571,8 @@ namespace cuff
 
             auto info = std::make_shared<ClassInfo>();
             info->name = d.name;
+            info->serial = ++classSerial_;
+            info->source = d.source;
             info->nameId = d.nameId;
             info->parent = parent;
             info->depth = parent ? parent->depth + 1 : 0;
@@ -564,6 +609,7 @@ namespace cuff
                 field.isConstant = f.isConstant;
                 field.declaredIn = info.get();
                 field.decl = &f;
+                field.typeKind = static_cast<uint8_t>(f.type.kind);
                 info->fieldIndex[f.nameId] = static_cast<uint32_t>(info->fields.size());
                 info->fields.push_back(std::move(field));
             }
@@ -599,65 +645,7 @@ namespace cuff
             state[index] = 2;
         }
 
-
-        template <typename T>
-        static const T &stmtAs(const Stmt &s) { return *std::get_if<T>(&s.data); }
-        template <typename T>
-        static const T &exprAs(const Expr &e) { return *std::get_if<T>(&e.data); }
-
-        void execProgram(const Program &program, Environment &env)
-        {
-            for (auto &s : program.statements)
-                if (s->kind == StmtKind::FunctionDecl)
-                    registerFunction(stmtAs<FunctionDecl>(*s));
-            registerClasses(program);
-
-            for (auto &s : program.statements)
-            {
-                if (s->kind == StmtKind::FunctionDecl || s->kind == StmtKind::ClassDecl)
-                    continue;
-
-                ExecOutcome outcome = execStatement(*s, env);
-                if (outcome.result != ExecResult::Normal)
-                    throwLoopControlOutside(outcome);
-            }
-
-            // Un-awaited async calls run FIFO after top-level synchronous execution ends.
-            drainTaskQueue();
-        }
-
-        // `return`, `stop` or `skip` that reached the top of a program or a function without a function or loop to
-        // take it.
-        [[noreturn]] CUFF_COLD static void throwLoopControlOutside(const ExecOutcome &outcome)
-        {
-            if (outcome.result == ExecResult::Return)
-                throw CuffRuntimeError(ErrorCode::ReturnOutsideFunction,
-                                       "'return' cannot be used outside of a function", outcome.loc);
-            const char *word = outcome.result == ExecResult::Skip ? "skip" : "stop";
-            throw CuffRuntimeError(ErrorCode::StopOutsideLoop,
-                                   std::string("'") + word + "' cannot be used outside of a loop", outcome.loc);
-        }
-
-        void drainTaskQueue()
-        {
-            while (!taskQueue_.empty())
-            {
-                QueuedTask task = std::move(taskQueue_.front());
-                taskQueue_.pop_front();
-                callUserFunction(*task.decl, task.args, task.decl->loc, task.decl->isMethod ? &task.self : nullptr, task.owner);
-            }
-        }
-
-        ExecOutcome execBlock(const std::vector<std::unique_ptr<Stmt>> &body, Environment &env)
-        {
-            for (auto &s : body)
-            {
-                ExecOutcome outcome = execStatement(*s, env);
-                if (outcome.result != ExecResult::Normal)
-                    return outcome;
-            }
-            return ExecOutcome::normal();
-        }
+        // ---- functions -------------------------------------------------------------------------------------------
 
         void registerFunction(const FunctionDecl &decl)
         {
@@ -665,13 +653,75 @@ namespace cuff
                 throwClassError(ErrorCode::ClassNameConflict, "function '" + decl.name + "' has the same name as a class", decl.loc,
                                 "classes and functions share one namespace; rename one of them");
             if (decl.nameId >= userById_.size())
-                userById_.resize(decl.nameId + 1, nullptr);
-            userById_[decl.nameId] = &decl;
+                userById_.resize(decl.nameId + 1);
+            userById_[decl.nameId] = UserFn{&decl, nullptr};
         }
 
         const FunctionDecl *findUser(uint32_t id) const
         {
-            return id < userById_.size() ? userById_[id] : nullptr;
+            return id < userById_.size() ? userById_[id].decl : nullptr;
+        }
+
+        // The compiled form of a function or method, made the first time it is called.
+        CUFF_NOINLINE Proto *protoOf(const FunctionDecl &decl)
+        {
+            std::unique_ptr<Proto> &slot = protos_[&decl];
+            if (!slot)
+                slot = std::make_unique<Proto>();
+            if (!slot->ready)
+            {
+                compiler_.compileFunction(decl, *slot);
+                if (CUFF_UNLIKELY(config_.onCompiled != nullptr))
+                    config_.onCompiled(*slot);
+                if (slot->usesSnapshot)
+                    snapshotProtos_.push_back(slot.get());
+            }
+            return slot.get();
+        }
+
+        // A function that bridges a variable of the program is compiled against what that variable is declared as
+        // (Compiler::globalHere). When the top level declares such a variable again as something else, or for the
+        // first time, those functions are compiled again at their next call.
+        CUFF_NOINLINE void snapshotsChanged()
+        {
+            for (Proto *p : snapshotProtos_)
+            {
+                p->ready = false;
+                if (callDepth_ != 0)
+                    retireIfRunning(p);
+            }
+            snapshotProtos_.clear();
+        }
+
+        // Only the top level declares the program's variables, and it does so while no function is running, so this
+        // finds nothing. It is here so that code which is running is never compiled over.
+        void retireIfRunning(Proto *p)
+        {
+            for (size_t k = 0; k < frameCount_; ++k)
+            {
+                if (frameAt(k)->proto != p)
+                    continue;
+                auto it = protos_.find(p->decl);
+                if (it != protos_.end() && it->second.get() == p)
+                {
+                    retired_.push_back(std::move(it->second));
+                    protos_.erase(it);
+                }
+                return;
+            }
+        }
+
+        // Declares a variable of a top level, or declares it again.
+        CUFF_ALWAYS_INLINE void setSlotMeta(Reg &slot, uint32_t meta)
+        {
+            const uint32_t old = slot.meta;
+            if (CUFF_UNLIKELY(old & bc::kMetaWatched) && ((old ^ meta) & bc::kMetaAttrs))
+            {
+                slot.meta = meta;
+                snapshotsChanged();
+                return;
+            }
+            slot.meta = meta | (old & bc::kMetaWatched);
         }
 
         const NativeFn *findNative(const std::string &name, uint32_t id)
@@ -701,72 +751,6 @@ namespace cuff
                                    loc, "at the top level, show a value with print(...)");
         }
 
-        ExecOutcome execStatement(const Stmt &stmt, Environment &env)
-        {
-            guardStack(stmt);
-            switch (stmt.kind)
-            {
-            case StmtKind::Declaration:
-                execDeclaration(stmtAs<DeclarationStmt>(stmt), env);
-                return ExecOutcome::normal();
-            case StmtKind::Assign:
-                execAssign(stmtAs<AssignStmt>(stmt), env);
-                return ExecOutcome::normal();
-            case StmtKind::Global:
-                execGlobal(stmtAs<GlobalStmt>(stmt), env);
-                return ExecOutcome::normal();
-            case StmtKind::FunctionDecl:
-            {
-                const auto &decl = stmtAs<FunctionDecl>(stmt);
-                if (inFunctionBody_)
-                    throwNestedFunction(decl);
-                registerFunction(decl);
-                return ExecOutcome::normal();
-            }
-            case StmtKind::ClassDecl:
-                return ExecOutcome::normal(); // declared when its program started
-            case StmtKind::IfStmt:
-                return execIf(stmtAs<IfStmt>(stmt), env);
-            case StmtKind::LoopStmt:
-                return execLoop(stmtAs<LoopStmt>(stmt), env);
-            case StmtKind::WithStmt:
-                return execWith(stmtAs<WithStmt>(stmt), env);
-            case StmtKind::StopStmt:
-                return ExecOutcome::makeStop(stmtAs<StopStmt>(stmt).loc);
-            case StmtKind::SkipStmt:
-                return ExecOutcome::makeSkip(stmtAs<SkipStmt>(stmt).loc);
-            case StmtKind::ReturnStmt:
-            {
-                const auto &r = stmtAs<ReturnStmt>(stmt);
-                if (r.value && !inFunctionBody_)
-                    throwReturnValueOutsideFunction(r.loc);
-                Value v = r.value ? evalExpr(*r.value, env) : Value::makeEmpty();
-                return ExecOutcome::makeReturn(std::move(v), r.loc);
-            }
-            case StmtKind::FailStmt:
-                execFail(stmtAs<FailStmt>(stmt), env);
-                return ExecOutcome::normal();
-            case StmtKind::AwaitStmt:
-            {
-                const auto &aw = stmtAs<AwaitStmt>(stmt);
-                invokeAwaited(*aw.expr->call, env, aw.loc);
-                return ExecOutcome::normal();
-            }
-            case StmtKind::UseStmt:
-                execUse(stmtAs<UseStmt>(stmt), env);
-                return ExecOutcome::normal();
-            case StmtKind::ExprStmt:
-                evalExpr(*stmtAs<ExprStmt>(stmt).expr, env);
-                return ExecOutcome::normal();
-            case StmtKind::CollectionOp:
-                execCollectionOp(stmtAs<CollectionOpStmt>(stmt), env);
-                return ExecOutcome::normal();
-            case StmtKind::OrElse:
-                return execOrElse(stmtAs<OrElseStmt>(stmt), env);
-            }
-            throw InternalEngineError("unhandled statement kind");
-        }
-
         static bool isValidConstantName(const std::string &name)
         {
             bool hasUpper = false;
@@ -780,7 +764,6 @@ namespace cuff
             return hasUpper;
         }
 
-
         static std::string typeNameOf(const Value &v)
         {
             return v.isObject() ? v.asObject()->cls->name : valueTypeName(v.type());
@@ -792,15 +775,6 @@ namespace cuff
             throw CuffRuntimeError(ErrorCode::DeclarationTypeMismatch,
                                    "cannot assign a " + typeNameOf(v) + " value to " + typeName + " " + what + " '" + name + "'",
                                    loc, "a variable keeps the type it was declared with (" + typeName + "); use 'any' for a variable that holds different types");
-        }
-
-        // Slots keep the type they were declared with as one number: a built-in type is its TypeKind (0, `any`, accepts
-        // everything) and a class is its name's id above kClassTypeBase.
-        static constexpr uint32_t kClassTypeBase = 16;
-
-        static uint32_t typeCode(const TypeSpec &type)
-        {
-            return type.kind == TypeKind::Class ? kClassTypeBase + type.classNameId : static_cast<uint32_t>(type.kind);
         }
 
         // Whether a value satisfies a type: a built-in kind, or the class named by `classNameId`, whose objects and those
@@ -854,66 +828,6 @@ namespace cuff
                 throwDeclarationMismatch(type.name(), v, name, loc, what);
         }
 
-        // An assignment keeps a variable to the type it was declared with.
-        CUFF_ALWAYS_INLINE void checkAssigned(uint32_t type, const Value &v, const std::string &name, const SourceLocation &loc)
-        {
-            if (type == 0)
-                return;
-            const bool isClass = type >= kClassTypeBase;
-            if (!acceptsType(isClass ? TypeKind::Class : static_cast<TypeKind>(type), isClass ? type - kClassTypeBase : 0, v))
-                throwAssignedMismatch(type, v, name, loc);
-        }
-
-        [[noreturn]] CUFF_NOINLINE void throwAssignedMismatch(uint32_t type, const Value &v, const std::string &name,
-                                                              const SourceLocation &loc)
-        {
-            TypeSpec spec;
-            if (type >= kClassTypeBase)
-            {
-                spec.kind = TypeKind::Class;
-                const ClassInfo *cls = findClass(type - kClassTypeBase);
-                spec.className = cls ? cls->name : "?";
-            }
-            else
-            {
-                spec.kind = static_cast<TypeKind>(type);
-            }
-            throwDeclarationMismatch(spec.name(), v, name, loc, "variable");
-        }
-
-        void execDeclaration(const DeclarationStmt &decl, Environment &env)
-        {
-            Value v = evalExpr(*decl.value, env);
-
-            if (decl.isConstant && !isValidConstantName(decl.name))
-            {
-                throw ConstantError(ErrorCode::InvalidConstantName,
-                                    "constant name '" + decl.name + "' must be written in ALL CAPS (uppercase letters, digits, underscores only)",
-                                    decl.nameLoc, "for example: " + upperAscii(decl.name));
-            }
-
-            if (decl.type.kind == TypeKind::Class && !findClass(decl.type.classNameId))
-                throwUnknownClass(decl.type.className, decl.typeLoc);
-            checkDeclaredType(decl.type, v, decl.name, decl.nameLoc);
-            if (decl.isConstant && v.isList())
-                v = freezeList(v);
-            env.declare(decl.nameId, std::move(v), decl.isConstant, typeCode(decl.type));
-        }
-
-        void execGlobal(const GlobalStmt &g, Environment &env)
-        {
-            if (!inFunctionBody_)
-            {
-                throw CuffRuntimeError(ErrorCode::InvalidGlobalDeclaration,
-                                       "'global' can only be used inside a function body",
-                                       g.loc, "at the top level, every variable is already global");
-            }
-            if (currentFunctionPure_)
-                throwPureGlobalAccess(g.names.front().name, g.names.front().loc);
-            for (const auto &n : g.names)
-                env.declareGlobal(n.nameId);
-        }
-
         static std::string upperAscii(const std::string &s)
         {
             std::string out = s;
@@ -945,15 +859,12 @@ namespace cuff
                                    "remove the 'pure' keyword to allow this");
         }
 
-
         [[noreturn]] CUFF_COLD void throwPureFieldWrite(const SourceLocation &loc) const
         {
             throw CuffRuntimeError(ErrorCode::PureFunctionFieldWrite,
                                    "a pure function cannot change a field", loc,
                                    "remove the 'pure' keyword to allow this");
         }
-
-        // ---- objects: members, privacy, with ------------------------------------------------------------------------
 
         [[noreturn]] CUFF_COLD static void throwNotAnObject(const std::string &what, const Value &v, const SourceLocation &loc)
         {
@@ -1016,632 +927,88 @@ namespace cuff
                                    "it can only be used inside the methods of " + declaredIn.name + " itself");
         }
 
-        void checkFieldAccess(const ClassInfo::Field &f, const SourceLocation &loc) const
+        // A built-in type's TypeKind is one more than the ValueType of the values it accepts, so the test for one is
+        // a comparison.
+        static_assert(static_cast<int>(TypeKind::Empty) == static_cast<int>(ValueType::Empty) + 1 &&
+                          static_cast<int>(TypeKind::Number) == static_cast<int>(ValueType::Number) + 1 &&
+                          static_cast<int>(TypeKind::Str) == static_cast<int>(ValueType::Str) + 1 &&
+                          static_cast<int>(TypeKind::Boolean) == static_cast<int>(ValueType::Boolean) + 1 &&
+                          static_cast<int>(TypeKind::List) == static_cast<int>(ValueType::List) + 1 &&
+                          static_cast<int>(TypeKind::Map) == static_cast<int>(ValueType::Map) + 1 &&
+                          static_cast<int>(TypeKind::Match) == static_cast<int>(ValueType::Match) + 1 &&
+                          static_cast<int>(TypeKind::Pattern) == static_cast<int>(ValueType::Pattern) + 1 &&
+                          static_cast<int>(TypeKind::Object) == static_cast<int>(ValueType::Object) + 1 &&
+                          static_cast<uint32_t>(TypeKind::Class) < bc::kClassTypeBase,
+                      "TypeKind and ValueType must stay in step");
+
+        CUFF_ALWAYS_INLINE static bool isKind(const Value &v, uint32_t kind)
         {
-            if (f.isPrivate && currentOwner_ != f.declaredIn)
-                throwPrivate(*f.declaredIn, f.name, "field", loc);
+            return static_cast<uint32_t>(v.type()) + 1 == kind;
         }
 
-        const Value &selfValue(const SourceLocation &loc) const
+        // Whether `v` is an object of the very class that a name stands for at this moment: how a class type is
+        // usually met, and settled without walking the object's ancestors.
+        CUFF_ALWAYS_INLINE bool isExactly(const Value &v, uint32_t classNameId) const
         {
-            if (!currentSelf_)
-                throw InternalEngineError("'self' used outside a method", loc);
-            return *currentSelf_;
+            return v.isObject() && classNameId < classById_.size() && classById_[classNameId].get() == v.asObject()->cls.get();
         }
 
-        // The object of the innermost `with` block of the running function.
-        const Value &withObjectOf(Environment &env, const SourceLocation &loc) const
+        CUFF_NOINLINE bool fitsClass(uint32_t classNameId, const Value &v)
         {
-            for (Environment *e = &env; e; e = e->parentScope())
-            {
-                if (e->hasWithObject())
-                    return e->withObject();
-                if (e->isFunctionScope())
-                    break;
-            }
-            throw InternalEngineError("'.name' used outside a 'with' block", loc);
+            return isExactly(v, classNameId) || acceptsType(TypeKind::Class, classNameId, v);
         }
 
-        // The `with` object, innermost first, whose class has a method called `id`.
-        const Value *findWithMethodHolder(Environment &env, uint32_t id) const
+        // `type` is a declared type as a variable's meta holds it: 0 for `any`, a TypeKind, or a class.
+        CUFF_ALWAYS_INLINE bool fits(uint32_t type, const Value &v)
         {
-            for (Environment *e = &env; e; e = e->parentScope())
-            {
-                if (e->hasWithObject() && e->withObject().asObject()->cls->findMethod(id))
-                    return &e->withObject();
-                if (e->isFunctionScope())
-                    break;
-            }
-            return nullptr;
-        }
-
-        // A name written inside a `with` block: each scope is searched from the inside out, its own variables first and then
-        // the members of its object, and the search ends with the ordinary rules.
-        struct Located
-        {
-            Value *var = nullptr;
-            Environment *owner = nullptr;
-            uint32_t type = 0;           // what the variable was declared as
-            Value holder;                // a member of a `with` object: the object
-            uint32_t fieldIndex = 0;
-            bool isMember = false;
-        };
-
-        Located locateWith(uint32_t id, Environment &env)
-        {
-            Located found;
-            for (Environment *e = &env; e; e = e->parentScope())
-            {
-                if (Environment::Slot *slot = e->localSlot(id))
-                {
-                    found.var = &slot->second;
-                    found.owner = e;
-                    found.type = slot->type;
-                    return found;
-                }
-                if (e->hasWithObject())
-                {
-                    const ObjectData &o = *e->withObject().asObject();
-                    auto it = o.cls->fieldIndex.find(id);
-                    if (it != o.cls->fieldIndex.end())
-                    {
-                        found.holder = e->withObject();
-                        found.fieldIndex = it->second;
-                        found.isMember = true;
-                        return found;
-                    }
-                }
-                if (e->isFunctionScope())
-                {
-                    Environment::Lookup look = e->resolve(id);
-                    found.var = look.value();
-                    found.owner = look.owner;
-                    found.type = look.type();
-                    return found;
-                }
-            }
-            return found;
-        }
-
-        Value readField(const ObjectData &o, size_t index, const SourceLocation &loc) const
-        {
-            checkFieldAccess(o.cls->fields[index], loc);
-            return o.fields[index];
-        }
-
-        size_t fieldIndexOrThrow(const ObjectData &o, uint32_t id, const std::string &name, const SourceLocation &loc) const
-        {
-            auto it = o.cls->fieldIndex.find(id);
-            if (it == o.cls->fieldIndex.end())
-                throwNoField(*o.cls, name, id, loc);
-            return it->second;
-        }
-
-        ObjectData &expectObject(const Value &v, const std::string &name, const SourceLocation &loc) const
-        {
-            if (!v.isObject())
-                throwNotAnObject("read '." + name + "' of", v, loc);
-            return *v.asObject();
-        }
-
-        void writeField(ObjectData &o, size_t index, Value v, const SourceLocation &loc)
-        {
-            const ClassInfo::Field &f = o.cls->fields[index];
-            checkFieldAccess(f, loc);
-            checkDeclaredType(f.decl->type, v, f.name, loc, "field");
-            if (f.isConstant)
-            {
-                if (!o.constructing)
-                    throw ConstantError(ErrorCode::ConstantReassignment,
-                                        "cannot change constant field '" + f.name + "'", loc,
-                                        "a constant field gets its value while the object is being made, and keeps it");
-                if (v.isList())
-                    v = freezeList(v);
-            }
-            o.fields[index] = std::move(v);
-        }
-
-        // ---- places: where an assignment, `add` and `remove` write -------------------------------------------------------
-
-        struct PlaceOp
-        {
-            bool isIndex;
-            const Value *index;
-            uint32_t nameId;
-            const std::string *name;
-            SourceLocation loc;
-        };
-
-        // Where a place starts: a variable, or an object whose field comes first.
-        struct PlaceRoot
-        {
-            Value *var = nullptr;
-            Environment *owner = nullptr;
-            uint32_t type = 0;       // what the variable was declared as
-            bool constant = false;
-            Value object;            // `self`, a `.name`, or a member found through `with`
-            bool synthetic = false;  // the first field is the place's own name, not one of its steps
-        };
-
-        // The steps of a place in order: a leading field when the place starts at a member, then its own steps.
-        struct OpIter
-        {
-            const Place &place;
-            bool synthetic;
-            const std::vector<Value> &indexes;
-            size_t total;
-            size_t pos = 0;
-            size_t indexPos = 0;
-
-            OpIter(const Place &p, bool synth, const std::vector<Value> &idx)
-                : place(p), synthetic(synth), indexes(idx), total(p.steps.size() + (synth ? 1 : 0)) {}
-
-            PlaceOp next()
-            {
-                if (synthetic && pos == 0)
-                {
-                    ++pos;
-                    return PlaceOp{false, nullptr, place.nameId, &place.name, place.loc};
-                }
-                const PlaceStep &s = place.steps[pos - (synthetic ? 1 : 0)];
-                ++pos;
-                if (s.isIndex)
-                    return PlaceOp{true, &indexes[indexPos++], 0, nullptr, s.loc};
-                return PlaceOp{false, nullptr, s.nameId, &s.name, s.loc};
-            }
-        };
-
-        enum class PlaceUse
-        {
-            Assign,
-            Collection
-        };
-
-        PlaceRoot resolveRoot(const Place &pl, Environment &env, PlaceUse use, const SourceLocation &loc)
-        {
-            PlaceRoot r;
-            switch (pl.root)
-            {
-            case Place::Root::Self:
-                r.object = selfValue(loc);
-                return r;
-            case Place::Root::With:
-                r.object = withObjectOf(env, loc);
-                r.synthetic = true;
-                return r;
-            case Place::Root::Name:
-                break;
-            }
-
-            if (pl.inWith)
-            {
-                Located l = locateWith(pl.nameId, env);
-                if (l.isMember)
-                {
-                    r.object = std::move(l.holder);
-                    r.synthetic = true;
-                    return r;
-                }
-                r.var = l.var;
-                r.owner = l.owner;
-                r.type = l.type;
-            }
-            else
-            {
-                Environment::Lookup look = env.resolve(pl.nameId);
-                r.var = look.value();
-                r.owner = look.owner;
-                r.type = look.type();
-            }
-            if (!r.var)
-            {
-                if (use == PlaceUse::Assign)
-                    throwUnresolved(pl.nameId, pl.name, "cannot assign to undefined variable '" + pl.name + "'", pl.loc,
-                                    "declare it first, for example 'number " + pl.name + " = 0', or bridge a global with 'global " + pl.name + "'");
-                throwUnresolved(pl.nameId, pl.name, "undefined collection '" + pl.name + "'", pl.loc);
-            }
-            r.constant = env.isConstantIn(r.owner, pl.nameId);
-            return r;
-        }
-
-        static bool touchesField(const Place &pl, const PlaceRoot &root)
-        {
-            if (!root.var)
+            if (type == 0 || isKind(v, type))
                 return true;
-            for (const auto &s : pl.steps)
-                if (!s.isIndex)
-                    return true;
-            return false;
+            return type >= bc::kClassTypeBase && fitsClass(type - bc::kClassTypeBase, v);
         }
 
-        std::vector<Value> evalPlaceIndexes(const Place &pl, Environment &env)
+        // An assignment keeps a variable to the type it was declared with.
+        CUFF_ALWAYS_INLINE void checkAssigned(uint32_t type, const Value &v, const std::string &name, const SourceLocation &loc)
         {
-            std::vector<Value> out;
-            size_t n = 0;
-            for (const auto &s : pl.steps)
-                if (s.isIndex)
-                    ++n;
-            out.reserve(n);
-            for (const auto &s : pl.steps)
-                if (s.isIndex)
-                    out.push_back(evalExpr(*s.index, env));
-            return out;
+            if (CUFF_UNLIKELY(!fits(type, v)))
+                throwAssignedMismatch(type, v, name, loc);
         }
 
-        // The value a place has reached so far, and whether a constant slot was crossed on the way: a constant field
-        // that holds something other than a list protects whatever lies below it.
-        struct Walk
+        [[noreturn]] CUFF_NOINLINE void throwAssignedMismatch(uint32_t type, const Value &v, const std::string &name,
+                                                              const SourceLocation &loc)
         {
-            Value current;
-            bool barrier = false;
-            const std::string *barrierName = nullptr;
-        };
-
-        void readOp(Walk &w, const PlaceOp &op)
-        {
-            if (op.isIndex)
+            TypeSpec spec;
+            if (type >= bc::kClassTypeBase)
             {
-                w.current = indexInto(w.current, *op.index, op.loc);
-                return;
-            }
-            ObjectData &o = expectObject(w.current, *op.name, op.loc);
-            const size_t index = fieldIndexOrThrow(o, op.nameId, *op.name, op.loc);
-            const ClassInfo::Field &f = o.cls->fields[index];
-            checkFieldAccess(f, op.loc);
-            Value next = o.fields[index];
-            if (f.isConstant && !o.constructing && !next.isList())
-            {
-                w.barrier = true;
-                w.barrierName = &f.name;
-            }
-            w.current = std::move(next);
-        }
-
-        [[noreturn]] CUFF_COLD static void throwConstantBarrier(const std::string &name, const char *what, const SourceLocation &loc)
-        {
-            throw ConstantError(ErrorCode::ConstantReassignment, std::string("cannot ") + what + " '" + name + "' — it is constant", loc);
-        }
-
-        // Stores `newVal` where the last step of a place points.
-        void writeLast(Walk &w, const PlaceOp &op, Value newVal)
-        {
-            if (!op.isIndex)
-            {
-                ObjectData &o = expectObject(w.current, *op.name, op.loc);
-                const size_t index = fieldIndexOrThrow(o, op.nameId, *op.name, op.loc);
-                if (w.barrier)
-                    throwConstantBarrier(*w.barrierName, "change", op.loc);
-                writeField(o, index, std::move(newVal), op.loc);
-                return;
-            }
-
-            if (w.barrier)
-                throwConstantBarrier(*w.barrierName, "change", op.loc);
-            const Value &container = w.current;
-            if (container.isList())
-            {
-                if (container.asList()->isConstant)
-                    throwConstantListMutation(op.loc);
-                if (!op.index->isNumber())
-                    throw TypeError("list index must be a number (1-based)", op.loc);
-                const size_t real = resolveIndex1Based(expectWholeNumber(op.index->asNumber(), "list index", op.loc),
-                                                       container.asList()->items.size(), op.loc);
-                container.asList()->items[real] = std::move(newVal);
-                return;
-            }
-            if (container.isMap())
-            {
-                if (!op.index->isStr())
-                    throw TypeError("map keys are strings — cannot assign with a " + valueTypeName(op.index->type()), op.loc);
-                ValueMap &map = *container.asMap();
-                if (map.size() >= limits::kMaxCollectionItems && !map.has(op.index->asStr()))
-                    throwSizeLimit("collection", op.loc);
-                map.set(op.index->asStr(), std::move(newVal));
-                return;
-            }
-            throw TypeError("cannot index-assign into a " + typeNameOf(container) + " value", op.loc);
-        }
-
-        CUFF_ALWAYS_INLINE void execAssign(const AssignStmt &c, Environment &env)
-        {
-            const Place &pl = c.target;
-
-            // The common case, a plain variable, needs no place walk. A missing or constant variable falls through
-            // to the general path, which reports it.
-            if (pl.steps.empty() && pl.root == Place::Root::Name && !pl.inWith)
-            {
-                const Environment::Lookup look = env.resolve(pl.nameId);
-                if (look.slot && !env.isConstantIn(look.owner, pl.nameId))
-                {
-                    Value v = evalExpr(*c.value, env);
-                    checkAssigned(look.slot->type, v, pl.name, pl.loc);
-                    look.slot->second = std::move(v);
-                    return;
-                }
-            }
-            // The next most common: one field of an object, `self.name` or `variable.name`, with no index.
-            else if (pl.steps.size() == 1 && !pl.steps[0].isIndex && !currentFunctionPure_)
-            {
-                const Value *holder = nullptr;
-                if (pl.root == Place::Root::Self)
-                    holder = &selfValue(c.loc);
-                else if (pl.root == Place::Root::Name && !pl.inWith)
-                {
-                    const Environment::Lookup look = env.resolve(pl.nameId);
-                    if (look.slot && !env.isConstantIn(look.owner, pl.nameId))
-                        holder = &look.slot->second;
-                }
-                if (holder && holder->isObject())
-                {
-                    assignField(c, env, *holder);
-                    return;
-                }
-            }
-            execAssignPlace(c, env);
-        }
-
-        // Stores into the one field a place names. The holder is read again after the new value is worked out, as the
-        // general path does: evaluating the value may have put another object in the variable, and a slot is never
-        // moved by evaluating an expression.
-        CUFF_NOINLINE void assignField(const AssignStmt &c, Environment &env, const Value &holder)
-        {
-            const PlaceStep &s = c.target.steps[0];
-            Value newVal = evalExpr(*c.value, env);
-            ObjectData &o = expectObject(holder, s.name, s.loc);
-            writeField(o, fieldIndexOrThrow(o, s.nameId, s.name, s.loc), std::move(newVal), s.loc);
-        }
-
-        CUFF_NOINLINE void execAssignPlace(const AssignStmt &c, Environment &env)
-        {
-            const Place &pl = c.target;
-            PlaceRoot root = resolveRoot(pl, env, PlaceUse::Assign, c.loc);
-
-            if (root.var)
-            {
-                if (pl.steps.empty())
-                {
-                    if (root.constant)
-                        throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + pl.name + "'", c.loc);
-                    // Evaluating an expression never adds a variable to the scope it runs in, so the slot found
-                    // above is still where the variable lives.
-                    Value v = evalExpr(*c.value, env);
-                    checkAssigned(root.type, v, pl.name, pl.loc);
-                    *root.var = std::move(v);
-                    return;
-                }
-                if (root.constant && !root.var->isList())
-                    throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + pl.name + "'", c.loc);
-            }
-            if (currentFunctionPure_ && touchesField(pl, root))
-                throwPureFieldWrite(c.loc);
-
-            std::vector<Value> indexes = evalPlaceIndexes(pl, env);
-            Value newVal = evalExpr(*c.value, env);
-
-            Walk w;
-            w.current = root.var ? *root.var : std::move(root.object);
-            OpIter ops(pl, root.synthetic, indexes);
-            for (size_t k = 0; k + 1 < ops.total; ++k)
-                readOp(w, ops.next());
-            writeLast(w, ops.next(), std::move(newVal));
-        }
-
-        void execCollectionOp(const CollectionOpStmt &co, Environment &env)
-        {
-            const Place &pl = co.target;
-            PlaceRoot root = resolveRoot(pl, env, PlaceUse::Collection, co.loc);
-            if (root.var && pl.steps.empty() && root.constant)
-                throw ConstantError(ErrorCode::ConstantReassignment, "cannot modify constant collection '" + pl.name + "'", co.loc);
-            if (currentFunctionPure_ && touchesField(pl, root))
-                throwPureFieldWrite(co.loc);
-
-            std::vector<Value> indexes = evalPlaceIndexes(pl, env);
-            Value operand = evalExpr(*co.value, env);
-
-            Walk w;
-            w.current = root.var ? *root.var : std::move(root.object);
-            OpIter ops(pl, root.synthetic, indexes);
-            while (ops.pos < ops.total)
-                readOp(w, ops.next());
-            if (w.barrier)
-                throw ConstantError(ErrorCode::ConstantReassignment, "cannot modify constant collection '" + *w.barrierName + "'", co.loc);
-            Value &target = w.current;
-
-            if (co.opKind == CollectionOpStmt::OpKind::Add)
-            {
-                if (!target.isList())
-                    throw TypeError("'add ... to' requires a list, got " + typeNameOf(target), co.loc);
-                if (target.asList()->isConstant)
-                    throwConstantListMutation(co.loc);
-                checkCollectionSize(target.asList()->items.size() + 1, co.loc);
-                target.asList()->items.push_back(std::move(operand));
-                return;
-            }
-
-            if (target.isList())
-            {
-                if (target.asList()->isConstant)
-                    throwConstantListMutation(co.loc);
-                auto &items = target.asList()->items;
-                if (co.atPosition)
-                {
-                    if (!operand.isNumber())
-                        throw TypeError("'remove at' needs a position (a number), got " + typeNameOf(operand), co.loc,
-                                        "to remove an element by its value write `remove value from list`");
-                    size_t real = resolveIndex1Based(expectWholeNumber(operand.asNumber(), "list index", co.loc), items.size(), co.loc);
-                    items.erase(items.begin() + static_cast<long>(real));
-                }
-                else
-                {
-                    auto it = std::find_if(items.begin(), items.end(), [&](const Value &v)
-                                           { return valuesEqual(v, operand, co.loc); });
-                    if (it == items.end())
-                        throw ElementNotFoundError("value not found in list — nothing to remove", co.loc);
-                    items.erase(it);
-                }
-            }
-            else if (target.isMap())
-            {
-                if (co.atPosition)
-                    throw TypeError("'remove at' needs a list, got a map", co.loc, "remove a key with `remove \"key\" from map`");
-                if (!operand.isStr())
-                    throw TypeError("map keys are strings; cannot remove using a " + typeNameOf(operand), co.loc);
-                target.asMap()->remove(operand.asStr());
+                spec.kind = TypeKind::Class;
+                const ClassInfo *cls = findClass(type - bc::kClassTypeBase);
+                spec.className = cls ? cls->name : "?";
             }
             else
             {
-                throw TypeError("'add' and 'remove' require a list or map, got " + typeNameOf(target), co.loc);
+                spec.kind = static_cast<TypeKind>(type);
             }
+            throwDeclarationMismatch(spec.name(), v, name, loc, "variable");
         }
 
-
-        void assignLoopVar(const LoopStmt &loop, Value v, Environment &env)
+        [[noreturn]] CUFF_COLD static void throwConstantName(const std::string &name, const SourceLocation &loc)
         {
-            if (!env.declareLoopVar(loop.repeatVarId, std::move(v), typeCode(loop.varType)))
-            {
-                throw ConstantError(ErrorCode::ConstantReassignment,
-                                    "cannot use constant '" + loop.repeatVar + "' as a loop variable", loop.loc);
-            }
+            throw ConstantError(ErrorCode::InvalidConstantName,
+                                "constant name '" + name + "' must be written in ALL CAPS (uppercase letters, digits, underscores only)", loc,
+                                "for example: " + upperAscii(name));
         }
 
-        ExecOutcome execIf(const IfStmt &ifs, Environment &env)
+        // The checks of a declaration that could not be settled when it was compiled.
+        CUFF_NOINLINE void checkDeclaration(const DeclarationStmt &decl, const Value &v)
         {
-            for (auto &branch : ifs.branches)
+            if (decl.type.kind == TypeKind::Class)
             {
-                if (!branch.condition || evalExpr(*branch.condition, env).truthy())
-                {
-                    return execBlock(branch.body, env);
-                }
+                if (isExactly(v, decl.type.classNameId))
+                    return;
+                if (!findClass(decl.type.classNameId))
+                    throwUnknownClass(decl.type.className, decl.typeLoc);
             }
-            return ExecOutcome::normal();
+            checkDeclaredType(decl.type, v, decl.name, decl.nameLoc);
         }
-
-        // Runs one pass of a loop body. Returns true when the loop is over (`stop`, or `return`), with what the loop
-        // gives back in `result`; `skip` only ends the pass.
-        CUFF_ALWAYS_INLINE bool runLoopBody(const LoopStmt &loop, Environment &env, ExecOutcome &result)
-        {
-            ExecOutcome outcome = execBlock(loop.body, env);
-            if (outcome.result == ExecResult::Normal || outcome.result == ExecResult::Skip)
-                return false;
-            result = outcome.result == ExecResult::Stop ? ExecOutcome::normal() : std::move(outcome);
-            return true;
-        }
-
-        ExecOutcome execLoop(const LoopStmt &loop, Environment &env)
-        {
-            ExecOutcome result;
-            switch (loop.kind)
-            {
-            case LoopStmt::LoopKind::Repeat:
-            {
-                Value startV = evalExpr(*loop.repeatStart, env);
-                Value endV = evalExpr(*loop.repeatEnd, env);
-                if (!startV.isNumber() || !endV.isNumber())
-                    throw TypeError("'loop repeat' bounds must be numbers", loop.loc);
-                long long start = expectWholeNumber(startV.asNumber(), "'loop repeat' start bound", loop.loc);
-                long long end = expectWholeNumber(endV.asNumber(), "'loop repeat' end bound", loop.loc);
-                checkDeclaredType(loop.varType, startV, loop.repeatVar, loop.typeLoc, "loop variable");
-                if (start <= end)
-                {
-                    for (long long i = start; i <= end; ++i)
-                    {
-                        tick(loop.loc);
-                        assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
-                        if (runLoopBody(loop, env, result))
-                            return result;
-                    }
-                }
-                else
-                {
-                    for (long long i = start; i >= end; --i)
-                    {
-                        tick(loop.loc);
-                        assignLoopVar(loop, Value::makeNumber(static_cast<double>(i)), env);
-                        if (runLoopBody(loop, env, result))
-                            return result;
-                    }
-                }
-                break;
-            }
-            case LoopStmt::LoopKind::While:
-                while (evalExpr(*loop.condition, env).truthy())
-                {
-                    tick(loop.loc);
-                    if (runLoopBody(loop, env, result))
-                        return result;
-                }
-                break;
-            case LoopStmt::LoopKind::Each:
-                return execLoopEach(loop, env);
-            }
-            return ExecOutcome::normal();
-        }
-
-        // `loop each`: a list gives its items, a map its keys (in insertion order) and a str its characters. The loop
-        // visits what the collection held when it started, so changing it from inside the body is safe.
-        ExecOutcome execLoopEach(const LoopStmt &loop, Environment &env)
-        {
-            Value collection = evalExpr(*loop.collection, env);
-            ExecOutcome result;
-            if (collection.isList())
-            {
-                std::vector<Value> items = collection.asList()->items;
-                for (Value &item : items)
-                {
-                    tick(loop.loc);
-                    checkDeclaredType(loop.varType, item, loop.repeatVar, loop.typeLoc, "loop variable");
-                    assignLoopVar(loop, std::move(item), env);
-                    if (runLoopBody(loop, env, result))
-                        return result;
-                }
-            }
-            else if (collection.isMap())
-            {
-                std::vector<std::string> keys = collection.asMap()->keys();
-                for (std::string &key : keys)
-                {
-                    tick(loop.loc);
-                    assignLoopVar(loop, Value::makeStr(std::move(key)), env);
-                    if (runLoopBody(loop, env, result))
-                        return result;
-                }
-            }
-            else if (collection.isStr())
-            {
-                const StrData &sd = collection.asStrData();
-                const size_t n = sd.codepoints();
-                for (size_t i = 0; i < n; ++i)
-                {
-                    tick(loop.loc);
-                    Value ch = sd.ascii() ? Value::makeChar(static_cast<unsigned char>(sd.text()[i]))
-                                          : Value::makeStr(sd.text().substr(sd.offsetOf(i), sd.offsetOf(i + 1) - sd.offsetOf(i)));
-                    assignLoopVar(loop, std::move(ch), env);
-                    if (runLoopBody(loop, env, result))
-                        return result;
-                }
-            }
-            else
-            {
-                throw TypeError("'loop each' needs a list, map or str, got " + typeNameOf(collection), loop.loc,
-                                "use 'loop repeat' to count through a range of numbers");
-            }
-            return ExecOutcome::normal();
-        }
-
-        // `with obj do: ... end`: the body is a scope of its own that also sees the members of `obj`.
-        ExecOutcome execWith(const WithStmt &w, Environment &env)
-        {
-            Value object = evalExpr(*w.object, env);
-            if (!object.isObject())
-                throw CuffRuntimeError(ErrorCode::NotAnObject,
-                                       "'with' needs an object, got a " + typeNameOf(object) + " value", w.loc,
-                                       "only objects made from a class can be used with 'with'");
-            Environment withEnv(Environment::Kind::BlockScope, env);
-            withEnv.setWithObject(std::move(object));
-            return execBlock(w.body, withEnv);
-        }
-
-        // ---- errors as objects ---------------------------------------------------------------------------------------
 
         static std::string displayText(const Value &v) { return v.isStr() ? v.asStr() : v.toDisplayString(); }
 
@@ -1674,86 +1041,6 @@ namespace cuff
             obj->fields[errColumnIdx_] = Value::makeNumber(0);
             obj->fields[errHintIdx_] = Value::makeStr(std::string());
             return Value::makeObject(std::move(obj));
-        }
-
-        void execFail(const FailStmt &f, Environment &env)
-        {
-            Value v = evalExpr(*f.value, env);
-            Value error;
-            if (v.isStr())
-                error = newErrorValue(v.asStr());
-            else if (v.isObject() && v.asObject()->cls->isSubclassOf(errorClass_.get()))
-                error = std::move(v);
-            else
-                throw TypeError("'fail' needs an Error or a str, got " + typeNameOf(v), f.loc,
-                                "write fail \"message\", or fail Error(\"message\")");
-
-            ObjectData &o = *error.asObject();
-            const std::string message = displayText(o.fields[errMessageIdx_]);
-            const std::string hint = displayText(o.fields[errHintIdx_]);
-            const std::string code = displayText(o.fields[errCodeIdx_]);
-
-            // An error that was caught and is raised again unchanged is the original error.
-            if (o.origin)
-            {
-                const CuffError &original = *static_cast<const CuffError *>(o.origin.get());
-                if (original.message == message && original.hint == hint && errorCodeTag(original.code) == code)
-                    throw CuffError(original);
-            }
-
-            // An error that has not been raised before records where it was.
-            const Value &line = o.fields[errLineIdx_];
-            if (!line.isNumber() || line.asNumber() == 0)
-            {
-                o.fields[errLineIdx_] = Value::makeNumber(f.loc.line);
-                o.fields[errColumnIdx_] = Value::makeNumber(f.loc.column);
-            }
-            const std::string shown = o.cls.get() == errorClass_.get() ? message : o.cls->name + ": " + message;
-            throw ProgramError(shown, f.loc, std::move(error), hint);
-        }
-
-        ExecOutcome execOrElse(const OrElseStmt &oe, Environment &env)
-        {
-            try
-            {
-                return execStatement(*oe.primaryStmt, env);
-            }
-            catch (CuffError &e)
-            {
-                if (!e.recoverable)
-                    throw;
-
-                // If a declaration threw before declare ran, bind the name to `empty` so the fallback can assign it.
-                if (oe.primaryStmt->kind == StmtKind::Declaration)
-                {
-                    const auto &decl = stmtAs<DeclarationStmt>(*oe.primaryStmt);
-                    if (!env.isDeclaredHere(decl.nameId))
-                        env.declare(decl.nameId, Value::makeEmpty(), false, typeCode(decl.type));
-                }
-
-                Environment blockEnv(Environment::Kind::BlockScope, env);
-                if (!oe.errorName.empty())
-                {
-                    Value error = makeErrorValue(e);
-                    checkDeclaredType(oe.errorType, error, oe.errorName, oe.typeLoc);
-                    blockEnv.declare(oe.errorNameId, std::move(error), false, typeCode(oe.errorType));
-                }
-                return execBlock(oe.fallbackBody, blockEnv);
-            }
-        }
-
-        // A global that isn't bridged into the running function resolves to nothing; say why instead of "undefined".
-        [[noreturn]] CUFF_COLD void throwUnresolved(uint32_t nameId, const std::string &name, const std::string &message,
-                                                    const SourceLocation &loc, const std::string &hint = "") const
-        {
-            if (inFunctionBody_ && globalEnv_.isDeclaredHere(nameId))
-            {
-                if (currentFunctionPure_)
-                    throwPureGlobalAccess(name, loc);
-                throw UndefinedVariableError("global variable '" + name + "' is not visible inside a function unless it is bridged",
-                                             loc, "add 'global " + name + "' before using it");
-            }
-            throw UndefinedVariableError(message, loc, hint);
         }
 
         [[noreturn]] CUFF_COLD static void throwUndefinedFunction(const std::string &name, const SourceLocation &loc)
@@ -1897,309 +1184,6 @@ namespace cuff
             throw TypeError("cannot slice a " + valueTypeName(target.type()) + " value", loc);
         }
 
-
-        Value evalExpr(const Expr &expr, Environment &env)
-        {
-            guardStack(expr);
-            switch (expr.kind)
-            {
-            case ExprKind::Number:
-                return Value::makeNumber(exprAs<NumberLiteral>(expr).value);
-            case ExprKind::String:
-                return Value::makeStr(exprAs<StringLiteral>(expr).shared);
-            case ExprKind::Bool:
-                return Value::makeBool(exprAs<BoolLiteral>(expr).value);
-            case ExprKind::Empty:
-                return Value::makeEmpty();
-            case ExprKind::Pattern:
-                return Value::makePattern(exprAs<PatternLiteral>(expr).value);
-            case ExprKind::Identifier:
-            {
-                const auto &id = exprAs<IdentifierExpr>(expr);
-                if (id.inWith)
-                    return evalWithIdentifier(id, env);
-                auto look = env.resolve(id.nameId);
-                if (!look.slot)
-                    throwUnresolved(id.nameId, id.name, "undefined variable '" + id.name + "'", id.loc);
-                return look.slot->second;
-            }
-            case ExprKind::Self:
-                return selfValue(exprAs<SelfExpr>(expr).loc);
-            case ExprKind::List:
-                return evalList(exprAs<ListLiteral>(expr), env);
-            case ExprKind::Map:
-                return evalMap(exprAs<MapLiteral>(expr), env);
-            case ExprKind::FString:
-                return evalFString(exprAs<FStringExpr>(expr), env);
-            case ExprKind::BinaryOp:
-                if (expr.height > kSpineHeight)
-                    return evalSpine(expr, env);
-                return evalBinaryOp(exprAs<BinaryOp>(expr), env);
-            case ExprKind::UnaryOp:
-                return evalUnaryOp(exprAs<UnaryOp>(expr), env);
-            case ExprKind::IndexAccess:
-                if (expr.height > kSpineHeight)
-                    return evalSpine(expr, env);
-                return evalIndexAccess(exprAs<IndexAccess>(expr), env);
-            case ExprKind::SliceAccess:
-                if (expr.height > kSpineHeight)
-                    return evalSpine(expr, env);
-                return evalSliceAccess(exprAs<SliceAccess>(expr), env);
-            case ExprKind::FunctionCall:
-                return evalCall(exprAs<FunctionCall>(expr), env);
-            case ExprKind::Member:
-                if (expr.height > kSpineHeight && spineOperand(expr))
-                    return evalSpine(expr, env);
-                return evalMember(exprAs<MemberAccess>(expr), env);
-            case ExprKind::MethodCall:
-                if (expr.height > kSpineHeight && spineOperand(expr))
-                    return evalSpine(expr, env);
-                return evalMethodCall(exprAs<MethodCall>(expr), env, false);
-            case ExprKind::SuperCall:
-                return evalSuperCall(exprAs<SuperCall>(expr), env, false);
-            case ExprKind::Isa:
-                if (expr.height > kSpineHeight)
-                    return evalSpine(expr, env);
-                return evalIsa(exprAs<IsaExpr>(expr), env);
-            case ExprKind::Await:
-            {
-                const auto &aw = exprAs<AwaitExpr>(expr);
-                return invokeAwaited(*aw.call, env, aw.loc);
-            }
-            }
-            throw InternalEngineError("unhandled expression kind");
-        }
-
-        CUFF_NOINLINE Value evalWithIdentifier(const IdentifierExpr &id, Environment &env)
-        {
-            Located l = locateWith(id.nameId, env);
-            if (l.isMember)
-                return readField(*l.holder.asObject(), l.fieldIndex, id.loc);
-            if (!l.var)
-                throwUnresolved(id.nameId, id.name, "undefined variable '" + id.name + "'", id.loc);
-            return *l.var;
-        }
-
-        CUFF_NOINLINE Value evalList(const ListLiteral &list, Environment &env)
-        {
-            checkCollectionSize(list.elements.size(), list.loc);
-            auto out = std::make_shared<ValueList>();
-            out->items.reserve(list.elements.size());
-            for (auto &e : list.elements)
-                out->items.push_back(evalExpr(*e, env));
-            return Value::makeList(std::move(out));
-        }
-
-        CUFF_NOINLINE Value evalMap(const MapLiteral &map, Environment &env)
-        {
-            auto out = std::make_shared<ValueMap>();
-            out->reserve(map.pairs.size());
-            for (auto &pair : map.pairs)
-            {
-                Value k = evalExpr(*pair.key, env);
-                if (!k.isStr())
-                    throw TypeError("map keys must be strings", map.loc);
-                Value v = evalExpr(*pair.value, env);
-                out->set(k.asStr(), std::move(v));
-            }
-            return Value::makeMap(std::move(out));
-        }
-
-        CUFF_NOINLINE Value evalFString(const FStringExpr &fs, Environment &env)
-        {
-            std::string out;
-            for (auto &seg : fs.segments)
-            {
-                if (seg.isExpression)
-                    evalExpr(*seg.expr, env).appendDisplay(out);
-                else
-                    out += seg.text;
-                checkStringSize(out.size(), fs.loc);
-            }
-            return Value::makeStr(std::move(out));
-        }
-
-        CUFF_NOINLINE Value evalIndexAccess(const IndexAccess &idx, Environment &env)
-        {
-            Value t = evalExpr(*idx.target, env);
-            Value i = evalExpr(*idx.index, env);
-            return indexInto(t, i, idx.loc);
-        }
-
-        CUFF_NOINLINE Value evalSliceAccess(const SliceAccess &sl, Environment &env)
-        {
-            Value t = evalExpr(*sl.target, env);
-            Value s = evalExpr(*sl.start, env);
-            Value e = evalExpr(*sl.end, env);
-            return sliceInto(t, s, e, sl.loc);
-        }
-
-        Value evalUnaryOp(const UnaryOp &u, Environment &env)
-        {
-            Value operand = evalExpr(*u.operand, env);
-            if (u.op == UnOp::Not)
-                return Value::makeBool(!operand.truthy());
-            if (!operand.isNumber())
-                throw TypeError("unary '-' requires a number, got " + valueTypeName(operand.type()), u.loc);
-            return Value::makeNumber(-operand.asNumber());
-        }
-
-
-        // Chains of binary operators, indexing, slicing and member access (a + b + c + ..., x[1][2][3]..., a.b.c.d...)
-        // lean to the left: each node's first operand is the next node of the chain. Recursing down such a chain would
-        // use stack in proportion to its length, so a long one the parser accepts could still fail to run. Above this
-        // height the chain is walked iteratively instead (see evalSpine); below it the recursive form is
-        // cheaper, since it needs no list of nodes.
-        static constexpr uint32_t kSpineHeight = 48;
-
-        static const Expr *spineOperand(const Expr &e)
-        {
-            switch (e.kind)
-            {
-            case ExprKind::BinaryOp:
-                return std::get_if<BinaryOp>(&e.data)->left.get();
-            case ExprKind::IndexAccess:
-                return std::get_if<IndexAccess>(&e.data)->target.get();
-            case ExprKind::SliceAccess:
-                return std::get_if<SliceAccess>(&e.data)->target.get();
-            case ExprKind::Member:
-                return std::get_if<MemberAccess>(&e.data)->target.get();
-            case ExprKind::MethodCall:
-                return std::get_if<MethodCall>(&e.data)->target.get();
-            case ExprKind::Isa:
-                return std::get_if<IsaExpr>(&e.data)->target.get();
-            default:
-                return nullptr;
-            }
-        }
-
-        // Evaluates the chain from its innermost operand outwards. Operands are evaluated in the same
-        // left-to-right order as the recursive form, so results, errors and their locations are identical.
-        CUFF_NOINLINE Value evalSpine(const Expr &top, Environment &env)
-        {
-            std::vector<const Expr *> chain;
-            const Expr *node = &top;
-            for (;;)
-            {
-                chain.push_back(node);
-                const Expr *next = spineOperand(*node);
-                if (!next || spineOperand(*next) == nullptr)
-                {
-                    // `next` is the chain's first operand (or `node` has none); either way the walk ends here.
-                    break;
-                }
-                node = next;
-            }
-            Value acc = evalExpr(*spineOperand(*chain.back()), env);
-            for (size_t k = chain.size(); k-- > 0;)
-            {
-                const Expr &e = *chain[k];
-                switch (e.kind)
-                {
-                case ExprKind::BinaryOp:
-                {
-                    const BinaryOp &b = *std::get_if<BinaryOp>(&e.data);
-                    if (isLogical(b.op))
-                    {
-                        acc = evalLogical(b, acc, env);
-                        break;
-                    }
-                    Value r = evalExpr(*b.right, env);
-                    acc = applyBinaryOp(b, acc, r);
-                    break;
-                }
-                case ExprKind::IndexAccess:
-                {
-                    const IndexAccess &idx = *std::get_if<IndexAccess>(&e.data);
-                    Value i = evalExpr(*idx.index, env);
-                    acc = indexInto(acc, i, idx.loc);
-                    break;
-                }
-                case ExprKind::SliceAccess:
-                {
-                    const SliceAccess &sl = *std::get_if<SliceAccess>(&e.data);
-                    Value s = evalExpr(*sl.start, env);
-                    Value en = evalExpr(*sl.end, env);
-                    acc = sliceInto(acc, s, en, sl.loc);
-                    break;
-                }
-                case ExprKind::Member:
-                    acc = memberOf(acc, *std::get_if<MemberAccess>(&e.data));
-                    break;
-                case ExprKind::MethodCall:
-                    acc = callMethodOn(std::move(acc), *std::get_if<MethodCall>(&e.data), env, false);
-                    break;
-                default:
-                    acc = Value::makeBool(isaCheck(acc, *std::get_if<IsaExpr>(&e.data)));
-                    break;
-                }
-            }
-            return acc;
-        }
-
-        CUFF_ALWAYS_INLINE Value evalBinaryOp(const BinaryOp &b, Environment &env)
-        {
-            Value l = evalExpr(*b.left, env);
-            if (isLogical(b.op))
-                return evalLogical(b, l, env);
-            Value r = evalExpr(*b.right, env);
-            return applyBinaryOp(b, l, r);
-        }
-
-        static bool isLogical(BinOp op) { return op == BinOp::And || op == BinOp::Or; }
-
-        // `and` / `or` take any value as an operand and give a boolean. The right operand is evaluated only when the
-        // left one does not already decide the result (false for `and`, true for `or`).
-        Value evalLogical(const BinaryOp &b, const Value &left, Environment &env)
-        {
-            const bool l = left.truthy();
-            if (l == (b.op == BinOp::Or))
-                return Value::makeBool(l);
-            return Value::makeBool(evalExpr(*b.right, env).truthy());
-        }
-
-        CUFF_ALWAYS_INLINE Value applyBinaryOp(const BinaryOp &b, const Value &l, const Value &r)
-        {
-            if (l.isNumber() && r.isNumber())
-            {
-                const double x = l.asNumber(), y = r.asNumber();
-                switch (b.op)
-                {
-                case BinOp::Add:
-                    return Value::makeNumber(x + y);
-                case BinOp::Sub:
-                    return Value::makeNumber(x - y);
-                case BinOp::Mul:
-                    return Value::makeNumber(x * y);
-                case BinOp::Div:
-                    if (y == 0.0)
-                        throwDivisionByZero(b.loc);
-                    return Value::makeNumber(x / y);
-                case BinOp::Mod:
-                    return Value::makeNumber(moduloOf(x, y, b.loc));
-                case BinOp::Pow:
-                    return Value::makeNumber(powerOf(x, y, b.loc));
-                case BinOp::And:
-                case BinOp::Or:
-                case BinOp::Matches:
-                    break;
-                case BinOp::Is:
-                    return Value::makeBool(x == y);
-                case BinOp::IsNot:
-                    return Value::makeBool(x != y);
-                case BinOp::Greater:
-                    return Value::makeBool(x > y);
-                case BinOp::Less:
-                    return Value::makeBool(x < y);
-                case BinOp::GreaterEq:
-                    return Value::makeBool(x >= y);
-                case BinOp::LessEq:
-                    return Value::makeBool(x <= y);
-                }
-            }
-            return evalBinaryOpSlow(b, l, r);
-        }
-
         CUFF_NOINLINE Value evalBinaryOpSlow(const BinaryOp &b, const Value &l, const Value &r)
         {
             switch (b.op)
@@ -2277,14 +1261,9 @@ namespace cuff
             return Value::makeBool(regex::RegexEngine::fullMatch(pat.compiled, l.asStr(), pat.flags(), b.loc, out));
         }
 
-        CUFF_NOINLINE static double moduloOf(double x, double y, const SourceLocation &loc)
+        [[noreturn]] CUFF_COLD static void throwModuloNotFinite(const SourceLocation &loc)
         {
-            if (y == 0.0)
-                throwModuloByZero(loc);
-            const double r = arith::floorMod(x, y);
-            if (!std::isfinite(r))
-                throw ValueError("'%' result is not a finite number", loc);
-            return r;
+            throw ValueError("'%' result is not a finite number", loc);
         }
 
         CUFF_NOINLINE static double powerOf(double x, double y, const SourceLocation &loc)
@@ -2342,38 +1321,12 @@ namespace cuff
                             loc, "comparisons work on two numbers or two strings");
         }
 
-
-        // ---- objects in expressions ----------------------------------------------------------------------------------
-
-        Value memberOf(const Value &target, const MemberAccess &ma)
-        {
-            if (!target.isObject())
-                throwNotAnObject("read '." + ma.name + "' of", target, ma.loc);
-            const ObjectData &o = *target.asObject();
-            return readField(o, fieldIndexOrThrow(o, ma.nameId, ma.name, ma.loc), ma.loc);
-        }
-
-        CUFF_NOINLINE Value evalMember(const MemberAccess &ma, Environment &env)
-        {
-            if (!ma.target)
-                return memberOf(withObjectOf(env, ma.loc), ma);
-            if (ma.target->kind == ExprKind::Self)
-                return memberOf(selfValue(ma.loc), ma);
-            return memberOf(evalExpr(*ma.target, env), ma);
-        }
-
         bool isaCheck(const Value &v, const IsaExpr &e)
         {
             const ClassInfo *cls = findClass(e.classNameId);
             if (!cls)
                 throwUnknownClass(e.className, e.loc);
             return v.isObject() && v.asObject()->cls->isSubclassOf(cls);
-        }
-
-        CUFF_NOINLINE Value evalIsa(const IsaExpr &e, Environment &env)
-        {
-            Value v = evalExpr(*e.target, env);
-            return Value::makeBool(isaCheck(v, e));
         }
 
         [[noreturn]] CUFF_COLD static void throwAwaitOnNonAsync(const std::string &name, const SourceLocation &loc)
@@ -2396,12 +1349,6 @@ namespace cuff
             throw ArgumentError(name + "() expects " + arityText(decl) + " argument(s), got " + std::to_string(got), loc);
         }
 
-        static void checkArity(const std::string &name, const FunctionDecl &decl, size_t got, const SourceLocation &loc)
-        {
-            if (got < decl.requiredParams || got > decl.params.size())
-                throwArgumentCount(name, decl, got, loc);
-        }
-
         [[noreturn]] CUFF_COLD static void throwParamTypeMismatch(const std::string &name, const FunctionDecl &decl, size_t i,
                                                                   const Value &v, const SourceLocation &loc)
         {
@@ -2412,38 +1359,11 @@ namespace cuff
                                    loc, "declared as '" + typeName + " " + decl.params[i] + "' in the parameter list");
         }
 
-        // Only called for functions with a parameter that is not `any`, so the others pay nothing.
-        void checkParamTypes(const std::string &name, const FunctionDecl &decl, const std::vector<Value> &args,
-                             const SourceLocation &loc)
-        {
-            const size_t n = std::min(args.size(), decl.paramTypes.size());
-            for (size_t i = 0; i < n; ++i)
-            {
-                const Value &v = args[i];
-                if (!typeAccepts(decl.paramTypes[i], v, loc))
-                    throwParamTypeMismatch(name, decl, i, v, loc);
-            }
-        }
-
         [[noreturn]] CUFF_COLD static void throwCallDepth(const FunctionDecl &decl, const SourceLocation &loc)
         {
             throw StackOverflowError("maximum call depth (" + std::to_string(kMaxCallDepth) +
                                          ") exceeded while calling '" + decl.name + "' — check for infinite recursion",
                                      loc);
-        }
-
-        void queueTask(const FunctionDecl &decl, std::vector<Value> &&args, const SourceLocation &loc,
-                       const Value *self, const ClassInfo *owner)
-        {
-            if (taskQueue_.size() >= limits::kMaxQueuedTasks)
-                throwSizeLimit("async task queue", loc);
-            QueuedTask task;
-            task.decl = &decl;
-            task.args = std::move(args);
-            if (self)
-                task.self = *self;
-            task.owner = owner;
-            taskQueue_.push_back(std::move(task));
         }
 
         // A pure function may call only itself, pure functions and natives; any other helper would bypass `pure`.
@@ -2452,197 +1372,6 @@ namespace cuff
             throw CuffRuntimeError(ErrorCode::PureFunctionImpureCall,
                                    "a pure function cannot call non-pure function '" + calleeName + "'", loc,
                                    "mark '" + calleeName + "' as pure, or remove 'pure' from the caller");
-        }
-
-        void checkPureCallAllowed(bool calleeIsPure, const std::string &calleeName, const SourceLocation &loc)
-        {
-            if (currentFunctionPure_ && !calleeIsPure)
-                throwPureImpureCall(calleeName, loc);
-        }
-
-        // ---- calls ---------------------------------------------------------------------------------------------------
-
-        CUFF_NOINLINE Value evalCall(const FunctionCall &fc, Environment &env)
-        {
-            PooledArgs pooled(this);
-            std::vector<Value> &args = pooled.v;
-            args.reserve(fc.args.size());
-            for (auto &a : fc.args)
-                args.push_back(evalExpr(*a, env));
-
-            if (fc.inWith)
-            {
-                if (const Value *holder = findWithMethodHolder(env, fc.functionNameId))
-                {
-                    Value receiver = *holder;
-                    return dispatchMethod(receiver, fc.functionNameId, fc.functionName, args, fc.loc, false);
-                }
-            }
-
-            // User functions are looked up first: it's the hot path, and it answers the async question.
-            if (const FunctionDecl *user = findUser(fc.functionNameId))
-            {
-                checkPureCallAllowed(user->isPure, fc.functionName, fc.loc);
-                if (user->hasTypedParams)
-                    checkParamTypes(fc.functionName, *user, args, fc.loc);
-                if (user->isAsync)
-                {
-                    checkArity(fc.functionName, *user, args.size(), fc.loc);
-                    queueTask(*user, std::move(args), fc.loc, nullptr, nullptr);
-                    return Value::makeEmpty();
-                }
-                return callUserFunction(*user, args, fc.loc);
-            }
-            if (const std::shared_ptr<ClassInfo> *cls = classHandle(fc.functionNameId))
-                return instantiate(*cls, args, fc.loc);
-            if (const NativeFn *native = findNative(fc.functionName, fc.functionNameId))
-                return (*native)(args, fc.loc);
-            if (Environment::Lookup notFn = env.resolve(fc.functionNameId); notFn.slot)
-                throwNotCallable(fc.functionName, notFn.slot->second, fc.loc);
-            throwUndefinedFunction(fc.functionName, fc.loc);
-        }
-
-        // `await call`: the call runs now, and its value is the result.
-        CUFF_NOINLINE Value invokeAwaited(const Expr &call, Environment &env, const SourceLocation &loc)
-        {
-            switch (call.kind)
-            {
-            case ExprKind::MethodCall:
-                return evalMethodCall(exprAs<MethodCall>(call), env, true);
-            case ExprKind::SuperCall:
-                return evalSuperCall(exprAs<SuperCall>(call), env, true);
-            case ExprKind::FunctionCall:
-                return invokeAwaitedFunction(exprAs<FunctionCall>(call), env, loc);
-            default:
-                throw InternalEngineError("'await' needs a call", loc);
-            }
-        }
-
-        Value invokeAwaitedFunction(const FunctionCall &call, Environment &env, const SourceLocation &loc)
-        {
-            const Value *withHolder = call.inWith ? findWithMethodHolder(env, call.functionNameId) : nullptr;
-            if (withHolder)
-            {
-                Value receiver = *withHolder;
-                const ClassInfo::Method *m = receiver.asObject()->cls->findMethod(call.functionNameId);
-                if (!m->decl->isAsync)
-                    throwAwaitOnNonAsync(call.functionName, loc);
-                PooledArgs pooled(this);
-                for (auto &a : call.args)
-                    pooled.v.push_back(evalExpr(*a, env));
-                return dispatchMethod(receiver, call.functionNameId, call.functionName, pooled.v, loc, true);
-            }
-            const FunctionDecl *user = findUser(call.functionNameId);
-            if (user && !user->isAsync)
-                throwAwaitOnNonAsync(call.functionName, loc);
-            if (!user && classHandle(call.functionNameId))
-                throwAwaitOnNonAsync(call.functionName, loc);
-            if (user)
-                checkPureCallAllowed(user->isPure, call.functionName, loc);
-            PooledArgs pooled(this);
-            std::vector<Value> &args = pooled.v;
-            args.reserve(call.args.size());
-            for (auto &a : call.args)
-                args.push_back(evalExpr(*a, env));
-            if (user)
-            {
-                if (user->hasTypedParams)
-                    checkParamTypes(call.functionName, *user, args, loc);
-                return callUserFunction(*user, args, loc);
-            }
-            if (const NativeFn *native = findNative(call.functionName, call.functionNameId))
-                return (*native)(args, loc);
-            if (Environment::Lookup notFn = env.resolve(call.functionNameId); notFn.slot)
-                throwNotCallable(call.functionName, notFn.slot->second, loc);
-            throwUndefinedFunction(call.functionName, loc);
-        }
-
-        // ---- method calls --------------------------------------------------------------------------------------------
-
-        CUFF_NOINLINE Value evalMethodCall(const MethodCall &mc, Environment &env, bool awaited)
-        {
-            Value receiver;
-            if (!mc.target)
-                receiver = withObjectOf(env, mc.loc);
-            else if (mc.target->kind == ExprKind::Self)
-                receiver = selfValue(mc.loc);
-            else
-                receiver = evalExpr(*mc.target, env);
-            return callMethodOn(std::move(receiver), mc, env, awaited);
-        }
-
-        // The call part of `receiver.name(args)`, once the receiver is known.
-        Value callMethodOn(Value receiver, const MethodCall &mc, Environment &env, bool awaited)
-        {
-            if (awaited)
-            {
-                const ClassInfo::Method *m = receiver.isObject() ? receiver.asObject()->cls->findMethod(mc.nameId) : nullptr;
-                if (!m || !m->decl->isAsync)
-                    throwAwaitOnNonAsync(mc.name, mc.loc);
-            }
-            PooledArgs pooled(this);
-            std::vector<Value> &args = pooled.v;
-            args.reserve(mc.args.size());
-            for (auto &a : mc.args)
-                args.push_back(evalExpr(*a, env));
-            return dispatchMethod(receiver, mc.nameId, mc.name, args, mc.loc, awaited);
-        }
-
-        CUFF_NOINLINE Value evalSuperCall(const SuperCall &sc, Environment &env, bool awaited)
-        {
-            if (!currentOwner_ || !currentOwner_->parent || !currentSelf_)
-                throw InternalEngineError("'super' used outside a method of a class with a parent", sc.loc);
-            const ClassInfo &parent = *currentOwner_->parent;
-            const ClassInfo::Method *m = parent.findMethod(sc.nameId);
-            if (m && awaited && !m->decl->isAsync)
-                throwAwaitOnNonAsync(sc.name, sc.loc);
-            PooledArgs pooled(this);
-            std::vector<Value> &args = pooled.v;
-            args.reserve(sc.args.size());
-            for (auto &a : sc.args)
-                args.push_back(evalExpr(*a, env));
-            if (!m)
-                throwNoMethod(parent, sc.name, sc.nameId, sc.loc);
-            if (m->decl->isPrivate && m->owner != currentOwner_)
-                throwPrivate(*m->owner, sc.name, "method", sc.loc);
-            Value receiver = *currentSelf_;
-            return invokeMethod(receiver, *m, args, sc.name, sc.loc, awaited);
-        }
-
-        // Calls method `nameId` of `receiver`: a method of its class when it is an object, otherwise (or when the
-        // class has no such method) a built-in one.
-        Value dispatchMethod(const Value &receiver, uint32_t nameId, const std::string &name, std::vector<Value> &args,
-                             const SourceLocation &loc, bool awaited)
-        {
-            const ClassInfo *cls = nullptr;
-            if (receiver.isObject())
-            {
-                cls = receiver.asObject()->cls.get();
-                if (const ClassInfo::Method *m = cls->findMethod(nameId))
-                {
-                    if (m->decl->isPrivate && m->owner != currentOwner_)
-                        throwPrivate(*m->owner, name, "method", loc);
-                    return invokeMethod(receiver, *m, args, name, loc, awaited);
-                }
-            }
-            auto it = builtinMethods_.find(nameId);
-            if (it != builtinMethods_.end())
-            {
-                const unsigned bit = receiverBit(receiver.type());
-                for (const BoundMethod &b : it->second)
-                {
-                    if (!(b.entry->receivers & bit))
-                        continue;
-                    const NativeFn *fn = findNative(b.entry->function, b.functionId);
-                    if (!fn)
-                        throwMethodNeedsLibrary(receiver, name, *b.entry, loc);
-                    args.insert(args.begin(), receiver);
-                    return (*fn)(args, loc);
-                }
-            }
-            if (cls)
-                throwNoMethod(*cls, name, nameId, loc);
-            throwNoBuiltinMethod(receiver, name, loc);
         }
 
         [[noreturn]] CUFF_COLD static void throwMethodNeedsLibrary(const Value &receiver, const std::string &name,
@@ -2661,31 +1390,1365 @@ namespace cuff
                                    "such as text.upper() for str_upper(text)");
         }
 
-        Value invokeMethod(const Value &receiver, const ClassInfo::Method &m, std::vector<Value> &args, const std::string &name,
-                           const SourceLocation &loc, bool awaited)
+        void checkFieldAccess(const ClassInfo::Field &f, const ClassInfo *owner, const SourceLocation &loc) const
         {
-            const FunctionDecl &decl = *m.decl;
-            checkPureCallAllowed(decl.isPure, name, loc);
-            if (decl.hasTypedParams)
-                checkParamTypes(name, decl, args, loc);
-            if (decl.isAsync && !awaited)
-            {
-                checkArity(name, decl, args.size(), loc);
-                queueTask(decl, std::move(args), loc, &receiver, m.owner);
-                return Value::makeEmpty();
-            }
-            return callUserFunction(decl, args, loc, &receiver, m.owner);
+            if (f.isPrivate && owner != f.declaredIn)
+                throwPrivate(*f.declaredIn, f.name, "field", loc);
         }
 
-        // ---- running a function --------------------------------------------------------------------------------------
+        Value readField(const ObjectData &o, size_t index, const ClassInfo *owner, const SourceLocation &loc) const
+        {
+            checkFieldAccess(o.cls->fields[index], owner, loc);
+            return o.fields[index];
+        }
 
-        // Runs a function's body. An error that leaves it is stamped with the text the function was written
-        // in, so it is drawn against that text even when the caller is in another file or an earlier entry.
-        CUFF_ALWAYS_INLINE ExecOutcome execFunctionBody(const FunctionDecl &decl, Environment &funcEnv)
+        size_t fieldIndexOrThrow(const ObjectData &o, uint32_t id, const std::string &name, const SourceLocation &loc) const
+        {
+            auto it = o.cls->fieldIndex.find(id);
+            if (it == o.cls->fieldIndex.end())
+                throwNoField(*o.cls, name, id, loc);
+            return it->second;
+        }
+
+        ObjectData &expectObject(const Value &v, const std::string &name, const SourceLocation &loc) const
+        {
+            if (!v.isObject())
+                throwNotAnObject("read '." + name + "' of", v, loc);
+            return *v.asObject();
+        }
+
+        void writeField(ObjectData &o, size_t index, Value v, const ClassInfo *owner, const SourceLocation &loc)
+        {
+            const ClassInfo::Field &f = o.cls->fields[index];
+            checkFieldAccess(f, owner, loc);
+            checkDeclaredType(f.decl->type, v, f.name, loc, "field");
+            if (f.isConstant)
+            {
+                if (!o.constructing)
+                    throw ConstantError(ErrorCode::ConstantReassignment,
+                                        "cannot change constant field '" + f.name + "'", loc,
+                                        "a constant field gets its value while the object is being made, and keeps it");
+                if (v.isList())
+                    v = freezeList(v);
+            }
+            o.fields[index] = std::move(v);
+        }
+
+        // target.name, where the instruction's own record of the class did not answer.
+        CUFF_NOINLINE void getFieldSlow(Value &out, const Value &target, const MemberAccess &ma, const ClassInfo *owner,
+                                        bc::FieldCache &cache)
+        {
+            if (!target.isObject())
+                throwNotAnObject("read '." + ma.name + "' of", target, ma.loc);
+            const ObjectData &o = *target.asObject();
+            const size_t index = fieldIndexOrThrow(o, ma.nameId, ma.name, ma.loc);
+            cache.serial = o.cls->serial;
+            cache.index = static_cast<uint32_t>(index);
+            Value v = readField(o, index, owner, ma.loc);
+            out = std::move(v);
+        }
+
+        CUFF_NOINLINE void setFieldSlow(const Value &holder, Value v, const PlaceStep &s, const ClassInfo *owner, bc::FieldCache &cache)
+        {
+            ObjectData &o = expectObject(holder, s.name, s.loc);
+            const size_t index = fieldIndexOrThrow(o, s.nameId, s.name, s.loc);
+            cache.serial = o.cls->serial;
+            cache.index = static_cast<uint32_t>(index);
+            writeField(o, index, std::move(v), owner, s.loc);
+        }
+
+        // ---- names the compiler left to the machine ----------------------------------------------------------------
+
+        static Reg &cellAt(const Frame &fr, int32_t offset)
+        {
+            return *reinterpret_cast<Reg *>(reinterpret_cast<char *>(fr.regs) + offset);
+        }
+
+        // What a name stands for: a variable, or a field of a `with` object.
+        struct Located
+        {
+            Reg *var = nullptr;
+            const Value *holder = nullptr;
+            uint32_t fieldIndex = 0;
+        };
+
+        // Each scope is searched from the inside out, its own variables first and then the members of its `with`
+        // object; the function's scope ends the search with a bridged global.
+        Located locate(Frame &fr, const bc::NameRec &rec)
+        {
+            Located found;
+            Proto &p = *fr.proto;
+            const bc::NameStep *step = p.steps.data() + rec.firstStep;
+            for (uint32_t k = 0; k < rec.stepCount; ++k, ++step)
+            {
+                switch (step->kind)
+                {
+                case bc::NameStep::Local:
+                {
+                    Reg &r = cellAt(fr, step->a);
+                    if (r.meta & bc::kMetaDeclared)
+                    {
+                        found.var = &r;
+                        return found;
+                    }
+                    break;
+                }
+                case bc::NameStep::LocalSure:
+                    found.var = &cellAt(fr, step->a);
+                    return found;
+                case bc::NameStep::With:
+                {
+                    const Value &holder = cellAt(fr, step->a).v;
+                    const ClassInfo &cls = *holder.asObject()->cls;
+                    bc::WithCache &cache = p.withCaches[static_cast<size_t>(step->b)];
+                    if (cache.serial != cls.serial)
+                    {
+                        auto it = cls.fieldIndex.find(rec.nameId);
+                        cache.index = it == cls.fieldIndex.end() ? -1 : static_cast<int32_t>(it->second);
+                        cache.serial = cls.serial;
+                    }
+                    if (cache.index >= 0)
+                    {
+                        found.holder = &holder;
+                        found.fieldIndex = static_cast<uint32_t>(cache.index);
+                        return found;
+                    }
+                    break;
+                }
+                case bc::NameStep::Dynamic:
+                    for (size_t d = fr.dynBase; d < dynVars_.size(); ++d)
+                        if (dynVars_[d].nameId == rec.nameId && dynVars_[d].scope == step->a)
+                        {
+                            found.var = &dynVars_[d].cell;
+                            return found;
+                        }
+                    break;
+                case bc::NameStep::Bridge:
+                    if (!cellAt(fr, step->a).meta)
+                        break;
+                    [[fallthrough]];
+                case bc::NameStep::BridgeSure:
+                case bc::NameStep::Global:
+                {
+                    Reg *g = p.gcells[static_cast<size_t>(step->b)];
+                    if (g->meta & bc::kMetaDeclared)
+                        found.var = g;
+                    return found;
+                }
+                }
+            }
+            return found;
+        }
+
+        // A global that isn't bridged into the running function resolves to nothing; say why instead of "undefined".
+        [[noreturn]] CUFF_COLD void throwUnresolved(const Frame &fr, uint32_t nameId, const std::string &name, const std::string &message,
+                                                    const SourceLocation &loc, const std::string &hint = "")
+        {
+            if (fr.inFunction && globals_.isDeclared(nameId))
+            {
+                if (fr.isPure)
+                    throwPureGlobalAccess(name, loc);
+                throw UndefinedVariableError("global variable '" + name + "' is not visible inside a function unless it is bridged",
+                                             loc, "add 'global " + name + "' before using it");
+            }
+            throw UndefinedVariableError(message, loc, hint);
+        }
+
+        [[noreturn]] CUFF_COLD void throwUndefinedVariable(const Frame &fr, const IdentifierExpr &id)
+        {
+            throwUnresolved(fr, id.nameId, id.name, "undefined variable '" + id.name + "'", id.loc);
+        }
+
+        CUFF_NOINLINE void getName(Frame &fr, const bc::NameRec &rec, Value &out, const IdentifierExpr &id)
+        {
+            const Located l = locate(fr, rec);
+            if (l.holder)
+            {
+                Value v = readField(*l.holder->asObject(), l.fieldIndex, fr.owner, id.loc);
+                out = std::move(v);
+            }
+            else if (l.var)
+                out = l.var->v;
+            else
+                throwUndefinedVariable(fr, id);
+        }
+
+        // The variable a call's name stands for, when it is no function: the call then says what it is instead.
+        const Reg *variableNamed(Frame &fr, const Instr &ins, uint32_t nameId)
+        {
+            const Proto &p = *fr.proto;
+            auto it = p.callRecs.find(static_cast<uint32_t>(&ins - p.code.data()));
+            if (it != p.callRecs.end())
+            {
+                const Located l = locate(fr, p.names[it->second]);
+                if (l.var)
+                    return l.var;
+            }
+            if (fr.vars)
+            {
+                const Reg *slot = fr.vars->find(nameId);
+                if (slot && (slot->meta & bc::kMetaDeclared))
+                    return slot;
+            }
+            return nullptr;
+        }
+
+        // ---- places: where an assignment, `add` and `remove` write -------------------------------------------------------
+        //
+        // A place is a root (a variable, `self`, or a member reached through `with`) followed by steps: `.name` and
+        // `[index]`. The index values are worked out first, into consecutive registers.
+
+        struct PlaceOp
+        {
+            bool isIndex;
+            const Value *index;
+            uint32_t nameId;
+            const std::string *name;
+            SourceLocation loc;
+        };
+
+        // Where a place starts: a variable, or an object whose field comes first.
+        struct PlaceRoot
+        {
+            Reg *var = nullptr;
+            const Value *object = nullptr; // `self`, a `.name`, or a member found through `with`
+            bool synthetic = false;        // the first field is the place's own name, not one of its steps
+        };
+
+        // The steps of a place in order: a leading field when the place starts at a member, then its own steps.
+        struct OpIter
+        {
+            const Place &place;
+            bool synthetic;
+            const Reg *indexes;
+            size_t total;
+            size_t pos = 0;
+            size_t indexPos = 0;
+
+            OpIter(const Place &p, bool synth, const Reg *idx)
+                : place(p), synthetic(synth), indexes(idx), total(p.steps.size() + (synth ? 1 : 0)) {}
+
+            PlaceOp next()
+            {
+                if (synthetic && pos == 0)
+                {
+                    ++pos;
+                    return PlaceOp{false, nullptr, place.nameId, &place.name, place.loc};
+                }
+                const PlaceStep &s = place.steps[pos - (synthetic ? 1 : 0)];
+                ++pos;
+                if (s.isIndex)
+                    return PlaceOp{true, &indexes[indexPos++].v, 0, nullptr, s.loc};
+                return PlaceOp{false, nullptr, s.nameId, &s.name, s.loc};
+            }
+        };
+
+        PlaceRoot placeRoot(Frame &fr, bc::RootKind kind, int32_t operand, const Place &pl, bool collection)
+        {
+            PlaceRoot r;
+            switch (kind)
+            {
+            case bc::RootKind::Self:
+                r.object = &fr.regs[0].v;
+                return r;
+            case bc::RootKind::WithObj:
+                r.object = &cellAt(fr, operand).v;
+                r.synthetic = true;
+                return r;
+            case bc::RootKind::Local:
+                r.var = &cellAt(fr, operand);
+                return r;
+            case bc::RootKind::Global:
+                r.var = fr.proto->gcells[static_cast<size_t>(operand)];
+                if (!(r.var->meta & bc::kMetaDeclared))
+                    r.var = nullptr;
+                break;
+            case bc::RootKind::Name:
+            {
+                const Located l = locate(fr, fr.proto->names[static_cast<size_t>(operand)]);
+                if (l.holder)
+                {
+                    r.object = l.holder;
+                    r.synthetic = true;
+                    return r;
+                }
+                r.var = l.var;
+                break;
+            }
+            }
+            if (!r.var)
+            {
+                if (!collection)
+                    throwUndefinedTarget(fr, pl);
+                throwUnresolved(fr, pl.nameId, pl.name, "undefined collection '" + pl.name + "'", pl.loc);
+            }
+            return r;
+        }
+
+        [[noreturn]] CUFF_COLD void throwUndefinedTarget(Frame &fr, const Place &pl)
+        {
+            throwUnresolved(fr, pl.nameId, pl.name, "cannot assign to undefined variable '" + pl.name + "'", pl.loc,
+                            "declare it first, for example 'number " + pl.name + " = 0', or bridge a global with 'global " + pl.name + "'");
+        }
+
+        static bool touchesField(const Place &pl, const PlaceRoot &root)
+        {
+            if (!root.var)
+                return true;
+            for (const auto &s : pl.steps)
+                if (!s.isIndex)
+                    return true;
+            return false;
+        }
+
+        [[noreturn]] CUFF_COLD static void throwConstantAssign(const AssignStmt &c)
+        {
+            throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + c.target.name + "'", c.loc);
+        }
+
+        [[noreturn]] CUFF_COLD static void throwConstantCollection(const std::string &name, const SourceLocation &loc)
+        {
+            throw ConstantError(ErrorCode::ConstantReassignment, "cannot modify constant collection '" + name + "'", loc);
+        }
+
+        // What must hold before the indexes and the value of a place statement are worked out: its first name exists,
+        // a constant is not written, a pure function changes no field.
+        CUFF_NOINLINE void placeCheck(Frame &fr, const Instr &ins, const void *node)
+        {
+            const bool collection = (ins.x & bc::kRootCollection) != 0;
+            const bc::RootKind kind = static_cast<bc::RootKind>(ins.x & bc::kRootMask);
+            const AssignStmt *assign = collection ? nullptr : static_cast<const AssignStmt *>(node);
+            const CollectionOpStmt *op = collection ? static_cast<const CollectionOpStmt *>(node) : nullptr;
+            const Place &pl = collection ? op->target : assign->target;
+            const PlaceRoot root = placeRoot(fr, kind, ins.c, pl, collection);
+            // What a variable of the running code was declared as is the compiler's to say; what one found by name, or
+            // one of the program, was declared as is in its meta.
+            const bool constant = kind == bc::RootKind::Local ? (ins.x & bc::kRootConstant) != 0
+                                                              : root.var && (root.var->meta & bc::kMetaConst);
+            if (collection)
+            {
+                if (constant && pl.steps.empty())
+                    throwConstantCollection(pl.name, op->loc);
+            }
+            else if (constant && (pl.steps.empty() || !root.var->v.isList()))
+            {
+                throwConstantAssign(*assign);
+            }
+            if (fr.isPure && touchesField(pl, root))
+                throwPureFieldWrite(collection ? op->loc : assign->loc);
+        }
+
+        // The value a place has reached so far, and whether a constant slot was crossed on the way: a constant field
+        // that holds something other than a list protects whatever lies below it.
+        struct Walk
+        {
+            Value current;
+            bool barrier = false;
+            const std::string *barrierName = nullptr;
+            const ClassInfo *owner = nullptr;
+        };
+
+        void readOp(Walk &w, const PlaceOp &op)
+        {
+            if (op.isIndex)
+            {
+                w.current = indexInto(w.current, *op.index, op.loc);
+                return;
+            }
+            ObjectData &o = expectObject(w.current, *op.name, op.loc);
+            const size_t index = fieldIndexOrThrow(o, op.nameId, *op.name, op.loc);
+            const ClassInfo::Field &f = o.cls->fields[index];
+            checkFieldAccess(f, w.owner, op.loc);
+            Value next = o.fields[index];
+            if (f.isConstant && !o.constructing && !next.isList())
+            {
+                w.barrier = true;
+                w.barrierName = &f.name;
+            }
+            w.current = std::move(next);
+        }
+
+        [[noreturn]] CUFF_COLD static void throwConstantBarrier(const std::string &name, const char *what, const SourceLocation &loc)
+        {
+            throw ConstantError(ErrorCode::ConstantReassignment, std::string("cannot ") + what + " '" + name + "' — it is constant", loc);
+        }
+
+        // container[index] = newVal
+        void writeIndex(const Value &container, const Value &index, Value newVal, const SourceLocation &loc)
+        {
+            if (container.isList())
+            {
+                if (container.asList()->isConstant)
+                    throwConstantListMutation(loc);
+                if (!index.isNumber())
+                    throw TypeError("list index must be a number (1-based)", loc);
+                const size_t real = resolveIndex1Based(expectWholeNumber(index.asNumber(), "list index", loc),
+                                                       container.asList()->items.size(), loc);
+                container.asList()->items[real] = std::move(newVal);
+                return;
+            }
+            if (container.isMap())
+            {
+                if (!index.isStr())
+                    throw TypeError("map keys are strings — cannot assign with a " + valueTypeName(index.type()), loc);
+                ValueMap &map = *container.asMap();
+                if (map.size() >= limits::kMaxCollectionItems && !map.has(index.asStr()))
+                    throwSizeLimit("collection", loc);
+                map.set(index.asStr(), std::move(newVal));
+                return;
+            }
+            throw TypeError("cannot index-assign into a " + typeNameOf(container) + " value", loc);
+        }
+
+        // Stores `newVal` where the last step of a place points.
+        void writeLast(Walk &w, const PlaceOp &op, Value newVal)
+        {
+            if (!op.isIndex)
+            {
+                ObjectData &o = expectObject(w.current, *op.name, op.loc);
+                const size_t index = fieldIndexOrThrow(o, op.nameId, *op.name, op.loc);
+                if (w.barrier)
+                    throwConstantBarrier(*w.barrierName, "change", op.loc);
+                writeField(o, index, std::move(newVal), w.owner, op.loc);
+                return;
+            }
+            if (w.barrier)
+                throwConstantBarrier(*w.barrierName, "change", op.loc);
+            writeIndex(w.current, *op.index, std::move(newVal), op.loc);
+        }
+
+        // place = value, for every place the compiler did not turn into a single instruction.
+        CUFF_NOINLINE void placeSet(Frame &fr, const Instr &ins, const AssignStmt &c)
+        {
+            const Place &pl = c.target;
+            const PlaceRoot root = placeRoot(fr, static_cast<bc::RootKind>(ins.x & bc::kRootMask), ins.c, pl, false);
+            Value &source = cellAt(fr, ins.b).v;
+            Value newVal = (ins.x & bc::kMoveSource) ? std::move(source) : source;
+
+            if (root.var && pl.steps.empty())
+            {
+                checkAssigned(root.var->meta >> bc::kMetaTypeShift, newVal, pl.name, pl.loc);
+                root.var->v = std::move(newVal);
+                return;
+            }
+            Walk w;
+            w.owner = fr.owner;
+            w.current = root.var ? root.var->v : *root.object;
+            OpIter ops(pl, root.synthetic, &cellAt(fr, ins.a));
+            for (size_t k = 0; k + 1 < ops.total; ++k)
+                readOp(w, ops.next());
+            writeLast(w, ops.next(), std::move(newVal));
+        }
+
+        // `add value to target`, `remove value from target`, `remove at position from target`, once the target is known.
+        void applyCollectionOp(const CollectionOpStmt &co, Value &target, Value operand)
+        {
+            if (co.opKind == CollectionOpStmt::OpKind::Add)
+            {
+                if (!target.isList())
+                    throw TypeError("'add ... to' requires a list, got " + typeNameOf(target), co.loc);
+                if (target.asList()->isConstant)
+                    throwConstantListMutation(co.loc);
+                checkCollectionSize(target.asList()->items.size() + 1, co.loc);
+                target.asList()->items.push_back(std::move(operand));
+                return;
+            }
+
+            if (target.isList())
+            {
+                if (target.asList()->isConstant)
+                    throwConstantListMutation(co.loc);
+                auto &items = target.asList()->items;
+                if (co.atPosition)
+                {
+                    if (!operand.isNumber())
+                        throw TypeError("'remove at' needs a position (a number), got " + typeNameOf(operand), co.loc,
+                                        "to remove an element by its value write `remove value from list`");
+                    size_t real = resolveIndex1Based(expectWholeNumber(operand.asNumber(), "list index", co.loc), items.size(), co.loc);
+                    items.erase(items.begin() + static_cast<long>(real));
+                }
+                else
+                {
+                    auto it = std::find_if(items.begin(), items.end(), [&](const Value &v)
+                                           { return valuesEqual(v, operand, co.loc); });
+                    if (it == items.end())
+                        throw ElementNotFoundError("value not found in list — nothing to remove", co.loc);
+                    items.erase(it);
+                }
+            }
+            else if (target.isMap())
+            {
+                if (co.atPosition)
+                    throw TypeError("'remove at' needs a list, got a map", co.loc, "remove a key with `remove \"key\" from map`");
+                if (!operand.isStr())
+                    throw TypeError("map keys are strings; cannot remove using a " + typeNameOf(operand), co.loc);
+                target.asMap()->remove(operand.asStr());
+            }
+            else
+            {
+                throw TypeError("'add' and 'remove' require a list or map, got " + typeNameOf(target), co.loc);
+            }
+        }
+
+        CUFF_NOINLINE void collectionOp(Frame &fr, const Instr &ins, const CollectionOpStmt &co)
+        {
+            const Place &pl = co.target;
+            const PlaceRoot root = placeRoot(fr, static_cast<bc::RootKind>(ins.x & bc::kRootMask), ins.c, pl, true);
+            Value &source = cellAt(fr, ins.b).v;
+            Value operand = (ins.x & bc::kMoveSource) ? std::move(source) : source;
+
+            Walk w;
+            w.owner = fr.owner;
+            w.current = root.var ? root.var->v : *root.object;
+            OpIter ops(pl, root.synthetic, &cellAt(fr, ins.a));
+            while (ops.pos < ops.total)
+                readOp(w, ops.next());
+            if (w.barrier)
+                throwConstantCollection(*w.barrierName, co.loc);
+            applyCollectionOp(co, w.current, std::move(operand));
+        }
+
+        // ---- loops ---------------------------------------------------------------------------------------------------
+
+        [[noreturn]] CUFF_COLD static void throwLoopConstant(const LoopStmt &loop)
+        {
+            throw ConstantError(ErrorCode::ConstantReassignment, "cannot use constant '" + loop.repeatVar + "' as a loop variable", loop.loc);
+        }
+
+        CUFF_NOINLINE void checkLoopValue(const LoopStmt &loop, const Value &v)
+        {
+            checkDeclaredType(loop.varType, v, loop.repeatVar, loop.typeLoc, "loop variable");
+        }
+
+        // `loop repeat T name = start ~ end`: the bounds are in the first two of three registers; the third gets the
+        // direction, and the first becomes the counter.
+        CUFF_NOINLINE void forPrepare(Reg *base, const LoopStmt &loop)
+        {
+            const Value &startV = base[0].v;
+            const Value &endV = base[1].v;
+            if (!startV.isNumber() || !endV.isNumber())
+                throw TypeError("'loop repeat' bounds must be numbers", loop.loc);
+            const long long start = expectWholeNumber(startV.asNumber(), "'loop repeat' start bound", loop.loc);
+            const long long end = expectWholeNumber(endV.asNumber(), "'loop repeat' end bound", loop.loc);
+            checkDeclaredType(loop.varType, startV, loop.repeatVar, loop.typeLoc, "loop variable");
+            base[2].v.setNumber(start <= end ? 1.0 : -1.0);
+        }
+
+        // `loop each`: a list gives its items, a map its keys (in insertion order) and a str its characters. The loop
+        // visits what the collection held when it started, so changing it from inside the body is safe.
+        CUFF_NOINLINE void eachPrepare(Reg *base, const Value &collection, const LoopStmt &loop)
+        {
+            if (collection.isList())
+            {
+                auto items = std::make_shared<ValueList>();
+                items->items = collection.asList()->items;
+                base[0].v = Value::makeList(std::move(items));
+            }
+            else if (collection.isMap())
+            {
+                auto keys = std::make_shared<ValueList>();
+                std::vector<std::string> names = collection.asMap()->keys();
+                keys->items.reserve(names.size());
+                for (std::string &name : names)
+                    keys->items.push_back(Value::makeStr(std::move(name)));
+                base[0].v = Value::makeList(std::move(keys));
+            }
+            else if (collection.isStr())
+            {
+                base[0].v = collection;
+            }
+            else
+            {
+                throw TypeError("'loop each' needs a list, map or str, got " + typeNameOf(collection), loop.loc,
+                                "use 'loop repeat' to count through a range of numbers");
+            }
+            base[1].v.setNumber(0);
+        }
+
+        // The next item of a `loop each` into `out`; false when there is none.
+        CUFF_ALWAYS_INLINE bool eachNext(Reg *base, Value &out)
+        {
+            const size_t at = static_cast<size_t>(base[1].v.asNumber());
+            const Value &from = base[0].v;
+            if (CUFF_LIKELY(from.isList()))
+            {
+                auto &items = from.asList()->items;
+                if (at >= items.size())
+                    return false;
+                out = std::move(items[at]);
+            }
+            else
+            {
+                const StrData &sd = from.asStrData();
+                if (at >= sd.codepoints())
+                    return false;
+                out = sd.ascii() ? Value::makeChar(static_cast<unsigned char>(sd.text()[at]))
+                                 : Value::makeStr(sd.text().substr(sd.offsetOf(at), sd.offsetOf(at + 1) - sd.offsetOf(at)));
+            }
+            base[1].v.setNumber(static_cast<double>(at + 1));
+            return true;
+        }
+
+        // `fail value`: raises an Error object, or a str as the message of a new one.
+        [[noreturn]] CUFF_NOINLINE void failWith(Value v, const FailStmt &f)
+        {
+            Value error;
+            if (v.isStr())
+                error = newErrorValue(v.asStr());
+            else if (v.isObject() && v.asObject()->cls->isSubclassOf(errorClass_.get()))
+                error = std::move(v);
+            else
+                throw TypeError("'fail' needs an Error or a str, got " + typeNameOf(v), f.loc,
+                                "write fail \"message\", or fail Error(\"message\")");
+
+            ObjectData &o = *error.asObject();
+            const std::string message = displayText(o.fields[errMessageIdx_]);
+            const std::string hint = displayText(o.fields[errHintIdx_]);
+            const std::string code = displayText(o.fields[errCodeIdx_]);
+
+            // An error that was caught and is raised again unchanged is the original error.
+            if (o.origin)
+            {
+                const CuffError &original = *static_cast<const CuffError *>(o.origin.get());
+                if (original.message == message && original.hint == hint && errorCodeTag(original.code) == code)
+                    throw CuffError(original);
+            }
+
+            // An error that has not been raised before records where it was.
+            const Value &line = o.fields[errLineIdx_];
+            if (!line.isNumber() || line.asNumber() == 0)
+            {
+                o.fields[errLineIdx_] = Value::makeNumber(f.loc.line);
+                o.fields[errColumnIdx_] = Value::makeNumber(f.loc.column);
+            }
+            const std::string shown = o.cls.get() == errorClass_.get() ? message : o.cls->name + ": " + message;
+            throw ProgramError(shown, f.loc, std::move(error), hint);
+        }
+
+        // ---- the machine's stack ---------------------------------------------------------------------------------
+
+        Frame *frameAt(size_t index) const
+        {
+            return &frameBlocks_[index / kFrameBlock][index % kFrameBlock];
+        }
+
+        CUFF_NOINLINE Frame *frameBlock(size_t index)
+        {
+            if (index == frameBlocks_.size())
+                frameBlocks_.push_back(std::make_unique<Frame[]>(kFrameBlock));
+            return frameBlocks_[index].get();
+        }
+
+        CUFF_ALWAYS_INLINE Frame *pushFrame()
+        {
+            Frame *f = CUFF_LIKELY((frameCount_ & (kFrameBlock - 1)) != 0) ? top_ + 1 : frameBlock(frameCount_ / kFrameBlock);
+            ++frameCount_;
+            top_ = f;
+            return f;
+        }
+
+        CUFF_ALWAYS_INLINE void popFrame()
+        {
+            --frameCount_;
+            if (CUFF_LIKELY((frameCount_ & (kFrameBlock - 1)) != 0))
+                --top_;
+            else
+                top_ = frameCount_ ? frameAt(frameCount_ - 1) : nullptr;
+        }
+
+        Reg *segmentFor(uint32_t index, size_t cells)
+        {
+            if (index == segments_.size())
+                segments_.emplace_back();
+            Segment &s = segments_[index];
+            if (s.size < cells)
+            {
+                const size_t usual = std::min<size_t>(kMaxSegmentCells, kFirstSegmentCells << std::min<uint32_t>(index, 6));
+                s.size = std::max(cells, usual);
+                s.cells = std::make_unique<Reg[]>(s.size);
+            }
+            return s.cells.get();
+        }
+
+        // The frame being entered does not fit above its caller: it starts the next block of registers, and what the
+        // caller put in the first `carry` of them (the receiver and the arguments) moves there.
+        CUFF_NOINLINE Reg *startSegment(Reg *from, uint32_t carry, uint32_t cells)
+        {
+            const uint32_t seg = curSeg_ + 1;
+            Reg *base = segmentFor(seg, cells);
+            for (uint32_t k = 0; k < carry; ++k)
+                base[k].v = std::move(from[k].v);
+            curSeg_ = seg;
+            segEnd_ = base + segments_[seg].size;
+            return base;
+        }
+
+        // The first register above everything that is in use.
+        Reg *freeCells() const
+        {
+            if (!frameCount_)
+                return segments_[0].cells.get();
+            return top_->regs + top_->proto->numCells;
+        }
+
+        CUFF_ALWAYS_INLINE Frame *openFrame(Proto *p, Reg *regs, Value *ret)
+        {
+            Frame *f = pushFrame();
+            f->ip = p->code.data();
+            f->regs = regs;
+            f->proto = p;
+            f->ret = ret;
+            f->owner = nullptr;
+            f->constructing = nullptr;
+            f->vars = nullptr;
+            f->callLoc = nullptr;
+            f->argc = 0;
+            f->segment = curSeg_;
+            f->dynBase = static_cast<uint32_t>(dynVars_.size());
+            f->isPure = false;
+            f->inFunction = false;
+            f->counted = false;
+            f->noStamp = false;
+            return f;
+        }
+
+        // A frame for code that takes no arguments: a statement of the top level, a default value.
+        Frame *enterPlain(Proto *p, Value *ret)
+        {
+            Reg *regs = freeCells();
+            if (regs + p->numCells > segEnd_)
+                regs = startSegment(nullptr, 0, p->numCells);
+            Frame *f = openFrame(p, regs, ret);
+            if (p->usesMeta)
+                for (uint32_t k = 0; k < p->namedEnd; ++k)
+                    regs[k].meta = 0;
+            return f;
+        }
+
+        // The parameters that were given are declared; every other variable of the function is not yet.
+        void initMeta(Frame &f)
+        {
+            const Proto &p = *f.proto;
+            Reg *cell = f.regs + p.paramBase;
+            for (uint32_t k = 0; k < f.argc; ++k, ++cell)
+                cell->meta = p.paramMeta[k];
+            for (Reg *end = f.regs + p.namedEnd; cell < end; ++cell)
+                cell->meta = 0;
+        }
+
+        static void releaseCells(Reg *cells, uint32_t n)
+        {
+            for (uint32_t k = 0; k < n; ++k)
+                cells[k].v.clear();
+        }
+
+        // Leaves the top frame: its registers give up what they hold.
+        void dropFrame(Frame &f)
+        {
+            if (f.constructing)
+                f.constructing->constructing = false; // before the registers go: one of them may hold the object alone
+            releaseCells(f.regs, f.proto->numCells);
+            if (f.counted)
+                --callDepth_;
+            if (dynVars_.size() > f.dynBase)
+                dynVars_.resize(f.dynBase);
+            popFrame();
+            const uint32_t seg = frameCount_ ? top_->segment : 0;
+            if (seg != curSeg_)
+            {
+                curSeg_ = seg;
+                segEnd_ = segments_[seg].cells.get() + segments_[seg].size;
+            }
+        }
+
+        void unwindTo(size_t count)
+        {
+            while (frameCount_ > count)
+                dropFrame(*top_);
+            if (uncatchable_ != kNoFrame && uncatchable_ >= count)
+                uncatchable_ = kNoFrame;
+        }
+
+        // Finds the `or_else` that takes an error among the frames one loop is running, leaving the frames above
+        // it. False when none does: the loop's frames are all left, and the error goes on to whoever ran the loop.
+        // A frame the error leaves, or is caught in, stamps it with the text its locations point into, unless
+        // something nearer the error already has.
+        bool handleError(CuffError &e, size_t stopCount)
+        {
+            while (frameCount_ > stopCount)
+            {
+                Frame &f = *top_;
+                const Proto &p = *f.proto;
+                const bool barred = uncatchable_ == frameCount_ - 1;
+                if (e.recoverable && !barred)
+                {
+                    const uint32_t pc = static_cast<uint32_t>(f.ip - p.code.data()) - 1;
+                    for (const bc::Handler &h : p.handlers)
+                    {
+                        if (pc < h.start || pc >= h.end)
+                            continue;
+                        if (!f.noStamp)
+                            e.attachSource(p.source);
+                        f.noStamp = false;
+                        if (h.errCell != bc::kNoCell)
+                            cellAt(f, h.errCell).v = makeErrorValue(e);
+                        f.ip = p.code.data() + h.target;
+                        return true;
+                    }
+                }
+                if (barred)
+                    uncatchable_ = kNoFrame;
+                if (!f.noStamp)
+                    e.attachSource(p.source);
+                dropFrame(f);
+            }
+            return false;
+        }
+
+        // ---- calls -------------------------------------------------------------------------------------------------
+
+        struct CallSite
+        {
+            const std::string *name;
+            uint32_t nameId;
+            const SourceLocation *loc;
+        };
+
+        // The name and the location a call instruction reports with. `await f()` reports at the `await`; a method or
+        // `super` call always at its own name.
+        static CallSite siteOf(const Proto &p, const Instr &ins)
+        {
+            const void *node = p.nodes[static_cast<size_t>(&ins - p.code.data())];
+            const AwaitExpr *aw = (ins.x & bc::kCallAwaited) ? static_cast<const AwaitExpr *>(node) : nullptr;
+            switch (static_cast<Op>(ins.op))
+            {
+            case Op::Call:
+            case Op::CallW:
+            {
+                const FunctionCall &fc = aw ? *std::get_if<FunctionCall>(&aw->call->data) : *static_cast<const FunctionCall *>(node);
+                return CallSite{&fc.functionName, fc.functionNameId, aw ? &aw->loc : &fc.loc};
+            }
+            case Op::CallM:
+            {
+                const MethodCall &mc = aw ? *std::get_if<MethodCall>(&aw->call->data) : *static_cast<const MethodCall *>(node);
+                return CallSite{&mc.name, mc.nameId, &mc.loc};
+            }
+            default:
+            {
+                const SuperCall &sc = aw ? *std::get_if<SuperCall>(&aw->call->data) : *static_cast<const SuperCall *>(node);
+                return CallSite{&sc.name, sc.nameId, &sc.loc};
+            }
+            }
+        }
+
+        // Where the call that made the top frame was written.
+        const SourceLocation &callLocation(const Frame &f) const
+        {
+            if (f.callLoc)
+                return *f.callLoc;
+            const Frame &caller = *frameAt(frameCount_ - 2);
+            return *siteOf(*caller.proto, caller.ip[-1]).loc;
+        }
+
+        CUFF_NOINLINE void paramTypeSlow(const Proto &p, uint32_t k, const Value &v, const std::string &name, const SourceLocation &loc)
+        {
+            const FunctionDecl &decl = *p.decl;
+            if (!typeAccepts(decl.paramTypes[k], v, loc))
+                throwParamTypeMismatch(name, decl, k, v, loc);
+        }
+
+        // Only run for functions with a parameter that is not `any`, so the others pay nothing.
+        template <typename LocFn>
+        CUFF_ALWAYS_INLINE void checkParamTypes(const Proto &p, const Reg *args, uint32_t argc, const std::string &name, LocFn &&loc)
+        {
+            const uint32_t n = std::min(argc, p.nparams);
+            for (uint32_t k = 0; k < n; ++k)
+            {
+                const uint32_t type = p.paramMeta[k] >> bc::kMetaTypeShift;
+                if (type != 0 && !isKind(args[k].v, type) &&
+                    !(type >= bc::kClassTypeBase && isExactly(args[k].v, type - bc::kClassTypeBase)))
+                    paramTypeSlow(p, k, args[k].v, name, loc());
+            }
+        }
+
+        // An async function called without `await`: its receiver and arguments, from `base` on, wait in the queue.
+        CUFF_NOINLINE void queueTask(const Proto &p, Reg *base, uint32_t argc, const SourceLocation &loc, const ClassInfo *owner)
+        {
+            if (taskQueue_.size() >= limits::kMaxQueuedTasks)
+                throwSizeLimit("async task queue", loc);
+            QueuedTask task;
+            task.decl = p.decl;
+            Reg *args = base + p.paramBase;
+            task.args.reserve(argc);
+            for (uint32_t k = 0; k < argc; ++k)
+                task.args.push_back(std::move(args[k].v));
+            if (p.isMethod)
+                task.self = base->v;
+            task.owner = owner;
+            taskQueue_.push_back(std::move(task));
+        }
+
+        // Enters a function whose receiver (for a method) and arguments are in consecutive registers from `base`:
+        // those registers become the first of the new frame, so nothing is copied.
+        template <typename LocFn>
+        CUFF_ALWAYS_INLINE Frame *enterCall(Proto *p, Reg *base, uint32_t argc, Value *ret, const ClassInfo *owner,
+                                             const std::string &name, LocFn &&loc)
+        {
+            if (CUFF_UNLIKELY(argc < p->required || argc > p->nparams))
+                throwArgumentCount(name, *p->decl, argc, loc());
+            if (CUFF_UNLIKELY(callDepth_ >= kMaxCallDepth))
+                throwCallDepth(*p->decl, loc());
+            if (CUFF_UNLIKELY(--stepsLeft_ == 0))
+                stepsExhausted(loc());
+            if (CUFF_UNLIKELY(timed_) && (++tickCount_ & 0x3FF) == 0)
+                checkDeadline(loc());
+            Reg *regs = base;
+            if (CUFF_UNLIKELY(base + p->numCells > segEnd_))
+                regs = startSegment(base, p->paramBase + argc, p->numCells);
+            Frame *f = openFrame(p, regs, ret);
+            f->owner = owner;
+            f->argc = argc;
+            f->isPure = p->isPure;
+            f->inFunction = true;
+            f->counted = true;
+            if (CUFF_UNLIKELY(p->usesMeta))
+                initMeta(*f);
+            ++callDepth_;
+            return f;
+        }
+
+        // A call to a user function or method: checked, then entered. False when it was queued instead (an async
+        // function that is not awaited); its result, `empty`, is then already in place.
+        template <typename LocFn>
+        CUFF_ALWAYS_INLINE bool invoke(Frame &fr, Proto *p, Reg *base, uint32_t argc, Value *ret, const ClassInfo *owner,
+                                       const std::string &name, bool awaited, LocFn &&loc)
+        {
+            if (CUFF_UNLIKELY(fr.isPure && !p->isPure))
+                throwPureImpureCall(name, loc());
+            Reg *args = base + p->paramBase;
+            if (p->typedParams)
+                checkParamTypes(*p, args, argc, name, loc);
+            if (CUFF_UNLIKELY(p->isAsync && !awaited))
+            {
+                if (argc < p->required || argc > p->nparams)
+                    throwArgumentCount(name, *p->decl, argc, loc());
+                queueTask(*p, base, argc, loc(), owner);
+                ret->clear();
+                return false;
+            }
+            enterCall(p, base, argc, ret, owner, p->decl->name, loc);
+            return true;
+        }
+
+        Value callNative(const NativeFn &fn, Reg *args, uint32_t argc, const SourceLocation &loc)
+        {
+            PooledArgs pooled(this);
+            pooled.v.reserve(argc);
+            for (uint32_t k = 0; k < argc; ++k)
+                pooled.v.push_back(std::move(args[k].v));
+            return fn(pooled.v, loc);
+        }
+
+        // A call by a name that is no user function: a class, a native function, or nothing that can be called. True
+        // when a frame was entered (a class with an `init`).
+        CUFF_NOINLINE bool callOther(Frame &fr, const Instr &ins, uint32_t nameId, Reg *args, Value *ret)
+        {
+            const uint32_t argc = static_cast<uint32_t>(ins.b);
+            if (const std::shared_ptr<ClassInfo> *handle = classHandle(nameId))
+            {
+                if (ins.x & bc::kCallAwaited)
+                {
+                    const CallSite site = siteOf(*fr.proto, ins);
+                    throwAwaitOnNonAsync(*site.name, *site.loc);
+                }
+                // The object is the receiver of `init`, so it goes in the register in front of the arguments. A call
+                // inside `with` kept one free; a plain call makes room (the frame has a spare register for it).
+                Reg *self = args - 1;
+                if (ret == &args->v)
+                {
+                    for (uint32_t k = argc; k > 0; --k)
+                        args[k].v.take(args[k - 1].v);
+                    self = args;
+                }
+                return instantiate(fr, ins, *handle, self, argc, ret);
+            }
+            const CallSite site = siteOf(*fr.proto, ins);
+            const SourceLocation &loc = *site.loc;
+            if (const NativeFn *native = findNative(*site.name, nameId))
+            {
+                Value out = callNative(*native, args, argc, loc);
+                *ret = std::move(out);
+                return false;
+            }
+            if (const Reg *var = variableNamed(fr, ins, nameId))
+                throwNotCallable(*site.name, var->v, loc);
+            throwUndefinedFunction(*site.name, loc);
+        }
+
+        // `await name(args)`: settled before the arguments are worked out.
+        CUFF_NOINLINE void awaitCheck(Frame &fr, const Instr &ins, const AwaitExpr &aw)
+        {
+            const FunctionCall &call = *std::get_if<FunctionCall>(&aw.call->data);
+            if (ins.x)
+                for (int32_t holderCell : fr.proto->withLists[static_cast<size_t>(ins.c)])
+                    if (const ClassInfo::Method *m = cellAt(fr, holderCell).v.asObject()->cls->findMethod(call.functionNameId))
+                    {
+                        if (!m->decl->isAsync)
+                            throwAwaitOnNonAsync(call.functionName, aw.loc);
+                        return;
+                    }
+            const FunctionDecl *user = findUser(call.functionNameId);
+            if (user && !user->isAsync)
+                throwAwaitOnNonAsync(call.functionName, aw.loc);
+            if (!user && classHandle(call.functionNameId))
+                throwAwaitOnNonAsync(call.functionName, aw.loc);
+            if (user && fr.isPure && !user->isPure)
+                throwPureImpureCall(call.functionName, aw.loc);
+        }
+
+        const ClassInfo &parentOf(const Frame &fr, const SourceLocation &loc) const
+        {
+            if (!fr.owner || !fr.owner->parent)
+                throw InternalEngineError("'super' used outside a method of a class with a parent", loc);
+            return *fr.owner->parent;
+        }
+
+        // name(args) inside a `with` block: a method of the nearest `with` object that has one of that name, else an
+        // ordinary call. `slot` is the register in front of the arguments, where the receiver and the result go.
+        CUFF_NOINLINE bool callWith(Frame &fr, const Instr &ins, Reg *slot, uint32_t argc)
+        {
+            const CallSite site = siteOf(*fr.proto, ins);
+            const bool awaited = (ins.x & bc::kCallAwaited) != 0;
+            auto at = [&]() -> const SourceLocation & { return *site.loc; };
+            for (int32_t holderCell : fr.proto->withLists[static_cast<size_t>(ins.c)])
+            {
+                const Value &holder = cellAt(fr, holderCell).v;
+                const ClassInfo::Method *m = holder.asObject()->cls->findMethod(site.nameId);
+                if (!m)
+                    continue;
+                slot->v = holder;
+                if (m->decl->isPrivate && m->owner != fr.owner)
+                    throwPrivate(*m->owner, *site.name, "method", *site.loc);
+                return invoke(fr, protoOf(*m->decl), slot, argc, &slot->v, m->owner, m->decl->name, awaited, at);
+            }
+            if (const FunctionDecl *user = findUser(site.nameId))
+                return invoke(fr, protoOf(*user), slot + 1, argc, &slot->v, nullptr, user->name, awaited, at);
+            return callOther(fr, ins, site.nameId, slot + 1, &slot->v);
+        }
+
+        // super.name(args): `self` is in `base`, the arguments after it.
+        CUFF_NOINLINE bool callSuper(Frame &fr, const Instr &ins, Reg *base, uint32_t argc)
+        {
+            const CallSite site = siteOf(*fr.proto, ins);
+            const ClassInfo &parent = parentOf(fr, *site.loc);
+            const ClassInfo::Method *m = parent.findMethod(site.nameId);
+            if (!m)
+                throwNoMethod(parent, *site.name, site.nameId, *site.loc);
+            if (m->decl->isPrivate && m->owner != fr.owner)
+                throwPrivate(*m->owner, *site.name, "method", *site.loc);
+            auto at = [&]() -> const SourceLocation & { return *site.loc; };
+            return invoke(fr, protoOf(*m->decl), base, argc, &base->v, m->owner, m->decl->name, (ins.x & bc::kCallAwaited) != 0, at);
+        }
+
+        Proto *protoEntry(const FunctionDecl &decl)
+        {
+            std::unique_ptr<Proto> &slot = protos_[&decl];
+            if (!slot)
+                slot = std::make_unique<Proto>();
+            return slot.get();
+        }
+
+        // receiver.name(args) for a receiver the instruction has no record of: a method of the object's class (which
+        // is recorded and returned), or a built-in method (which is run here; null is returned).
+        CUFF_NOINLINE const ClassInfo::Method *findMethodFor(Frame &fr, const Instr &ins, Reg *base, uint32_t argc,
+                                                             bc::MethodCache &cache)
+        {
+            const CallSite site = siteOf(*fr.proto, ins);
+            const Value &receiver = base->v;
+            const ClassInfo *cls = nullptr;
+            if (receiver.isObject())
+            {
+                cls = receiver.asObject()->cls.get();
+                if (const ClassInfo::Method *m = cls->findMethod(site.nameId))
+                {
+                    cache.method = m;
+                    cache.proto = protoEntry(*m->decl);
+                    cache.serial = cls->serial;
+                    return m;
+                }
+            }
+            auto it = builtinMethods_.find(site.nameId);
+            if (it != builtinMethods_.end())
+            {
+                const unsigned bit = receiverBit(receiver.type());
+                for (const BoundMethod &b : it->second)
+                {
+                    if (!(b.entry->receivers & bit))
+                        continue;
+                    const NativeFn *fn = findNative(b.entry->function, b.functionId);
+                    if (!fn)
+                        throwMethodNeedsLibrary(receiver, *site.name, *b.entry, *site.loc);
+                    Value out = callNative(*fn, base, argc + 1, *site.loc);
+                    base->v = std::move(out);
+                    return nullptr;
+                }
+            }
+            if (cls)
+                throwNoMethod(*cls, *site.name, site.nameId, *site.loc);
+            throwNoBuiltinMethod(receiver, *site.name, *site.loc);
+        }
+
+        [[noreturn]] CUFF_COLD void throwPrivateMethod(const Frame &fr, const Instr &ins, const ClassInfo::Method &m)
+        {
+            const CallSite site = siteOf(*fr.proto, ins);
+            throwPrivate(*m.owner, *site.name, "method", *site.loc);
+        }
+
+        // ---- making objects ----------------------------------------------------------------------------------------
+
+        static bool literalFits(TypeKind declared, TypeKind actual)
+        {
+            return declared == TypeKind::Any || declared == actual;
+        }
+
+        // How each field of a class gets its first value, worked out the first time the class is used.
+        CUFF_NOINLINE void buildRuntime(const ClassInfo &cls)
+        {
+            auto rt = std::make_shared<ClassRuntime>();
+            rt->inits.resize(cls.fields.size());
+            for (size_t k = 0; k < cls.fields.size(); ++k)
+            {
+                const ClassInfo::Field &f = cls.fields[k];
+                const Expr &e = *f.decl->defaultValue;
+                const TypeKind declared = f.decl->type.kind;
+                FieldInit &init = rt->inits[k];
+                switch (e.kind)
+                {
+                case ExprKind::Number:
+                    init.constant = Value::makeNumber(std::get_if<NumberLiteral>(&e.data)->value);
+                    init.fits = literalFits(declared, TypeKind::Number);
+                    continue;
+                case ExprKind::String:
+                    init.constant = Value::makeStr(std::get_if<StringLiteral>(&e.data)->shared);
+                    init.fits = literalFits(declared, TypeKind::Str);
+                    continue;
+                case ExprKind::Bool:
+                    init.constant = Value::makeBool(std::get_if<BoolLiteral>(&e.data)->value);
+                    init.fits = literalFits(declared, TypeKind::Boolean);
+                    continue;
+                case ExprKind::Empty:
+                    init.fits = literalFits(declared, TypeKind::Empty);
+                    continue;
+                case ExprKind::List:
+                    if (std::get_if<ListLiteral>(&e.data)->elements.empty())
+                    {
+                        init.kind = FieldInit::NewList;
+                        init.fits = literalFits(declared, TypeKind::List);
+                        continue;
+                    }
+                    break;
+                case ExprKind::Map:
+                    if (std::get_if<MapLiteral>(&e.data)->pairs.empty())
+                    {
+                        init.kind = FieldInit::NewMap;
+                        init.fits = literalFits(declared, TypeKind::Map);
+                        continue;
+                    }
+                    break;
+                default:
+                    break;
+                }
+                std::unique_ptr<Proto> &thunk = protos_[f.decl];
+                if (!thunk)
+                    thunk = std::make_unique<Proto>();
+                if (!thunk->ready)
+                {
+                    compiler_.compileThunk(e, f.declaredIn->source, *thunk);
+                    if (config_.onCompiled)
+                        config_.onCompiled(*thunk);
+                }
+                init.kind = FieldInit::Thunk;
+                init.thunk = thunk.get();
+                init.fits = declared == TypeKind::Any;
+            }
+            rt->plain = std::all_of(rt->inits.begin(), rt->inits.end(),
+                                    [](const FieldInit &init) { return init.kind == FieldInit::Constant && init.fits; });
+            if (rt->plain)
+                for (const FieldInit &init : rt->inits)
+                    rt->defaults.push_back(init.constant);
+            cls.runtime = std::move(rt);
+        }
+
+        // A field's default value is worked out outside any method: no `self`, no private access, and no variables of
+        // the code that happens to be creating the object.
+        Value runThunk(Frame &fr, Proto &thunk, const Expr &value)
+        {
+            guardNative(std::visit([](const auto &n) { return n.loc; }, value.data), thunk.source);
+            Value out;
+            Frame *f = enterPlain(&thunk, &out);
+            f->isPure = fr.isPure;
+            runLoop(frameCount_ - 1);
+            return out;
+        }
+
+        static ClassRuntime &runtimeOf(const ClassInfo &cls)
+        {
+            return *static_cast<ClassRuntime *>(cls.runtime.get());
+        }
+
+        // Gives each field of a new object its default, the oldest class's fields first. The object is not reachable
+        // from the program until this has finished, so a default never sees it half made.
+        void fillDefaults(Frame &fr, const ClassInfo &cls, ObjectData &obj)
+        {
+            if (!cls.runtime)
+                buildRuntime(cls);
+            const ClassRuntime &rt = runtimeOf(cls);
+            if (rt.plain)
+            {
+                obj.fields = rt.defaults;
+                return;
+            }
+            obj.fields.reserve(rt.inits.size());
+            for (size_t k = 0; k < rt.inits.size(); ++k)
+            {
+                const FieldInit &init = rt.inits[k];
+                const ClassInfo::Field &f = cls.fields[k];
+                Value v;
+                switch (init.kind)
+                {
+                case FieldInit::Constant:
+                    v = init.constant;
+                    break;
+                case FieldInit::NewList:
+                    v = Value::makeList(std::make_shared<ValueList>());
+                    break;
+                case FieldInit::NewMap:
+                    v = Value::makeMap(std::make_shared<ValueMap>());
+                    break;
+                case FieldInit::Thunk:
+                    v = runThunk(fr, *init.thunk, *f.decl->defaultValue);
+                    break;
+                }
+                if (!init.fits)
+                    checkFieldDefault(f, v);
+                if (f.isConstant && v.isList())
+                    v = freezeList(v);
+                obj.fields.push_back(std::move(v));
+            }
+        }
+
+        CUFF_NOINLINE void checkFieldDefault(const ClassInfo::Field &f, const Value &v)
         {
             try
             {
-                return execBlock(decl.body, funcEnv);
+                checkDeclaredType(f.decl->type, v, f.name, f.decl->loc, "field");
+            }
+            catch (CuffError &e)
+            {
+                e.attachSource(f.declaredIn->source);
+                throw;
+            }
+        }
+
+        // `ClassName(args)`: make the object, give each field its default from the oldest class down, then run the
+        // nearest `init` with the arguments. `self` is the register in front of the arguments. True when `init` was
+        // entered: the object is the call's result once it returns, and only then does it exist for the program.
+        // False when there is no `init`, and the object is already in `*ret`.
+        CUFF_NOINLINE bool instantiate(Frame &fr, const Instr &ins, const std::shared_ptr<ClassInfo> &handle, Reg *self, uint32_t argc,
+                                       Value *ret)
+        {
+            auto at = [&]() -> const SourceLocation & { return *siteOf(*fr.proto, ins).loc; };
+            if (CUFF_UNLIKELY(--stepsLeft_ == 0))
+                stepsExhausted(at());
+            if (CUFF_UNLIKELY(timed_) && (++tickCount_ & 0x3FF) == 0)
+                checkDeadline(at());
+            auto made = std::make_shared<ObjectData>();
+            // The object keeps its class alive from here on, whatever a default value or `init` goes on to declare.
+            made->cls = handle;
+            ObjectData *obj = made.get();
+            const ClassInfo &cls = *obj->cls;
+            Value object = Value::makeObject(std::move(made));
+            fillDefaults(fr, cls, *obj);
+
+            const ClassInfo::Method *init = cls.init;
+            if (!init)
+            {
+                if (argc != 0)
+                    throw ArgumentError(cls.name + "() expects 0 argument(s), got " + std::to_string(argc), at(),
+                                        "the class has no 'init' method to take arguments");
+                *ret = std::move(object);
+                return false;
+            }
+            const FunctionDecl &decl = *init->decl;
+            if (decl.isPrivate && init->owner != fr.owner)
+                throwPrivate(*init->owner, "init", "constructor", at());
+            if (fr.isPure && !decl.isPure)
+                throwPureImpureCall(cls.name, at());
+            ClassRuntime &rt = runtimeOf(cls);
+            Proto *p = rt.init;
+            if (CUFF_UNLIKELY(!p || !p->ready))
+                p = rt.init = protoOf(decl);
+            if (p->typedParams)
+                checkParamTypes(*p, self + 1, argc, cls.name, at);
+            self->v.take(object);
+            Frame *f = enterCall(p, self, argc, ret, init->owner, cls.name, at);
+            f->constructing = obj;
+            obj->constructing = true;
+            return true;
+        }
+
+        // Calls a function from the engine itself (a queued async call, an object's `to_str`) and runs it to its end.
+        void callFunction(const FunctionDecl &decl, std::vector<Value> *args, const Value *self, const ClassInfo *owner,
+                          const SourceLocation &loc, Value &out)
+        {
+            guardNative(loc);
+            Proto *p = protoOf(decl);
+            const uint32_t argc = args ? static_cast<uint32_t>(args->size()) : 0;
+            if (argc < p->required || argc > p->nparams)
+                throwArgumentCount(decl.name, decl, argc, loc);
+            if (callDepth_ >= kMaxCallDepth)
+                throwCallDepth(decl, loc);
+            tick(loc);
+            Reg *regs = freeCells();
+            if (regs + p->numCells > segEnd_)
+                regs = startSegment(nullptr, 0, p->numCells);
+            if (self)
+                regs[0].v = *self;
+            for (uint32_t k = 0; k < argc; ++k)
+                regs[p->paramBase + k].v = std::move((*args)[k]);
+            Frame *f = openFrame(p, regs, &out);
+            f->owner = owner;
+            f->callLoc = &loc;
+            f->argc = argc;
+            f->isPure = p->isPure;
+            f->inFunction = true;
+            f->counted = true;
+            if (p->usesMeta)
+                initMeta(*f);
+            ++callDepth_;
+            runLoop(frameCount_ - 1);
+        }
+
+        // Printing an object (print, an f-string, to_str) uses its `to_str` method when the class has one.
+        void display(const Value &object, std::string &out) override
+        {
+            const ObjectData &o = *object.asObject();
+            const ClassInfo::Method *m = o.cls->toStr;
+            if (!m)
+            {
+                out += '<';
+                out += o.cls->name;
+                out += '>';
+                return;
+            }
+            const FunctionDecl &decl = *m->decl;
+            try
+            {
+                Value text;
+                callFunction(decl, nullptr, &object, m->owner, decl.loc, text);
+                if (!text.isStr())
+                    throw TypeError("to_str() of class '" + o.cls->name + "' must return a str, got " + typeNameOf(text), decl.loc);
+                out += text.asStr();
             }
             catch (CuffError &e)
             {
@@ -2694,129 +2757,1068 @@ namespace cuff
             }
         }
 
-        // `self` and `owner` are set for a method: the receiver, and the class that wrote the method.
-        Value callUserFunction(const FunctionDecl &decl, std::vector<Value> &args, const SourceLocation &loc,
-                               const Value *self = nullptr, const ClassInfo *owner = nullptr)
+        // Un-awaited async calls run in the order they were made, after the top level has finished.
+        void drainTaskQueue()
         {
-            if (args.size() < decl.requiredParams || args.size() > decl.params.size())
-                throwArgumentCount(decl.name, decl, args.size(), loc);
-            if (callDepth_ >= kMaxCallDepth)
-                throwCallDepth(decl, loc);
-            tick(loc);
-
-            FrameGuard guard(this, decl.isPure, self, owner);
-
-            Environment funcEnv(Environment::Kind::FunctionScope, globalEnv_);
-            EnvPoolReturner poolReturn{this, &funcEnv}; // must be declared after funcEnv (see its comment)
-            if (!envVarsPool_.empty())
+            while (!taskQueue_.empty())
             {
-                funcEnv.adoptStorage(std::move(envVarsPool_.back()));
-                envVarsPool_.pop_back();
-            }
-            funcEnv.reserve(decl.params.size());
-            const size_t given = args.size();
-            for (size_t i = 0; i < given; ++i)
-                funcEnv.declare(decl.paramIds[i], std::move(args[i]), false, typeCode(decl.paramTypes[i]));
-            if (given < decl.params.size())
-                fillDefaultArgs(decl, funcEnv, given, loc);
-
-            ExecOutcome outcome = execFunctionBody(decl, funcEnv);
-            if (outcome.result == ExecResult::Return)
-                return std::move(outcome.returnValue);
-            if (outcome.result != ExecResult::Normal)
-                throwLoopControlOutside(outcome);
-            return Value::makeEmpty();
-        }
-
-        // A default is worked out at every call that leaves its parameter out, and can use the parameters before it.
-        CUFF_NOINLINE void fillDefaultArgs(const FunctionDecl &decl, Environment &funcEnv, size_t given, const SourceLocation &loc)
-        {
-            for (size_t i = given; i < decl.params.size(); ++i)
-            {
-                Value fallback = evalExpr(*decl.paramDefaults[i], funcEnv);
-                if (decl.hasTypedParams && !typeAccepts(decl.paramTypes[i], fallback, loc))
-                    throwParamTypeMismatch(decl.name, decl, i, fallback, loc);
-                funcEnv.declare(decl.paramIds[i], std::move(fallback), false, typeCode(decl.paramTypes[i]));
-            }
-        }
-
-        // `ClassName(args)`: make the object, work out the field defaults from the oldest class down, then run the
-        // nearest `init` with the arguments. The object only exists for the program if `init` finishes.
-        Value instantiate(const std::shared_ptr<ClassInfo> &cls, std::vector<Value> &args, const SourceLocation &loc)
-        {
-            tick(loc);
-            auto obj = std::make_shared<ObjectData>();
-            obj->cls = cls;
-            obj->fields.resize(cls->fields.size());
-            Value self = Value::makeObject(obj);
-
-            {
-                DefaultValueScope scope(this);
-                Environment defaultsEnv(Environment::Kind::FunctionScope, globalEnv_);
-                for (size_t i = 0; i < cls->fields.size(); ++i)
+                QueuedTask task = std::move(taskQueue_.front());
+                taskQueue_.pop_front();
+                try
                 {
-                    const ClassInfo::Field &f = cls->fields[i];
-                    Value v = evalExpr(*f.decl->defaultValue, defaultsEnv);
-                    checkDeclaredType(f.decl->type, v, f.name, f.decl->loc, "field");
-                    if (f.isConstant && v.isList())
-                        v = freezeList(v);
-                    obj->fields[i] = std::move(v);
+                    Value ignored;
+                    callFunction(*task.decl, &task.args, task.decl->isMethod ? &task.self : nullptr, task.owner, task.decl->loc, ignored);
+                }
+                catch (CuffError &e)
+                {
+                    e.attachSource(task.decl->source);
+                    throw;
+                }
+            }
+        }
+
+        // ---- statements that are not worth an instruction of their own ----------------------------------------------
+
+        [[noreturn]] CUFF_COLD void raise(Frame &fr, bc::RaiseKind kind, const void *node)
+        {
+            switch (kind)
+            {
+            case bc::RaiseKind::ConstantName:
+            {
+                const auto &d = *static_cast<const DeclarationStmt *>(node);
+                throwConstantName(d.name, d.nameLoc);
+            }
+            case bc::RaiseKind::ConstantAssign:
+                throwConstantAssign(*static_cast<const AssignStmt *>(node));
+            case bc::RaiseKind::ConstantCollection:
+            {
+                const auto &co = *static_cast<const CollectionOpStmt *>(node);
+                throwConstantCollection(co.target.name, co.loc);
+            }
+            case bc::RaiseKind::PureFieldWrite:
+                throwPureFieldWrite(static_cast<const AssignStmt *>(node)->loc);
+            case bc::RaiseKind::PureFieldWriteCollection:
+                throwPureFieldWrite(static_cast<const CollectionOpStmt *>(node)->loc);
+            case bc::RaiseKind::LoopConstant:
+                throwLoopConstant(*static_cast<const LoopStmt *>(node));
+            case bc::RaiseKind::StopOutsideLoop:
+            case bc::RaiseKind::SkipOutsideLoop:
+            case bc::RaiseKind::ReturnOutsideFunction:
+                break;
+            }
+            // `return`, `stop` or `skip` with no function or loop to take it ends the function or program it is in:
+            // an `or_else` of that same code does not catch it, one around the call does.
+            uncatchable_ = frameCount_ - 1;
+            (void)fr;
+            if (kind == bc::RaiseKind::ReturnOutsideFunction)
+                throw CuffRuntimeError(ErrorCode::ReturnOutsideFunction, "'return' cannot be used outside of a function",
+                                       static_cast<const ReturnStmt *>(node)->loc);
+            const bool skip = kind == bc::RaiseKind::SkipOutsideLoop;
+            throw CuffRuntimeError(ErrorCode::StopOutsideLoop, std::string("'") + (skip ? "skip" : "stop") + "' cannot be used outside of a loop",
+                                   skip ? static_cast<const SkipStmt *>(node)->loc : static_cast<const StopStmt *>(node)->loc);
+        }
+
+        CUFF_NOINLINE void globalCheck(const Frame &fr, const GlobalStmt &g)
+        {
+            if (!fr.inFunction)
+                throw CuffRuntimeError(ErrorCode::InvalidGlobalDeclaration, "'global' can only be used inside a function body", g.loc,
+                                       "at the top level, every variable is already global");
+            if (fr.isPure)
+                throwPureGlobalAccess(g.names.front().name, g.names.front().loc);
+        }
+
+        // A parameter's default value, once worked out, is checked against the parameter's type. The error is the
+        // caller's: it is reported at the call.
+        CUFF_NOINLINE void checkDefault(Frame &fr, uint32_t index, const Value &v)
+        {
+            const FunctionDecl &decl = *fr.proto->decl;
+            fr.noStamp = true;
+            const SourceLocation &loc = callLocation(fr);
+            if (!typeAccepts(decl.paramTypes[index], v, loc))
+                throwParamTypeMismatch(decl.name, decl, index, v, loc);
+            fr.noStamp = false;
+        }
+
+        // ---- the loop ----------------------------------------------------------------------------------------------
+
+        CUFF_ALWAYS_INLINE static bool truthy(const Value &v)
+        {
+            return v.isBool() ? v.asBool() : v.truthy();
+        }
+
+        CUFF_NOINLINE void binarySlow(Value &out, const BinaryOp &b, const Value &l, const Value &r)
+        {
+            Value v = evalBinaryOpSlow(b, l, r);
+            out = std::move(v);
+        }
+
+        CUFF_NOINLINE static bool orderedSlow(const BinaryOp &b, const Value &l, const Value &r)
+        {
+            return compareOrdered(b.op, l, r, b.loc).asBool();
+        }
+
+        [[noreturn]] CUFF_COLD static void throwNegate(const Value &v, const UnaryOp &u)
+        {
+            throw TypeError("unary '-' requires a number, got " + valueTypeName(v.type()), u.loc);
+        }
+
+        [[noreturn]] CUFF_COLD static void throwWithNeedsObject(const Value &v, const WithStmt &w)
+        {
+            throw CuffRuntimeError(ErrorCode::NotAnObject, "'with' needs an object, got a " + typeNameOf(v) + " value", w.loc,
+                                   "only objects made from a class can be used with 'with'");
+        }
+
+        // An f-string, once each of its expressions is a str in consecutive registers.
+        CUFF_NOINLINE void concat(Value &out, const Reg *parts, const FStringExpr &fs)
+        {
+            size_t total = 0;
+            size_t k = 0;
+            for (const auto &seg : fs.segments)
+                total += seg.isExpression ? parts[k++].v.asStr().size() : seg.text.size();
+            checkStringSize(total, fs.loc);
+            std::string text;
+            text.reserve(total);
+            k = 0;
+            for (const auto &seg : fs.segments)
+                text += seg.isExpression ? parts[k++].v.asStr() : seg.text;
+            out = Value::makeStr(std::move(text));
+        }
+
+        // What an f-string shows for a value: the value itself if it is a str.
+        CUFF_NOINLINE void toStr(Value &v, const FStringExpr &fs)
+        {
+            std::string text;
+            v.appendDisplay(text);
+            checkStringSize(text.size(), fs.loc);
+            v = Value::makeStr(std::move(text));
+        }
+
+        // Runs the top frame, and every frame it calls, until it returns: `stopCount` is the number of frames below
+        // it. An error is offered to the `or_else` handlers of those frames (handleError); with none to take it, the
+        // frames are left and the error goes to the caller.
+        //
+        // The catch blocks read nothing that the loop keeps in a local: where each frame stands is written to the
+        // frame at every dispatch, and the running frame is `top_`. A local that a catch block read would have to live
+        // in memory across every call that can throw, which is nearly every instruction; this way the instruction
+        // pointer and the register base stay in machine registers.
+        void runLoop(const size_t stopCount)
+        {
+            Frame *fr;
+            const Instr *ip;
+            Reg *regs;
+            const Value *consts;
+            Proto *P;
+            const Instr *i = nullptr;
+
+#define CUFF_LOAD_FRAME()                                                                                              \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        fr = top_;                                                                                                     \
+        ip = fr->ip;                                                                                                   \
+        regs = fr->regs;                                                                                               \
+        P = fr->proto;                                                                                                 \
+        consts = P->consts.data();                                                                                     \
+    } while (0)
+#define CUFF_REG(off) (*reinterpret_cast<Reg *>(reinterpret_cast<char *>(regs) + (off)))
+#define CUFF_RA CUFF_REG(i->a)
+#define CUFF_RB CUFF_REG(i->b)
+#define CUFF_RC CUFF_REG(i->c)
+#define CUFF_KB (*reinterpret_cast<const Value *>(reinterpret_cast<const char *>(consts) + i->b))
+#define CUFF_KC (*reinterpret_cast<const Value *>(reinterpret_cast<const char *>(consts) + i->c))
+#define CUFF_NODE(T) (static_cast<const T *>(P->nodes[static_cast<size_t>(i - P->code.data())]))
+#define CUFF_SITE_LOC [&]() -> const SourceLocation & { return *siteOf(*P, *i).loc; }
+#define CUFF_TICK(LOC)                                                                                                 \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (CUFF_UNLIKELY(--stepsLeft_ == 0))                                                                          \
+            stepsExhausted(LOC);                                                                                       \
+        if (CUFF_UNLIKELY(timed_) && (++tickCount_ & 0x3FF) == 0)                                                      \
+            checkDeadline(LOC);                                                                                        \
+    } while (0)
+#define CUFF_TAKE(dst, src, moved)                                                                                     \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (moved)                                                                                                     \
+            (dst).take(src);                                                                                           \
+        else                                                                                                           \
+            (dst).put(src);                                                                                            \
+    } while (0)
+
+#if CUFF_VM_LABELS
+            static const void *const kLabels[] = {
+#define CUFF_OP_LABEL(name, operands) &&L_##name,
+                CUFF_OPCODES(CUFF_OP_LABEL)
+#undef CUFF_OP_LABEL
+            };
+// Each instruction's code finds its instruction just behind `ip`, so that `ip` is all that has to survive the jump.
+// A jump through the table runs no destructor, so nothing that has one may still be in scope where CUFF_VM_NEXT is
+// written: a Value or a shared_ptr an instruction needs lives in an inner block that ends before it. Clang refuses
+// code that breaks this; GCC would compile it and skip the destructor.
+#define CUFF_VM_CASE(name)                                                                                             \
+    L_##name : i = ip - 1;
+#define CUFF_VM_NEXT()                                                                                                 \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        const void *const target = kLabels[ip->op];                                                                    \
+        fr->ip = ++ip;                                                                                                 \
+        goto *target;                                                                                                  \
+    } while (0)
+#else
+#define CUFF_VM_CASE(name) case Op::name:
+#define CUFF_VM_NEXT() goto dispatch
+#endif
+
+#define CUFF_ARITH(NAME, RIGHT, RIGHT_IS_NUMBER, RESULT)                                                               \
+    CUFF_VM_CASE(NAME)                                                                                                 \
+    {                                                                                                                  \
+        const Value &l = CUFF_RB.v;                                                                                    \
+        const Value &r = RIGHT;                                                                                        \
+        if (CUFF_LIKELY(l.isNumber() && (RIGHT_IS_NUMBER)))                                                            \
+        {                                                                                                              \
+            const double x = l.asNumber(), y = r.asNumber();                                                           \
+            CUFF_RA.v.setNumber(RESULT);                                                                               \
+            CUFF_VM_NEXT();                                                                                            \
+        }                                                                                                              \
+        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r);                                                             \
+        CUFF_VM_NEXT();                                                                                                \
+    }
+#define CUFF_DIVIDE(NAME, RIGHT, RIGHT_IS_NUMBER)                                                                      \
+    CUFF_VM_CASE(NAME)                                                                                                 \
+    {                                                                                                                  \
+        const Value &l = CUFF_RB.v;                                                                                    \
+        const Value &r = RIGHT;                                                                                        \
+        if (CUFF_LIKELY(l.isNumber() && (RIGHT_IS_NUMBER)))                                                            \
+        {                                                                                                              \
+            const double x = l.asNumber(), y = r.asNumber();                                                           \
+            if (CUFF_UNLIKELY(y == 0.0))                                                                               \
+                throwDivisionByZero(CUFF_NODE(BinaryOp)->loc);                                                         \
+            CUFF_RA.v.setNumber(x / y);                                                                                \
+            CUFF_VM_NEXT();                                                                                            \
+        }                                                                                                              \
+        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r);                                                             \
+        CUFF_VM_NEXT();                                                                                                \
+    }
+#define CUFF_MODULO(NAME, RIGHT, RIGHT_IS_NUMBER)                                                                      \
+    CUFF_VM_CASE(NAME)                                                                                                 \
+    {                                                                                                                  \
+        const Value &l = CUFF_RB.v;                                                                                    \
+        const Value &r = RIGHT;                                                                                        \
+        if (CUFF_LIKELY(l.isNumber() && (RIGHT_IS_NUMBER)))                                                            \
+        {                                                                                                              \
+            const double x = l.asNumber(), y = r.asNumber();                                                           \
+            if (CUFF_UNLIKELY(y == 0.0))                                                                               \
+                throwModuloByZero(CUFF_NODE(BinaryOp)->loc);                                                           \
+            const double m = arith::floorMod(x, y);                                                                    \
+            if (CUFF_UNLIKELY(!std::isfinite(m)))                                                                      \
+                throwModuloNotFinite(CUFF_NODE(BinaryOp)->loc);                                                        \
+            CUFF_RA.v.setNumber(m);                                                                                    \
+            CUFF_VM_NEXT();                                                                                            \
+        }                                                                                                              \
+        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r);                                                             \
+        CUFF_VM_NEXT();                                                                                                \
+    }
+#define CUFF_COMPARE(NAME, OP)                                                                                         \
+    CUFF_VM_CASE(NAME)                                                                                                 \
+    {                                                                                                                  \
+        const Value &l = CUFF_RB.v;                                                                                    \
+        const Value &r = CUFF_RC.v;                                                                                    \
+        const bool t = CUFF_LIKELY(l.isNumber() && r.isNumber()) ? l.asNumber() OP r.asNumber()                        \
+                                                                 : orderedSlow(*CUFF_NODE(BinaryOp), l, r);            \
+        CUFF_RA.v.setBool(t);                                                                                          \
+        CUFF_VM_NEXT();                                                                                                \
+    }
+#define CUFF_JUMP_IF(TEST)                                                                                             \
+    if ((TEST) == ((i->x & bc::kJumpIfTrue) != 0))                                                                     \
+    {                                                                                                                  \
+        if (i->x & bc::kJumpTicks)                                                                                     \
+            CUFF_TICK(*P->tickLocs.at(static_cast<uint32_t>(i - P->code.data())));                                     \
+        ip += i->c;                                                                                                    \
+    }                                                                                                                  \
+    CUFF_VM_NEXT();
+#define CUFF_JUMP_ORDERED(NAME, RIGHT, RIGHT_IS_NUMBER, OP)                                                            \
+    CUFF_VM_CASE(NAME)                                                                                                 \
+    {                                                                                                                  \
+        const Value &l = CUFF_RA.v;                                                                                    \
+        const Value &r = RIGHT;                                                                                        \
+        const bool t = CUFF_LIKELY(l.isNumber() && (RIGHT_IS_NUMBER)) ? l.asNumber() OP r.asNumber()                   \
+                                                                 : orderedSlow(*CUFF_NODE(BinaryOp), l, r);            \
+        CUFF_JUMP_IF(t)                                                                                                \
+    }
+#define CUFF_JUMP_EQUAL(NAME, RIGHT, RIGHT_IS_NUMBER)                                                                  \
+    CUFF_VM_CASE(NAME)                                                                                                 \
+    {                                                                                                                  \
+        const Value &l = CUFF_RA.v;                                                                                    \
+        const Value &r = RIGHT;                                                                                        \
+        const bool t = CUFF_LIKELY(l.isNumber() && (RIGHT_IS_NUMBER)) ? l.asNumber() == r.asNumber() : l.strictEquals(r); \
+        CUFF_JUMP_IF(t)                                                                                                \
+    }
+
+            CUFF_LOAD_FRAME();
+            for (;;)
+            {
+                try
+                {
+#if CUFF_VM_LABELS
+                    CUFF_VM_NEXT();
+#else
+                dispatch:
+                    i = ip++;
+                    fr->ip = ip;
+                    switch (static_cast<Op>(i->op))
+                    {
+#endif
+                    // ---- values ----
+                    CUFF_VM_CASE(LoadK)
+                    {
+                        CUFF_RA.v.put(CUFF_KB);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(LoadNil)
+                    {
+                        CUFF_RA.v.clear();
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(LoadBool)
+                    {
+                        CUFF_RA.v.setBool(i->x != 0);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Move)
+                    {
+                        if (CUFF_LIKELY(i->a != i->b))
+                            CUFF_RA.v.put(CUFF_RB.v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Take)
+                    {
+                        if (CUFF_LIKELY(i->a != i->b))
+                            CUFF_RA.v.take(CUFF_RB.v);
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- variables of the top level ----
+                    CUFF_VM_CASE(GetG)
+                    {
+                        CUFF_RA.v.put(P->gcells[static_cast<size_t>(i->b)]->v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(GetGC)
+                    {
+                        const Reg *g = P->gcells[static_cast<size_t>(i->b)];
+                        if (CUFF_UNLIKELY(!(g->meta & bc::kMetaDeclared)))
+                            throwUndefinedVariable(*fr, *CUFF_NODE(IdentifierExpr));
+                        CUFF_RA.v.put(g->v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(SetG)
+                    {
+                        Reg *g = P->gcells[static_cast<size_t>(i->a)];
+                        Value &src = CUFF_RB.v;
+                        const uint32_t type = g->meta >> bc::kMetaTypeShift;
+                        if (CUFF_UNLIKELY(!fits(type, src)))
+                        {
+                            const Place &pl = CUFF_NODE(AssignStmt)->target;
+                            throwAssignedMismatch(type, src, pl.name, pl.loc);
+                        }
+                        CUFF_TAKE(g->v, src, i->x & bc::kMoveSource);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(SetGU)
+                    {
+                        Reg *g = P->gcells[static_cast<size_t>(i->a)];
+                        CUFF_TAKE(g->v, CUFF_RB.v, i->x & bc::kMoveSource);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(CheckG)
+                    {
+                        const Reg *g = P->gcells[static_cast<size_t>(i->a)];
+                        const AssignStmt &c = *CUFF_NODE(AssignStmt);
+                        if (!(g->meta & bc::kMetaDeclared))
+                            throwUndefinedTarget(*fr, c.target);
+                        if (g->meta & bc::kMetaConst)
+                            throwConstantAssign(c);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(DeclG)
+                    {
+                        Reg *g = P->gcells[static_cast<size_t>(i->a)];
+                        CUFF_TAKE(g->v, CUFF_RB.v, i->x & bc::kMoveSource);
+                        setSlotMeta(*g, static_cast<uint32_t>(i->c));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(PlaceholdG)
+                    {
+                        Reg *g = P->gcells[static_cast<size_t>(i->a)];
+                        if (!(g->meta & bc::kMetaDeclared))
+                        {
+                            g->v.clear();
+                            setSlotMeta(*g, static_cast<uint32_t>(i->c));
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(GetName)
+                    {
+                        getName(*fr, P->names[static_cast<size_t>(i->b)], CUFF_RA.v, *CUFF_NODE(IdentifierExpr));
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- variables of a function ----
+                    CUFF_VM_CASE(Store)
+                    {
+                        Value &src = CUFF_RB.v;
+                        const uint32_t type = static_cast<uint32_t>(i->c);
+                        if (CUFF_UNLIKELY(!isKind(src, i->x & bc::kKindMask)) && !fits(type, src))
+                        {
+                            const Place &pl = CUFF_NODE(AssignStmt)->target;
+                            throwAssignedMismatch(type, src, pl.name, pl.loc);
+                        }
+                        CUFF_TAKE(CUFF_RA.v, src, i->x & bc::kMoveSource);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Decl)
+                    {
+                        Reg &dst = CUFF_RA;
+                        CUFF_TAKE(dst.v, CUFF_RB.v, i->x & bc::kMoveSource);
+                        dst.meta = static_cast<uint32_t>(i->c);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(SetMeta)
+                    {
+                        CUFF_RA.meta = static_cast<uint32_t>(i->c);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Undecl)
+                    {
+                        Reg *cell = &CUFF_RA;
+                        for (int32_t k = 0; k < i->b; ++k)
+                            cell[k].meta = 0;
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ChkDecl)
+                    {
+                        const Value &v = CUFF_RA.v;
+                        if (CUFF_UNLIKELY(!isKind(v, i->x)))
+                            checkDeclaration(*CUFF_NODE(DeclarationStmt), v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Freeze)
+                    {
+                        Value &v = CUFF_RA.v;
+                        if (v.isList())
+                            v = freezeList(v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(PlaceholdL)
+                    {
+                        Reg &cell = CUFF_RA;
+                        if (!(cell.meta & bc::kMetaDeclared))
+                        {
+                            cell.v.clear();
+                            cell.meta = static_cast<uint32_t>(i->c);
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(BindL)
+                    {
+                        Reg &cell = CUFF_RA;
+                        if (CUFF_UNLIKELY(cell.meta & bc::kMetaConst))
+                            throwLoopConstant(*CUFF_NODE(LoopStmt));
+                        cell.v.put(CUFF_RB.v);
+                        cell.meta = static_cast<uint32_t>(i->c);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(BindG)
+                    {
+                        Reg *g = P->gcells[static_cast<size_t>(i->a)];
+                        if (CUFF_UNLIKELY(g->meta & bc::kMetaConst))
+                            throwLoopConstant(*CUFF_NODE(LoopStmt));
+                        g->v.put(CUFF_RB.v);
+                        setSlotMeta(*g, static_cast<uint32_t>(i->c));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ChkLoop)
+                    {
+                        const Value &v = CUFF_RA.v;
+                        if (CUFF_UNLIKELY(!isKind(v, i->x)))
+                            checkLoopValue(*CUFF_NODE(LoopStmt), v);
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- operators ----
+                    CUFF_ARITH(Add, CUFF_RC.v, r.isNumber(), x + y)
+                    CUFF_ARITH(Sub, CUFF_RC.v, r.isNumber(), x - y)
+                    CUFF_ARITH(Mul, CUFF_RC.v, r.isNumber(), x * y)
+                    CUFF_DIVIDE(Div, CUFF_RC.v, r.isNumber())
+                    CUFF_MODULO(Mod, CUFF_RC.v, r.isNumber())
+                    CUFF_ARITH(Pow, CUFF_RC.v, r.isNumber(), powerOf(x, y, CUFF_NODE(BinaryOp)->loc))
+                    CUFF_ARITH(AddK, CUFF_KC, true, x + y)
+                    CUFF_ARITH(SubK, CUFF_KC, true, x - y)
+                    CUFF_ARITH(MulK, CUFF_KC, true, x * y)
+                    CUFF_DIVIDE(DivK, CUFF_KC, true)
+                    CUFF_MODULO(ModK, CUFF_KC, true)
+                    CUFF_ARITH(PowK, CUFF_KC, true, powerOf(x, y, CUFF_NODE(BinaryOp)->loc))
+                    CUFF_VM_CASE(Neg)
+                    {
+                        const Value &v = CUFF_RB.v;
+                        if (CUFF_UNLIKELY(!v.isNumber()))
+                            throwNegate(v, *CUFF_NODE(UnaryOp));
+                        CUFF_RA.v.setNumber(-v.asNumber());
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Not)
+                    {
+                        CUFF_RA.v.setBool(!truthy(CUFF_RB.v));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ToBool)
+                    {
+                        CUFF_RA.v.setBool(truthy(CUFF_RB.v));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_COMPARE(Lt, <)
+                    CUFF_COMPARE(Le, <=)
+                    CUFF_COMPARE(Gt, >)
+                    CUFF_COMPARE(Ge, >=)
+                    CUFF_VM_CASE(Eq)
+                    {
+                        const Value &l = CUFF_RB.v;
+                        const Value &r = CUFF_RC.v;
+                        const bool t = CUFF_LIKELY(l.isNumber() && r.isNumber()) ? l.asNumber() == r.asNumber() : l.strictEquals(r);
+                        CUFF_RA.v.setBool(t);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Ne)
+                    {
+                        const Value &l = CUFF_RB.v;
+                        const Value &r = CUFF_RC.v;
+                        const bool t = CUFF_LIKELY(l.isNumber() && r.isNumber()) ? l.asNumber() != r.asNumber() : !l.strictEquals(r);
+                        CUFF_RA.v.setBool(t);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Matches)
+                    {
+                        {
+                            Value v = matchesOp(*CUFF_NODE(BinaryOp), CUFF_RB.v, CUFF_RC.v);
+                            CUFF_RA.v = std::move(v);
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Isa)
+                    {
+                        const bool t = isaCheck(CUFF_RB.v, *CUFF_NODE(IsaExpr));
+                        CUFF_RA.v.setBool(t);
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- jumps ----
+                    CUFF_VM_CASE(Jmp)
+                    {
+                        ip += i->c;
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(JmpIf)
+                    {
+                        const bool t = truthy(CUFF_RA.v);
+                        CUFF_JUMP_IF(t)
+                    }
+                    CUFF_JUMP_ORDERED(JLt, CUFF_RB.v, r.isNumber(), <)
+                    CUFF_JUMP_ORDERED(JLe, CUFF_RB.v, r.isNumber(), <=)
+                    CUFF_JUMP_ORDERED(JGt, CUFF_RB.v, r.isNumber(), >)
+                    CUFF_JUMP_ORDERED(JGe, CUFF_RB.v, r.isNumber(), >=)
+                    CUFF_JUMP_EQUAL(JEq, CUFF_RB.v, r.isNumber())
+                    CUFF_JUMP_ORDERED(JLtK, CUFF_KB, true, <)
+                    CUFF_JUMP_ORDERED(JLeK, CUFF_KB, true, <=)
+                    CUFF_JUMP_ORDERED(JGtK, CUFF_KB, true, >)
+                    CUFF_JUMP_ORDERED(JGeK, CUFF_KB, true, >=)
+                    CUFF_JUMP_EQUAL(JEqK, CUFF_KB, true)
+                    CUFF_VM_CASE(JAnd)
+                    {
+                        if (!truthy(CUFF_RB.v))
+                        {
+                            CUFF_RA.v.setBool(false);
+                            ip += i->c;
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(JOr)
+                    {
+                        if (truthy(CUFF_RB.v))
+                        {
+                            CUFF_RA.v.setBool(true);
+                            ip += i->c;
+                        }
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- lists, maps, text ----
+                    CUFF_VM_CASE(NewList)
+                    {
+                        {
+                            auto list = std::make_shared<ValueList>();
+                            Reg *from = &CUFF_RB;
+                            list->items.reserve(static_cast<size_t>(i->c));
+                            for (int32_t k = 0; k < i->c; ++k)
+                                list->items.push_back(std::move(from[k].v));
+                            CUFF_RA.v = Value::makeList(std::move(list));
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ListAdd)
+                    {
+                        auto &items = CUFF_RA.v.asList()->items;
+                        if (i->x & bc::kMoveSource)
+                            items.push_back(std::move(CUFF_RB.v));
+                        else
+                            items.push_back(CUFF_RB.v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(NewMap)
+                    {
+                        {
+                            auto map = std::make_shared<ValueMap>();
+                            map->reserve(static_cast<size_t>(i->c));
+                            CUFF_RA.v = Value::makeMap(std::move(map));
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(MapSet)
+                    {
+                        ValueMap &map = *CUFF_RA.v.asMap();
+                        if (i->x & bc::kMoveSource)
+                            map.set(CUFF_RB.v.asStr(), std::move(CUFF_RC.v));
+                        else
+                            map.set(CUFF_RB.v.asStr(), CUFF_RC.v);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ChkKey)
+                    {
+                        if (CUFF_UNLIKELY(!CUFF_RA.v.isStr()))
+                            throw TypeError("map keys must be strings", CUFF_NODE(MapLiteral)->loc);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Index)
+                    {
+                        const Value &target = CUFF_RB.v;
+                        const Value &index = CUFF_RC.v;
+                        if (CUFF_LIKELY(target.isList() && index.isNumber()))
+                        {
+                            const auto &items = target.asList()->items;
+                            const double d = index.asNumber();
+                            if (CUFF_LIKELY(d >= 1.0 && d <= static_cast<double>(items.size())))
+                            {
+                                const size_t at = static_cast<size_t>(d);
+                                if (CUFF_LIKELY(static_cast<double>(at) == d))
+                                {
+                                    CUFF_RA.v.putOwned(items[at - 1]);
+                                    CUFF_VM_NEXT();
+                                }
+                            }
+                        }
+                        {
+                            Value v = indexInto(target, index, CUFF_NODE(IndexAccess)->loc);
+                            CUFF_RA.v = std::move(v);
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Slice)
+                    {
+                        {
+                            const Reg *bounds = &CUFF_RC;
+                            Value v = sliceInto(CUFF_RB.v, bounds[0].v, bounds[1].v, CUFF_NODE(SliceAccess)->loc);
+                            CUFF_RA.v = std::move(v);
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ToStr)
+                    {
+                        Value &v = CUFF_RA.v;
+                        if (!v.isStr())
+                        {
+                            toStr(v, *CUFF_NODE(FStringExpr));
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Concat)
+                    {
+                        concat(CUFF_RA.v, &CUFF_RB, *CUFF_NODE(FStringExpr));
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- objects ----
+                    CUFF_VM_CASE(GetField)
+                    {
+                        const Value &target = CUFF_RB.v;
+                        bc::FieldCache &cache = P->fieldCaches[static_cast<size_t>(i->c)];
+                        if (CUFF_LIKELY(target.isObject()))
+                        {
+                            const ObjectData &o = *target.asObject();
+                            if (CUFF_LIKELY(o.cls->serial == cache.serial))
+                            {
+                                const ClassInfo::Field &f = o.cls->fields[cache.index];
+                                if (CUFF_LIKELY(!f.isPrivate || fr->owner == f.declaredIn))
+                                {
+                                    CUFF_RA.v.putOwned(o.fields[cache.index]);
+                                    CUFF_VM_NEXT();
+                                }
+                            }
+                        }
+                        getFieldSlow(CUFF_RA.v, target, *CUFF_NODE(MemberAccess), fr->owner, cache);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(SetField)
+                    {
+                        const Value &holder = CUFF_RA.v;
+                        Value &src = CUFF_RB.v;
+                        bc::FieldCache &cache = P->fieldCaches[static_cast<size_t>(i->c)];
+                        if (CUFF_LIKELY(holder.isObject()))
+                        {
+                            ObjectData &o = *holder.asObject();
+                            if (CUFF_LIKELY(o.cls->serial == cache.serial))
+                            {
+                                const ClassInfo::Field &f = o.cls->fields[cache.index];
+                                if (CUFF_LIKELY(!f.isConstant && (!f.isPrivate || fr->owner == f.declaredIn) &&
+                                                (f.typeKind == 0 || isKind(src, f.typeKind))))
+                                {
+                                    CUFF_TAKE(o.fields[cache.index], src, i->x & bc::kMoveSource);
+                                    CUFF_VM_NEXT();
+                                }
+                            }
+                        }
+                        {
+                            Value v;
+                            CUFF_TAKE(v, src, i->x & bc::kMoveSource);
+                            setFieldSlow(holder, std::move(v), *CUFF_NODE(PlaceStep), fr->owner, cache);
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(With)
+                    {
+                        const Value &object = CUFF_RB.v;
+                        if (CUFF_UNLIKELY(!object.isObject()))
+                            throwWithNeedsObject(object, *CUFF_NODE(WithStmt));
+                        CUFF_RA.v = object;
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- calls ----
+                    CUFF_VM_CASE(Call)
+                    {
+                        const uint32_t id = static_cast<uint32_t>(i->c);
+                        Reg *base = &CUFF_RA;
+                        if (CUFF_LIKELY(id < userById_.size() && userById_[id].decl != nullptr))
+                        {
+                            UserFn &fn = userById_[id];
+                            Proto *p = fn.proto;
+                            if (CUFF_UNLIKELY(!p || !p->ready))
+                                p = fn.proto = protoOf(*fn.decl);
+                            if (invoke(*fr, p, base, static_cast<uint32_t>(i->b), &base->v, nullptr, fn.decl->name,
+                                       (i->x & bc::kCallAwaited) != 0, CUFF_SITE_LOC))
+                                CUFF_LOAD_FRAME();
+                            CUFF_VM_NEXT();
+                        }
+                        if (callOther(*fr, *i, id, base, &base->v))
+                            CUFF_LOAD_FRAME();
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(CallW)
+                    {
+                        if (callWith(*fr, *i, &CUFF_RA, static_cast<uint32_t>(i->b)))
+                            CUFF_LOAD_FRAME();
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(CallM)
+                    {
+                        Reg *base = &CUFF_RA;
+                        const uint32_t argc = static_cast<uint32_t>(i->b);
+                        bc::MethodCache &cache = P->methodCaches[static_cast<size_t>(i->c)];
+                        const ClassInfo::Method *m;
+                        if (CUFF_LIKELY(base->v.isObject() && base->v.asObject()->cls->serial == cache.serial))
+                        {
+                            m = static_cast<const ClassInfo::Method *>(cache.method);
+                        }
+                        else
+                        {
+                            m = findMethodFor(*fr, *i, base, argc, cache);
+                            if (!m)
+                                CUFF_VM_NEXT();
+                        }
+                        if (CUFF_UNLIKELY(m->decl->isPrivate && m->owner != fr->owner))
+                            throwPrivateMethod(*fr, *i, *m);
+                        Proto *p = cache.proto;
+                        if (CUFF_UNLIKELY(!p->ready))
+                            p = cache.proto = protoOf(*m->decl);
+                        if (invoke(*fr, p, base, argc, &base->v, m->owner, m->decl->name, (i->x & bc::kCallAwaited) != 0, CUFF_SITE_LOC))
+                            CUFF_LOAD_FRAME();
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(CallS)
+                    {
+                        if (callSuper(*fr, *i, &CUFF_RA, static_cast<uint32_t>(i->b)))
+                            CUFF_LOAD_FRAME();
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(AwaitF)
+                    {
+                        awaitCheck(*fr, *i, *CUFF_NODE(AwaitExpr));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(AwaitM)
+                    {
+                        const MethodCall &mc = *std::get_if<MethodCall>(&CUFF_NODE(AwaitExpr)->call->data);
+                        const Value &receiver = CUFF_RA.v;
+                        const ClassInfo::Method *m = receiver.isObject() ? receiver.asObject()->cls->findMethod(mc.nameId) : nullptr;
+                        if (!m || !m->decl->isAsync)
+                            throwAwaitOnNonAsync(mc.name, mc.loc);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(AwaitS)
+                    {
+                        const SuperCall &sc = *std::get_if<SuperCall>(&CUFF_NODE(AwaitExpr)->call->data);
+                        const ClassInfo::Method *m = parentOf(*fr, sc.loc).findMethod(sc.nameId);
+                        if (m && !m->decl->isAsync)
+                            throwAwaitOnNonAsync(sc.name, sc.loc);
+                        CUFF_VM_NEXT();
+                    }
+                    // A frame's result is left in its first register, which is released last. What an `init` returns
+                    // is not used: its call gives the object, and that is in the first register already.
+                    CUFF_VM_CASE(Ret)
+                    {
+                        if (CUFF_LIKELY(fr->constructing == nullptr))
+                        {
+                            Value &result = CUFF_RA.v;
+                            if (&result != &regs[0].v)
+                                regs[0].v.take(result);
+                        }
+                        goto do_return;
+                    }
+                    CUFF_VM_CASE(RetNil)
+                    {
+                        if (CUFF_LIKELY(fr->constructing == nullptr))
+                            regs[0].v.clear();
+                        goto do_return;
+                    }
+                    CUFF_VM_CASE(ArgJmp)
+                    {
+                        if (fr->argc > static_cast<uint32_t>(i->a))
+                            ip += i->c;
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(DefChk)
+                    {
+                        Reg &cell = CUFF_RA;
+                        if (P->typedParams && i->x != 0 && CUFF_UNLIKELY(!isKind(cell.v, i->x)))
+                            checkDefault(*fr, static_cast<uint32_t>(i->b), cell.v);
+                        if (i->c)
+                            cell.meta = static_cast<uint32_t>(i->c);
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- loops ----
+                    CUFF_VM_CASE(ForPrep)
+                    {
+                        Reg *base = &CUFF_RA;
+                        const LoopStmt &loop = *CUFF_NODE(LoopStmt);
+                        forPrepare(base, loop);
+                        CUFF_TICK(loop.loc);
+                        if (i->b != bc::kNoCell)
+                            CUFF_RB.v.setNumber(base[0].v.asNumber());
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ForNext)
+                    {
+                        Reg *base = &CUFF_RA;
+                        const double at = base[0].v.asNumber();
+                        if (at != base[1].v.asNumber())
+                        {
+                            const double next = at + base[2].v.asNumber();
+                            base[0].v.setNumber(next);
+                            CUFF_TICK(CUFF_NODE(LoopStmt)->loc);
+                            if (i->b != bc::kNoCell)
+                                CUFF_RB.v.setNumber(next);
+                            ip += i->c;
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(EachPrep)
+                    {
+                        eachPrepare(&CUFF_RA, CUFF_RB.v, *CUFF_NODE(LoopStmt));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(EachNext)
+                    {
+                        Reg *base = &CUFF_RA;
+                        bool more;
+                        {
+                            Value item;
+                            more = eachNext(base, item);
+                            if (more)
+                            {
+                                CUFF_TICK(CUFF_NODE(LoopStmt)->loc);
+                                if (i->x != 0 && CUFF_UNLIKELY(!isKind(item, i->x)))
+                                    checkLoopValue(*CUFF_NODE(LoopStmt), item);
+                                CUFF_RB.v = std::move(item);
+                            }
+                        }
+                        if (!more)
+                        {
+                            base[0].v.clear();
+                            ip += i->c;
+                        }
+                        CUFF_VM_NEXT();
+                    }
+
+                    // ---- statements ----
+                    CUFF_VM_CASE(GlobalChk)
+                    {
+                        globalCheck(*fr, *CUFF_NODE(GlobalStmt));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Bridge)
+                    {
+                        CUFF_RA.meta = bc::kMetaDeclared;
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(DefFunc)
+                    {
+                        const FunctionDecl &decl = *CUFF_NODE(FunctionDecl);
+                        if (fr->inFunction)
+                            throwNestedFunction(decl);
+                        registerFunction(decl);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Use)
+                    {
+                        useStatement(*fr, *CUFF_NODE(UseStmt), i->a);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Fail)
+                    {
+                        failWith(CUFF_RA.v, *CUFF_NODE(FailStmt));
+                    }
+                    CUFF_VM_CASE(PlaceChk)
+                    {
+                        placeCheck(*fr, *i, P->nodes[static_cast<size_t>(i - P->code.data())]);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(PlaceSet)
+                    {
+                        placeSet(*fr, *i, *CUFF_NODE(AssignStmt));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(CollOp)
+                    {
+                        collectionOp(*fr, *i, *CUFF_NODE(CollectionOpStmt));
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ListPush)
+                    {
+                        {
+                            Value v;
+                            CUFF_TAKE(v, CUFF_RB.v, i->x & bc::kMoveSource);
+                            applyCollectionOp(*CUFF_NODE(CollectionOpStmt), CUFF_RA.v, std::move(v));
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(SetIndex)
+                    {
+                        {
+                            Value v;
+                            CUFF_TAKE(v, CUFF_RC.v, i->x & bc::kMoveSource);
+                            writeIndex(CUFF_RA.v, CUFF_RB.v, std::move(v), CUFF_NODE(PlaceStep)->loc);
+                        }
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(ErrChk)
+                    {
+                        const OrElseStmt &oe = *CUFF_NODE(OrElseStmt);
+                        checkDeclaredType(oe.errorType, CUFF_RA.v, oe.errorName, oe.typeLoc);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(RetChk)
+                    {
+                        if (!fr->inFunction)
+                            throwReturnValueOutsideFunction(CUFF_NODE(ReturnStmt)->loc);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Raise)
+                    {
+                        raise(*fr, static_cast<bc::RaiseKind>(i->x), P->nodes[static_cast<size_t>(i - P->code.data())]);
+                    }
+                    CUFF_VM_CASE(DynReset)
+                    {
+                        for (size_t d = dynVars_.size(); d > fr->dynBase; --d)
+                            if (dynVars_[d - 1].scope >= i->a && dynVars_[d - 1].scope <= i->b)
+                                dynVars_.erase(dynVars_.begin() + static_cast<std::ptrdiff_t>(d - 1));
+                        CUFF_VM_NEXT();
+                    }
+#if !CUFF_VM_LABELS
+                    case Op::Count:
+                        break;
+                    }
+                    throw InternalEngineError("unknown instruction");
+#endif
+
+                do_return:
+                {
+                    if (CUFF_UNLIKELY(fr->constructing != nullptr))
+                        fr->constructing->constructing = false;
+                    for (uint32_t k = P->numCells - 1; k != 0; --k)
+                        regs[k].v.clear();
+                    if (fr->counted)
+                        --callDepth_;
+                    if (CUFF_UNLIKELY(P->hasModuleUse) && dynVars_.size() > fr->dynBase)
+                        dynVars_.resize(fr->dynBase);
+                    Value *ret = fr->ret;
+                    const uint32_t segment = fr->segment;
+                    popFrame();
+                    const uint32_t below = frameCount_ ? top_->segment : 0;
+                    if (CUFF_UNLIKELY(below != segment))
+                    {
+                        curSeg_ = below;
+                        segEnd_ = segments_[below].cells.get() + segments_[below].size;
+                    }
+                    // Most calls ask for the result in the very register it is in.
+                    if (ret != &regs[0].v)
+                        ret->take(regs[0].v);
+                    if (frameCount_ == stopCount)
+                        return;
+                    CUFF_LOAD_FRAME();
+                    CUFF_VM_NEXT();
+                }
+                }
+                catch (CuffError &e)
+                {
+                    if (!handleError(e, stopCount))
+                        throw;
+                    CUFF_LOAD_FRAME();
+                }
+                catch (...)
+                {
+                    unwindTo(stopCount);
+                    throw;
                 }
             }
 
-            if (const ClassInfo::Method *init = cls->init)
-            {
-                const FunctionDecl &decl = *init->decl;
-                if (decl.isPrivate && init->owner != currentOwner_)
-                    throwPrivate(*init->owner, "init", "constructor", loc);
-                checkPureCallAllowed(decl.isPure, cls->name, loc);
-                if (decl.hasTypedParams)
-                    checkParamTypes(cls->name, decl, args, loc);
-                checkArity(cls->name, decl, args.size(), loc);
-                ConstructingScope constructing(*obj);
-                callUserFunction(decl, args, loc, &self, init->owner);
-            }
-            else if (!args.empty())
-            {
-                throw ArgumentError(cls->name + "() expects 0 argument(s), got " + std::to_string(args.size()), loc,
-                                    "the class has no 'init' method to take arguments");
-            }
-            return self;
-        }
-
-        // Printing an object (print, an f-string, to_str) uses its `to_str` method when the class has one.
-        void display(const Value &object, std::string &out) override
-        {
-            const ObjectData &o = *object.asObject();
-            if (const ClassInfo::Method *m = o.cls->toStr)
-            {
-                std::vector<Value> noArgs;
-                Value text = callUserFunction(*m->decl, noArgs, m->decl->loc, &object, m->owner);
-                if (!text.isStr())
-                    throw TypeError("to_str() of class '" + o.cls->name + "' must return a str, got " + typeNameOf(text),
-                                    m->decl->loc);
-                out += text.asStr();
-                return;
-            }
-            out += '<';
-            out += o.cls->name;
-            out += '>';
-        }
-
-        void execUse(const UseStmt &use, Environment &env)
-        {
-            if (use.isDLC)
-            {
-                DLCOptions dlcOpts;
-                dlcOpts.network.enabled = config_.networkEnabled;
-                dlcOpts.network.allowPrivateTargets = config_.allowPrivateNetworkTargets;
-                dlcOpts.filesystem.enabled = config_.filesystemEnabled;
-                dlcOpts.filesystem.root = moduleRoot_;
-                for (const auto &lib : use.dlcs)
-                    registerDLC(lib.name, natives_, lib.loc, dlcOpts);
-                return;
-            }
-            loadCustomModule(use.name, use.path, use.loc, env);
+#undef CUFF_LOAD_FRAME
+#undef CUFF_REG
+#undef CUFF_RA
+#undef CUFF_RB
+#undef CUFF_RC
+#undef CUFF_KB
+#undef CUFF_KC
+#undef CUFF_NODE
+#undef CUFF_SITE_LOC
+#undef CUFF_TICK
+#undef CUFF_TAKE
+#undef CUFF_VM_CASE
+#undef CUFF_VM_NEXT
+#undef CUFF_ARITH
+#undef CUFF_DIVIDE
+#undef CUFF_MODULO
+#undef CUFF_COMPARE
+#undef CUFF_JUMP_IF
+#undef CUFF_JUMP_ORDERED
+#undef CUFF_JUMP_EQUAL
         }
 
         void initModuleRoot()
@@ -2847,7 +3849,91 @@ namespace cuff
             ~ImportDepthGuard() { --depth; }
         };
 
-        void loadCustomModule(const std::string &moduleName, const std::string &relPath, const SourceLocation &loc, Environment &env)
+        // ---- programs and modules ----------------------------------------------------------------------------------
+
+        // Runs the top level of a program against `vars`: the main program against the interpreter's own variables, a
+        // module against a table of its own. Each statement is compiled just before it runs, so the compiler knows
+        // which variables the statements before it have declared, and a statement that is never reached costs
+        // nothing. `inFunction`, `pure` and `owner` describe the code that asked for the program: nothing for the main
+        // program, the function that wrote `use` for a module.
+        void execProgram(const Program &program, bc::VarTable &vars, bool inFunction, bool pure, const ClassInfo *owner)
+        {
+            for (const auto &s : program.statements)
+                if (s->kind == StmtKind::FunctionDecl)
+                    registerFunction(*std::get_if<FunctionDecl>(&s->data));
+            registerClasses(program);
+
+            Proto proto;
+            for (const auto &s : program.statements)
+            {
+                if (s->kind == StmtKind::FunctionDecl || s->kind == StmtKind::ClassDecl)
+                    continue;
+                compiler_.compileStatement(*s, vars, program.source, proto);
+                if (CUFF_UNLIKELY(config_.onCompiled != nullptr))
+                    config_.onCompiled(proto);
+                Value ignored;
+                Frame *f = enterPlain(&proto, &ignored);
+                f->vars = &vars;
+                f->inFunction = inFunction;
+                f->isPure = pure;
+                f->owner = owner;
+                runLoop(frameCount_ - 1);
+            }
+
+            drainTaskQueue();
+        }
+
+        // `use DLC:name` adds a library's functions; `use name from "path"` runs a module once and brings what its top
+        // level declared into the scope that wrote the statement.
+        CUFF_NOINLINE void useStatement(Frame &fr, const UseStmt &use, int32_t scope)
+        {
+            if (use.isDLC)
+            {
+                DLCOptions dlcOpts;
+                dlcOpts.network.enabled = config_.networkEnabled;
+                dlcOpts.network.allowPrivateTargets = config_.allowPrivateNetworkTargets;
+                dlcOpts.filesystem.enabled = config_.filesystemEnabled;
+                dlcOpts.filesystem.root = moduleRoot_;
+                for (const auto &lib : use.dlcs)
+                    registerDLC(lib.name, natives_, lib.loc, dlcOpts);
+                return;
+            }
+            loadCustomModule(fr, use.name, use.path, use.loc, scope);
+        }
+
+        // One variable of a module's top level, declared in scope `scope` of the code that `fr` is running. The
+        // compiler gave every variable that code declares a register; a name it never declares is kept beside the frame.
+        void importVariable(Frame &fr, int32_t scope, uint32_t nameId, const Value &v, uint32_t meta)
+        {
+            meta &= ~bc::kMetaWatched;
+            Proto &p = *fr.proto;
+            if (scope == 0 && p.kind == Proto::Kind::TopLevel)
+            {
+                Reg *slot = fr.vars->slotFor(nameId);
+                slot->v = v;
+                setSlotMeta(*slot, meta);
+                return;
+            }
+            auto it = p.cellByScopeName.find(Proto::scopeNameKey(static_cast<uint32_t>(scope), nameId));
+            if (it != p.cellByScopeName.end())
+            {
+                Reg &cell = cellAt(fr, it->second);
+                cell.v = v;
+                cell.meta = meta;
+                return;
+            }
+            for (size_t d = fr.dynBase; d < dynVars_.size(); ++d)
+                if (dynVars_[d].nameId == nameId && dynVars_[d].scope == scope)
+                {
+                    dynVars_[d].cell.v = v;
+                    dynVars_[d].cell.meta = meta;
+                    return;
+                }
+            dynVars_.push_back(DynVar{nameId, scope, Reg{v, meta}});
+        }
+
+        void loadCustomModule(Frame &fr, const std::string &moduleName, const std::string &relPath, const SourceLocation &loc,
+                              int32_t scope)
         {
             namespace fs = std::filesystem;
             const std::string shown = (relPath.empty() ? std::string() : relPath + "/") + moduleName + ".cuff";
@@ -2924,20 +4010,26 @@ namespace cuff
             const Program &program = *loadedModules_.back();
 
             ImportDepthGuard depthGuard(moduleDepth_);
-            // Only the module's top level runs here; its functions later run against globalEnv_, so they reach
-            // these names through `global x` after the copy below.
-            Environment moduleEnv;
+            guardNative(loc);
+            // Only the module's top level runs against these variables. Its functions are ordinary functions of the
+            // interpreter, so they reach these names through `global x` once the copy below has put them into the
+            // main program.
+            bc::VarTable moduleVars;
             try
             {
-                execProgram(program, moduleEnv);
+                execProgram(program, moduleVars, fr.inFunction, fr.isPure, fr.owner);
             }
             catch (CuffError &e)
             {
                 e.attachSource(program.source);
                 throw;
             }
-            for (const auto &kv : moduleEnv.localVars())
-                env.declare(kv.first, kv.second, moduleEnv.isConstantHere(kv.first), kv.type);
+            for (size_t k = 0; k < moduleVars.size(); ++k)
+            {
+                const Reg &slot = *moduleVars.at(k);
+                if (slot.meta & bc::kMetaDeclared)
+                    importVariable(fr, scope, moduleVars.nameAt(k), slot.v, slot.meta);
+            }
             mark.committed = true;
         }
 

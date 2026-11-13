@@ -1,0 +1,5 @@
+note: E4-020
+note: A loop over a str takes its characters, and each one is a str of one character, even when it is a digit.
+loop each number digit in "2024" do:
+    print(digit)
+end

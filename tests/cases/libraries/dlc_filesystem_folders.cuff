@@ -11,32 +11,33 @@ print(file_makedir("_dlc_fs_folders/inner/deep"))
 print(file_isdir("_dlc_fs_folders"), file_isdir("_dlc_fs_folders/inner/deep"))
 print(file_makedir("_dlc_fs_plain.txt"))
 
-note: list gives names only, in byte order (a capital comes before every lower case letter), folders and files alike. No two names differ only in case, because some file systems treat them as one.
-file_write("_dlc_fs_folders/apple.txt", "apple")
-file_write("_dlc_fs_folders/Zed.txt", "ZED")
-file_write("_dlc_fs_folders/kiwi.txt", "kiwi")
+note: list gives names only, in byte order (capitals, then small letters, then other scripts), folders and files alike.
+note: the names differ by more than their case, because many file systems treat "b.txt" and "B.txt" as one file
+file_write("_dlc_fs_folders/alpha.txt", "alpha")
+file_write("_dlc_fs_folders/Zulu.txt", "ZULU")
+file_write("_dlc_fs_folders/ä.txt", "umlaut")
 print(file_list("_dlc_fs_folders"))
 print(file_list("_dlc_fs_folders/inner/deep"))
-print(file_list("_dlc_fs_folders/apple.txt"), file_list("_dlc_fs_never_made"))
+print(file_list("_dlc_fs_folders/alpha.txt"), file_list("_dlc_fs_never_made"))
 
 note: copy never overwrites, and only copies a file
-print(file_copy("_dlc_fs_folders/apple.txt", "_dlc_fs_folders/inner/copy.txt"), file_read("_dlc_fs_folders/inner/copy.txt"))
-print(file_copy("_dlc_fs_folders/apple.txt", "_dlc_fs_folders/inner/copy.txt"))
+print(file_copy("_dlc_fs_folders/alpha.txt", "_dlc_fs_folders/inner/copy.txt"), file_read("_dlc_fs_folders/inner/copy.txt"))
+print(file_copy("_dlc_fs_folders/alpha.txt", "_dlc_fs_folders/inner/copy.txt"))
 print(file_copy("_dlc_fs_folders/inner", "_dlc_fs_folders/inner2"), file_copy("_dlc_fs_never_made", "_dlc_fs_folders/x"))
-print(file_copy("_dlc_fs_folders/apple.txt", "_dlc_fs_no_such_folder/x.txt"))
+print(file_copy("_dlc_fs_folders/alpha.txt", "_dlc_fs_no_such_folder/x.txt"))
 
 note: move renames a file or a folder, and does not replace what is there
-print(file_move("_dlc_fs_folders/Zed.txt", "_dlc_fs_folders/inner/moved.txt"), file_exist("_dlc_fs_folders/Zed.txt"))
-print(file_move("_dlc_fs_folders/apple.txt", "_dlc_fs_folders/kiwi.txt"), file_read("_dlc_fs_folders/kiwi.txt"))
+print(file_move("_dlc_fs_folders/Zulu.txt", "_dlc_fs_folders/inner/moved.txt"), file_exist("_dlc_fs_folders/Zulu.txt"))
+print(file_move("_dlc_fs_folders/alpha.txt", "_dlc_fs_folders/ä.txt"), file_read("_dlc_fs_folders/ä.txt"))
 print(file_move("_dlc_fs_folders/inner", "_dlc_fs_folders/outer"), file_isdir("_dlc_fs_folders/outer/deep"))
 print(file_move("_dlc_fs_never_made", "_dlc_fs_folders/x"), file_move(".", "_dlc_fs_moved_root"))
 print(file_list("_dlc_fs_folders/outer"))
 
 note: removedir takes an empty folder only; file_remove still never takes a folder
 print(file_removedir("_dlc_fs_folders/outer"), file_remove("_dlc_fs_folders/outer"))
-print(file_removedir("_dlc_fs_folders/apple.txt"), file_removedir("_dlc_fs_never_made"), file_removedir("."))
+print(file_removedir("_dlc_fs_folders/alpha.txt"), file_removedir("_dlc_fs_never_made"), file_removedir("."))
 print(file_remove("_dlc_fs_folders/outer/copy.txt"), file_remove("_dlc_fs_folders/outer/moved.txt"))
 print(file_removedir("_dlc_fs_folders/outer/deep"), file_removedir("_dlc_fs_folders/outer"))
-print(file_remove("_dlc_fs_folders/apple.txt"), file_remove("_dlc_fs_folders/kiwi.txt"))
+print(file_remove("_dlc_fs_folders/alpha.txt"), file_remove("_dlc_fs_folders/ä.txt"))
 print(file_removedir("_dlc_fs_folders"), file_isdir("_dlc_fs_folders"))
 print(file_remove("_dlc_fs_plain.txt"))

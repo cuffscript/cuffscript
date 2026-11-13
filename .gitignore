@@ -1,6 +1,8 @@
 .env
 cuffc
 cuffc-asan
+cuffc-dynamic
+cuffc-switch
 cuffsh
 *.o
 *.exe
@@ -8,6 +10,7 @@ cuffsh
 .venv/
 __pycache__/
 testfile.cuff
+fuzz-failures/
 
 *.log
 .DS_Store

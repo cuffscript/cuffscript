@@ -1,0 +1,9 @@
+note: E4-017
+note: A field's default value is worked out by the engine each time an object is made, as part of making that object.
+note: A default that makes another object of the same class therefore never finishes making the first one. A program's own
+note: calls would stop at the call depth limit; this nests inside the engine instead, and the native stack budget ends it.
+class Node do:
+    any next = Node()
+end
+Node first = Node()
+print("unreachable")

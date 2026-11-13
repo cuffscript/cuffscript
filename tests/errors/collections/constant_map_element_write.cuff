@@ -1,0 +1,8 @@
+note: E4-003
+note: A constant map cannot be given a new key or a new value for an old one, in a function as at the top level.
+func prices() do:
+    constant map BASE = {"tea": 3}
+    BASE["coffee"] = 4
+    return BASE
+end
+print(prices())

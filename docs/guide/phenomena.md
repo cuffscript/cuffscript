@@ -393,6 +393,49 @@ print(collect(4))
 
 **Why.** The default `[]` is an expression, and it is evaluated again each time a call needs it, so every call gets a new list. In languages that work out a default once, the second call would print `[1, 2]`. A default also cannot see the variables of the program, only the earlier parameters.
 
+## How deep a program can go
+
+### Recursion ends at a number of calls, whatever the function looks like
+
+<!-- test: phenomena/recursion_depth -->
+```cuff
+note: how deep calls may go is a count of calls, and what a function looks like does not change it
+number depth = 0
+
+func plain() do:
+    global depth
+    depth = depth + 1
+    plain()
+end
+
+func busy() do:
+    global depth
+    depth = depth + 1
+    list seen = [depth, "padding", [1, 2, 3]]
+    loop each any item in seen do:
+        if item is depth do:
+            busy()
+        end
+    end
+end
+
+plain() or_else as Error e do:
+    print(e.code, depth)
+end
+
+depth = 0
+busy() or_else as Error e do:
+    print(e.code, depth)
+end
+```
+
+```output
+E4-017 1000
+E4-017 1000
+```
+
+**Why.** A call takes a frame in the engine's bytecode machine, and the machine keeps those frames in memory of its own; it does not call itself to run a call. So what bounds recursion is the number of calls that are active at once ([limits](../reference/limits.md)), and a function with locals, a loop and nested blocks reaches exactly the depth a one-line function does, on every platform. In an interpreter that runs a call by calling itself, the second function would run out of stack well before the first, at a depth that depends on the machine ([the bytecode machine](../internals/bytecode.md#calls)).
+
 ## Numbers and operators
 
 ### A number prints rounded and compares exactly

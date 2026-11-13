@@ -3,6 +3,9 @@
 #include <pthread.h>
 #define CUFF_TEST_HAS_PTHREAD 1
 #endif
+#if defined(__linux__)
+#include <sys/resource.h>
+#endif
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -97,13 +100,30 @@ int main()
         for (int i = depth - 1; i >= 0; --i)
             body += rep("    ", 1 + static_cast<size_t>(i)) + "end\n";
         body += "    return 0\nend\n";
-        expectError("nested blocks x deep recursion", body + "print(down(990))\n", "E4-017");
+        // A call takes a frame of the bytecode machine and no native stack, so the blocks a call is written in add
+        // nothing to what a deep recursion costs: the call depth limit is the only one it can meet.
+        expectOk("nested blocks x deep recursion", body + "print(down(990))\n");
         expectOk("nested blocks x shallow recursion", body + "print(down(5))\n");
+        expectError("nested blocks x recursion past the call depth limit", body + "print(down(1001))\n", "E4-017");
     }
     expectOk("plain recursion at depth 900",
              "func down(any n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + down(n - 1)\nend\nprint(down(900))\n");
     expectError("infinite recursion",
                 "func boom(any n) do:\n    return boom(n + 1)\nend\nprint(boom(1))\n", "E4-017");
+    // What does use native stack is work that nests inside the engine, and the stack budget ends it. A default value
+    // that makes another object of its own class never finishes making the first one.
+    expectError("a default value that makes its own class", "class Node do:\n    any next = Node()\nend\nNode first = Node()\n", "E4-017");
+    expectError("default values that make each other",
+                "class A do:\n    any b = B()\nend\nclass B do:\n    any a = A()\nend\nA first = A()\n", "E4-017");
+    {
+        // An object shown by print runs its to_str, which shows the next object: each level is a call the engine
+        // makes from inside the machine. The chain is as deep as calls may go, and the call depth limit ends it.
+        const std::string chain = "class Link do:\n    any next = empty\n    func to_str() do:\n        return f\"<{self.next}>\"\n    end\nend\n"
+                                  "func chain(number n) do:\n    Link head = Link()\n    loop repeat number i = 2 ~ n do:\n"
+                                  "        Link link = Link()\n        link.next = head\n        head = link\n    end\n    return head\nend\n";
+        expectOk("to_str through 200 objects", chain + "str text = to_str(chain(200))\n");
+        expectError("to_str through more objects than calls may nest", chain + "str text = to_str(chain(1200))\n", "E4-017");
+    }
 
     // ---- value structure safety ----
     expectOk("print a cyclic list", "list a = []\nadd a to a\nprint(a)\n");
@@ -332,6 +352,38 @@ int main()
     // notice that a platform lost the ability: on Windows it is looked up at run time, see Attributes.h.)
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
     check(cuff::availableStackBytes() > 64 * 1024, "the platform reports how much stack is left: " + std::to_string(cuff::availableStackBytes()));
+    {
+        // The engine asks before every parse and every run, and on Linux the answer is kept between questions
+        // (Attributes.h): asked twice from one place, it is the same.
+        const size_t first = cuff::availableStackBytes();
+        const size_t second = cuff::availableStackBytes();
+        const size_t apart = first > second ? first - second : second - first;
+        check(apart < 4096, "the stack that is left is the same when asked twice: " + std::to_string(first) + ", " + std::to_string(second));
+    }
+#endif
+
+#if defined(__linux__) && defined(__GLIBC__)
+    // What is kept follows the stack limit of the process: with half the limit, the first thread has less left, and
+    // with the limit back it has what it had.
+    {
+        struct rlimit before;
+        if (getrlimit(RLIMIT_STACK, &before) == 0 && before.rlim_cur != RLIM_INFINITY && before.rlim_cur >= 2 * 1024 * 1024)
+        {
+            const size_t whole = cuff::availableStackBytes();
+            struct rlimit half = before;
+            half.rlim_cur = before.rlim_cur / 2;
+            if (setrlimit(RLIMIT_STACK, &half) == 0)
+            {
+                const size_t halved = cuff::availableStackBytes();
+                setrlimit(RLIMIT_STACK, &before);
+                const size_t restored = cuff::availableStackBytes();
+                check(halved + before.rlim_cur / 4 < whole,
+                      "a lower stack limit leaves less stack: " + std::to_string(whole) + " became " + std::to_string(halved));
+                const size_t apart = whole > restored ? whole - restored : restored - whole;
+                check(apart < 4096, "the limit put back leaves what there was: " + std::to_string(whole) + ", " + std::to_string(restored));
+            }
+        }
+    }
 #endif
 
     // The stack plan: a configured budget is honoured only as far as the thread can back it.
@@ -385,20 +437,50 @@ int main()
             pthread_attr_destroy(&attr);
         };
 
-        // Recursion with a heavy body would need megabytes; the thread has 1 MiB, and 64 MiB was asked for.
-        std::string body;
-        for (int i = 0; i < 20; ++i)
-            body += std::string(4 + 4 * i, ' ') + "if n > -1 do:\n";
-        body += std::string(4 + 4 * 20, ' ') + "r = 1 + f(n - 1)\n";
-        for (int i = 19; i >= 0; --i)
-            body += std::string(4 + 4 * i, ' ') + "end\n";
+        // Each thread is told about its own stack, whatever another thread was told before it.
+        {
+            struct Asked
+            {
+                size_t left = 0;
+            } asked;
+            const size_t mine = cuff::availableStackBytes();
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, 256 * 1024);
+            pthread_t t;
+            auto ask = [](void *p) -> void *
+            {
+                static_cast<Asked *>(p)->left = cuff::availableStackBytes();
+                return nullptr;
+            };
+            if (pthread_create(&t, &attr, ask, &asked) == 0)
+            {
+                pthread_join(t, nullptr);
+                check(asked.left > 0 && asked.left <= 256 * 1024,
+                      "a thread with a 256 KiB stack is told about that stack: " + std::to_string(asked.left));
+                const size_t after = cuff::availableStackBytes();
+                const size_t apart = mine > after ? mine - after : after - mine;
+                check(apart < 4096, "and the first thread is still told about its own: " + std::to_string(mine) + ", " + std::to_string(after));
+            }
+            pthread_attr_destroy(&attr);
+        }
+
+        // A default value that makes another object of its class nests inside the engine without end. The thread
+        // has 1 MiB, and 64 MiB was asked for: the budget is cut to what the thread has, and the error is a clean one.
         Job deep;
-        deep.source = "func f(any n) do:\n    number r = 0\n    if n is 0 do:\n        return 0\n    end\n" + body +
-                      "    return r\nend\nprint(f(900))\n";
+        deep.source = "class Node do:\n    any next = Node()\nend\nNode first = Node()\n";
         deep.options.stackBudgetBytes = 64 * 1024 * 1024;
         runOnSmallStack(deep, 1024 * 1024);
         check(!deep.success && deep.error.find("[E4-017]") != std::string::npos,
               "a 64 MiB budget on a 1 MiB stack ends in E4-017, not a crash: " + deep.error.substr(0, 160));
+
+        // A program's own calls are frames of the machine: recursion to the call depth limit needs no more native
+        // stack than a program without a single call, so it runs on a thread far too small to recurse on natively.
+        Job recursion;
+        recursion.source = "func f(any n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + f(n - 1)\nend\n"
+                           "number d = f(" + std::to_string(cuff::limits::kMaxCallDepth - 1) + ")\n";
+        runOnSmallStack(recursion, 256 * 1024);
+        check(recursion.success, "recursion to the call depth limit runs on a 256 KiB stack: " + recursion.error.substr(0, 160));
 
         // The longest chain the parser admits, parsed, run and freed on a 512 KiB stack.
         Job chain;
@@ -412,9 +494,8 @@ int main()
     }
 #endif
 
-#if defined(__OPTIMIZE__) && !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__)
-    // The call depth limit is reachable by plain recursion with the smallest stack budget the engine can end up
-    // with. (Unoptimised and sanitizer builds use several times the stack per call, so they are left out.)
+    // The call depth limit is what ends recursion, whatever the stack budget: here the smallest budget the engine can
+    // end up with.
     {
         CuffEngine::Options minimal;
         minimal.stackBudgetBytes = cuff::limits::kDefaultStackBudget;
@@ -425,8 +506,9 @@ int main()
         check(r.success, "plain recursion reaches the call depth limit under the default stack budget: " + r.error.substr(0, 160));
         r = CuffEngine::execute("func f(any n) do:\n    return f(n + 1)\nend\nnumber d = f(1)\n", ".", minimal);
         check(!r.success && r.error.find("[E4-017]") != std::string::npos, "unbounded recursion ends in E4-017: " + r.error.substr(0, 120));
+        r = CuffEngine::execute("func f(any n) do:\n    return f(n + 1)\nend\nnumber d = f(1)\n", ".", minimal);
+        check(r.error.find("maximum call depth") != std::string::npos, "and names the call depth limit: " + r.error.substr(0, 120));
     }
-#endif
 
     // Modules: how deep they may import each other, and how large one file may be (both are E5-007).
     {

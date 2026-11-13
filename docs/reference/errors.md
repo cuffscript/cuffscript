@@ -96,7 +96,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e4-014"></a>`E4-014` | An operation a list or map does not support. _Reserved: never raised._ | yes |
 | <a id="e4-015"></a>`E4-015` | A value to remove that is not in the list. | yes |
 | <a id="e4-016"></a>`E4-016` | An operation not supported here, such as `return value` outside a function. | yes |
-| <a id="e4-017"></a>`E4-017` | Recursion deeper than the call depth limit, or deeper than the native stack budget allows. | yes |
+| <a id="e4-017"></a>`E4-017` | More calls active at once than the call depth limit allows, or nesting inside the engine deeper than the native stack budget allows. | yes |
 | <a id="e4-018"></a>`E4-018` | A function declared inside another function. | yes |
 | <a id="e4-019"></a>`E4-019` | `await` applied to a function that is not `async`. | yes |
 | <a id="e4-020"></a>`E4-020` | A declared type that does not match the value. | yes |
@@ -316,7 +316,7 @@ remove "x" from a
 return 1
 ```
 
-**E4-017.** Recursion went too deep: the call depth limit or the stack budget was reached. Make sure the recursion has a base case that is always reached (see [limits](limits.md)).
+**E4-017.** Recursion went too deep: more calls were active at once than the call depth limit allows. Make sure the recursion has a base case that is always reached. The same error ends nesting inside the engine that reaches the stack budget, such as a field whose default value makes another object of the same class (see [limits](limits.md)).
 
 ```cuff error E4-017
 func f() do:

@@ -58,3 +58,52 @@ jobs:
                 run: |
                     export UNIT_FLAGS="-O1 -g $SAN"
                     bash tests/run.sh
+
+    # The machine reaches the same result by more than one route. The suite runs on a build that looks every name up at
+    # run time (ordinary code only takes that route for its unusual names) and on one that jumps between instructions
+    # through a switch (what a compiler without labels as values gets), and random programs are run through all three
+    # builds, which must agree on every one (docs/contributing/testing.md).
+    other-routes:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+
+        steps:
+            -   name: Checkout code
+                uses: actions/checkout@v4
+
+            -   name: Build cuffc and its two other forms
+                shell: bash
+                run: |
+                    make
+                    g++ -std=c++17 -O2 -DNDEBUG -DCUFF_DYNAMIC_NAMES -o cuffc-dynamic main.cpp
+                    g++ -std=c++17 -O2 -DNDEBUG -DCUFF_VM_SWITCH -o cuffc-switch main.cpp
+
+            -   name: Run the test suite with every name looked up at run time
+                shell: bash
+                env:
+                    CUFFC: ./cuffc-dynamic
+                    UNIT_FLAGS: -O2 -DCUFF_DYNAMIC_NAMES
+                run: bash tests/run.sh
+
+            -   name: Run the test suite with switch dispatch
+                shell: bash
+                env:
+                    CUFFC: ./cuffc-switch
+                    UNIT_FLAGS: -O2 -DCUFF_VM_SWITCH
+                run: bash tests/run.sh
+
+            -   name: Compare the three builds on random programs
+                shell: bash
+                run: |
+                    python3 tests/fuzz.py ./cuffc ./cuffc-dynamic --count 3000
+                    python3 tests/fuzz.py ./cuffc ./cuffc-switch --count 3000
+
+            -   name: Keep the programs that differed
+                if: failure()
+                uses: actions/upload-artifact@v4
+                with:
+                    name: fuzz-failures
+                    path: fuzz-failures/
+                    if-no-files-found: ignore

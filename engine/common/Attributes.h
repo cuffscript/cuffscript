@@ -22,6 +22,7 @@
 #include <pthread.h>
 #elif defined(__linux__) && !defined(__EMSCRIPTEN__)
 #include <pthread.h>
+#include <sys/resource.h>
 #endif
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/stack.h>
@@ -31,14 +32,20 @@
 #define CUFF_NOINLINE __attribute__((noinline))
 #define CUFF_COLD __attribute__((noinline, cold))
 #define CUFF_ALWAYS_INLINE inline __attribute__((always_inline))
+#define CUFF_LIKELY(x) __builtin_expect(!!(x), 1)
+#define CUFF_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #elif defined(_MSC_VER)
 #define CUFF_NOINLINE __declspec(noinline)
 #define CUFF_COLD __declspec(noinline)
 #define CUFF_ALWAYS_INLINE __forceinline
+#define CUFF_LIKELY(x) (x)
+#define CUFF_UNLIKELY(x) (x)
 #else
 #define CUFF_NOINLINE
 #define CUFF_COLD
 #define CUFF_ALWAYS_INLINE inline
+#define CUFF_LIKELY(x) (x)
+#define CUFF_UNLIKELY(x) (x)
 #endif
 
 namespace cuff
@@ -62,6 +69,50 @@ namespace cuff
         static thread_local uintptr_t floor = 0;
         return floor;
     }
+
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+    inline uintptr_t queryThreadStackLow()
+    {
+        pthread_attr_t attr;
+        if (pthread_getattr_np(pthread_self(), &attr) != 0)
+            return 0;
+        void *low = nullptr;
+        size_t size = 0;
+        const int rc = pthread_attr_getstack(&attr, &low, &size);
+        pthread_attr_destroy(&attr);
+        return rc == 0 ? reinterpret_cast<uintptr_t>(low) : 0;
+    }
+
+    // The lowest address of the calling thread's stack; 0 when it cannot be found.
+    inline uintptr_t threadStackLow()
+    {
+#if defined(__GLIBC__) || defined(__BIONIC__)
+        // For the first thread of a process these libraries answer by reading /proc/self/maps (about 125,000
+        // instructions with glibc), and the engine asks before every parse and every run. They work the answer out
+        // from the stack limit of the process, so it is kept for as long as that limit is the same. Other libraries
+        // are asked every time: musl reports how far the stack has grown so far, an answer that changes.
+        struct Kept
+        {
+            uintptr_t low = 0;
+            rlim_t limit = 0;
+            bool valid = false;
+        };
+        static thread_local Kept kept;
+        struct rlimit now;
+        if (getrlimit(RLIMIT_STACK, &now) != 0)
+            return queryThreadStackLow();
+        if (!kept.valid || now.rlim_cur != kept.limit)
+        {
+            kept.low = queryThreadStackLow();
+            kept.limit = now.rlim_cur;
+            kept.valid = kept.low != 0;
+        }
+        return kept.low;
+#else
+        return queryThreadStackLow();
+#endif
+    }
+#endif
 
     // Bytes of stack left below the current frame; 0 when the platform can't tell.
     inline size_t availableStackBytes()
@@ -98,18 +149,9 @@ namespace cuff
         const uintptr_t sp = stackPointer();
         return sp > lo ? static_cast<size_t>(sp - lo) : 0;
 #elif defined(__linux__) && !defined(__EMSCRIPTEN__)
-        pthread_attr_t attr;
-        if (pthread_getattr_np(pthread_self(), &attr) != 0)
-            return 0;
-        void *low = nullptr;
-        size_t size = 0;
-        int rc = pthread_attr_getstack(&attr, &low, &size);
-        pthread_attr_destroy(&attr);
-        if (rc != 0 || !low)
-            return 0;
+        const uintptr_t lo = threadStackLow();
         const uintptr_t sp = stackPointer();
-        const uintptr_t lo = reinterpret_cast<uintptr_t>(low);
-        return sp > lo ? static_cast<size_t>(sp - lo) : 0;
+        return lo != 0 && sp > lo ? static_cast<size_t>(sp - lo) : 0;
 #else
         return 0;
 #endif

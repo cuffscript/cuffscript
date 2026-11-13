@@ -361,6 +361,64 @@ int main()
         check(third.success, "the session is still usable after an error:\n" + third.error);
     }
 
+    // That holds for every way a function of another text can fail, not only for a statement of its body: a
+    // parameter's default value, a loop control word with no loop around it, the default value of a class's field,
+    // a to_str that print runs, a call that was queued. None of them shows the line that made the call.
+    {
+        cuff::Session session;
+        auto first = session.run("note: declarations only\n"
+                                 "func scaled(number n, number by = 1 / 0) do:\n    return n * by\nend\n"
+                                 "func escape() do:\n    stop\nend\n"
+                                 "class Gauge do:\n    number level = \"high\"\nend\n"
+                                 "class Odd do:\n    func to_str() do:\n        return 1 / 0\n    end\nend\n"
+                                 "class Word do:\n    func to_str() do:\n        return 5\n    end\nend\n"
+                                 "async func later() do:\n    number z = 1 / 0\nend\n");
+        check(first.success, "the declarations run:\n" + first.error);
+
+        auto r = session.run("print(scaled(2))\n");
+        check(!r.success && contains(r.error, "at line 2, column 37") && hasSnippet(r.error, "func scaled(number n, number by = 1 / 0) do:", "                                    ^") &&
+                  !contains(r.error, "print(scaled(2))"),
+              "an error in a parameter's default value is drawn from the function's text:\n" + r.error);
+
+        r = session.run("note: one\nnote: two\nnote: three\nnote: four\nnote: five\nescape()\n");
+        check(!r.success && contains(r.error, "[E4-023]") && hasSnippet(r.error, "    stop", "    ^^^^") && !contains(r.error, "escape()"),
+              "'stop' outside a loop is drawn from the function's text:\n" + r.error);
+
+        r = session.run("Gauge g = Gauge()\n");
+        check(!r.success && contains(r.error, "[E4-020]") && hasSnippet(r.error, "    number level = \"high\"", "    ^^^^^^") &&
+                  !contains(r.error, "Gauge g"),
+              "a field default of the wrong type is drawn from the class's text:\n" + r.error);
+
+        r = session.run("print(Odd())\n");
+        check(!r.success && contains(r.error, "[E4-006]") && hasSnippet(r.error, "        return 1 / 0", "                 ^") && !contains(r.error, "print(Odd())"),
+              "an error inside a to_str that print runs is drawn from the class's text:\n" + r.error);
+
+        r = session.run("print(Word())\n");
+        check(!r.success && contains(r.error, "[E4-005]") && hasSnippet(r.error, "    func to_str() do:", "    ^^^^") && !contains(r.error, "print(Word())"),
+              "a to_str that gives no str is drawn from the class's text:\n" + r.error);
+
+        r = session.run("note: a\nnote: b\nlater()\n");
+        check(!r.success && contains(r.error, "[E4-006]") && hasSnippet(r.error, "    number z = 1 / 0", "                 ^") && !contains(r.error, "later()"),
+              "an error in a queued call is drawn from the function's text:\n" + r.error);
+
+        // An argument of the wrong type is the caller's mistake, and stays at the call.
+        r = session.run("note: a\nprint(scaled(\"two\", 3))\n");
+        check(!r.success && contains(r.error, "[E4-030]") && hasSnippet(r.error, "print(scaled(\"two\", 3))", "      ^^^^^^"),
+              "a wrong argument is drawn from the call:\n" + r.error);
+    }
+    {
+        TempDir dir;
+        dir.write("lib/tools.cuff", "note: a module\nfunc padded(str text, number width = 10 / 0) do:\n    return text\nend\n"
+                                    "func leave() do:\n    skip\nend\n");
+        auto r = CuffEngine::execute("use tools from ./lib\nprint(padded(\"x\"))\n", dir.path.string());
+        check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 2") &&
+                  contains(r.error, " | func padded(str text, number width = 10 / 0) do:\n") && !contains(r.error, "print(padded"),
+              "a default value's error in a module's function is drawn from the module:\n" + r.error);
+        r = CuffEngine::execute("use tools from ./lib\nnote: pad\nnote: pad\nnote: pad\nnote: pad\nleave()\n", dir.path.string());
+        check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 6") && contains(r.error, " |     skip\n") && !contains(r.error, "leave()"),
+              "'skip' outside a loop in a module's function is drawn from the module:\n" + r.error);
+    }
+
     // ---- a failed async job drops the rest of the queue ------------------------------------------------------
 
     {

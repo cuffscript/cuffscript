@@ -88,8 +88,17 @@ Extend the `Value` class in `engine/interpreter/Value.h`.
    name (see section 9). A new reserved word breaks every program that used it as a name, so it needs an entry in the
    changelog.
 3. Add an output case to `engine/debug/ASTPrinter.h` (you can check it with `--ast`).
-4. Add the execution logic to the `execStatement`/`evalExpr` switches in
-   `engine/interpreter/Interpreter.h`.
+4. Compile it in `engine/bytecode/Compiler.h`: a statement gets a case in the scan (`scanStmt`, which collects the scopes and
+   the variables a piece of code declares before any code is emitted) and in `compileStmt`; an expression gets a case in
+   `genLeaf`, or in `spineOperand` and `genStep` if its first operand can be another node of the same kind, as with `a + b` or
+   `x[i]`. Use the instructions that exist where they do the job. An expression that is a new operation on values usually
+   needs one new instruction and nothing else.
+5. For a new instruction, add a line to `CUFF_OPCODES` in `engine/bytecode/Bytecode.h` and its code to
+   `Interpreter::runLoop` in `engine/interpreter/Interpreter.h`. [The bytecode machine](../internals/bytecode.md) lists the
+   rules that code has to keep; check the result with `cuffc --bytecode`.
+6. A statement that declares or assigns a variable has to keep what the compiler knows in step with what the machine does:
+   which names are certainly declared after it, and with which type. Build with `-DCUFF_DYNAMIC_NAMES` and run the suite to
+   check the route that looks names up at run time as well ([testing](testing.md)).
 
 If two parser classes have to call each other (for example, a new expression that
 must parse sub-expressions), follow the pattern `LiteralParser.h` uses: keep only
@@ -138,8 +147,8 @@ instead of creating a new value type (see `constant list` in v2.0.0).
 3. The places that must check the state are the ones that "directly mutate" the
    value — content changes (`add`/`remove`/`x[i] = ...`), not variable
    reassignment. Separately from the existing per-variable constant check
-   (`constants_` in `Environment`), add code that checks the value's own flag to the
-   execution part of those operations.
+   (the constant bit of a variable's meta, which `Interpreter::placeCheck` reads), add code that checks the value's own flag
+   to the execution part of those operations (`writeIndex`, `applyCollectionOp`).
 4. Decide up front whether nested elements are frozen too (deep immutability) or
    not (shallow). `constant list` is shallowly immutable, like a Python tuple: it
    locks only the top-level slots and leaves any lists/maps inside as they are — a
@@ -155,25 +164,22 @@ call", like `async` and `pure`.
    `FunctionParser::atFunctionStart`, so that `newkeyword func ...` is recognized as a
    function declaration where `StatementParser.h` dispatches on the first token. A
    modifier that is written twice is a syntax error.
-2. Add a member to `Interpreter` for the state, and have `FrameGuard` save the previous
-   value on call entry and restore it on exit (so each frame has its own value even
-   under recursion). This state belongs to `Interpreter`, not to `Environment`;
-   `currentFunctionPure_` is done this way.
-3. Put the actual restriction or behavior at the places that check the flag. A
-   function scope sees only its own locals plus the names it bridged with
-   `global x`, so `pure` is enforced where a name fails to resolve:
-   `Interpreter::throwUnresolved()` (reached from the identifier lookup in
-   `evalExpr`, `execChange` and `execCollectionOp`) raises the pure-specific error
-   when the missing name exists as a global. A pure function can never bridge, so it
-   can never reach a global. A pure method may also not change a field
-   (`PureFunctionFieldWrite`), which is checked where a field is written. If your new
+2. Copy the flag into the compiled function (`Proto::isPure`, set in `Compiler::compileFunction`) and from there into each
+   call's frame (`Frame::isPure`, set in `Interpreter::enterCall`). A frame belongs to one call, so each call has its own
+   value even under recursion, and the value is gone when the call returns; nothing has to be saved or restored.
+3. Put the actual restriction or behavior at the places that check the flag. What the text of the function already
+   shows is settled by the compiler: a pure method may not assign to a field, so `Compiler.h` emits the instruction that
+   raises the error (`Raise`) in place of the store. What depends on the run is checked by the machine, against the frame's
+   flag: `global` (`Interpreter::globalCheck`; a module's top level runs with the flag of the function that loaded it, so
+   the text alone does not settle it), and a name that fails to resolve. A function scope sees only its own locals plus the
+   names it bridged with `global x`, so a pure function that names a program variable fails at the lookup, and
+   `Interpreter::throwUnresolved()` raises the pure-specific error when the missing name exists as a global. If your new
    restriction has a different condition, pick the points that fit it.
 4. By default the flag applies **only to that function's own body** and is not
-   propagated to other functions it calls (when the callee finishes, `FrameGuard`
-   automatically restores the previous value). For `pure` that default is too easy
+   propagated to other functions it calls (the callee has a frame of its own). For `pure` that default is too easy
    to bypass (just wrap a general function that touches globals in one more call),
-   so at the call sites (`evalCall`, `invokeAwaited` and the method call path)
-   `checkPureCallAllowed()` additionally enforces "a pure function cannot call a user
+   so the call itself (`Interpreter::invoke`, and `instantiate` for an `init`)
+   additionally enforces "a pure function cannot call a user
    function that is not pure" — follow this pattern if you need a restriction that
    propagates through the whole call graph.
 
@@ -270,6 +276,9 @@ as `NetworkDLC.h` does with the HTTP client.
   names. Paths the host hands in (`scriptDir`, `rootDir`) are used as given.
 - **Text is UTF-8** everywhere inside the engine. Convert at the edge (a console, a
   file name from the OS), not in the middle.
+- **Dispatch.** The machine jumps between instructions through a table of labels, which GCC and Clang provide as an
+  extension, and through a standard `switch` on any other compiler. `-DCUFF_VM_SWITCH` builds the `switch` form everywhere;
+  run the suite on it after changing `Interpreter::runLoop`, because it is the form a third compiler would get.
 - **Checking a change on other targets.** Run the suite under the sanitizers (see
   `tests/README.md`), build the `CUFF_DISABLE_NETWORK` variant if you touched
   `NetworkDLC.h`. CI also runs `tests/run.ps1` on Windows, so a change to paths or

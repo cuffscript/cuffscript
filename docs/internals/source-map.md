@@ -46,17 +46,18 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `parser/LiteralParser.h` | Literals, f-strings (with the true position of each embedded expression), pattern literals, list and map literals, `self` and `.name`. |
 | `parser/ASTNodes.h` | The syntax tree node types, built so that a very deep tree can be destroyed without recursion. |
 | `debug/ASTPrinter.h` | Prints tokens and the tree for `--ast`. |
+| `debug/BytecodePrinter.h` | Prints compiled code for `--bytecode`, from the same table of instructions the machine is built from. |
 
 ## `engine/`: running a program
 
 | File | What it does |
 | :--- | :--- |
-| `interpreter/Interpreter.h` | Walks the syntax tree: statements, expressions, functions, classes and objects, `with`, `async` queue, modules, `or_else`, budgets, the stack plan. By far the largest file. |
+| `bytecode/Bytecode.h` | The instruction set (`CUFF_OPCODES`), the instruction format, what a compiled piece of code is (`Proto`), a register and its meta, and the table of top-level variables (`VarTable`). |
+| `bytecode/Compiler.h` | Compiles a function, a top-level statement or a field's default value to bytecode: scopes and registers, what each name stands for, which type checks can be left out, loops, `with`, `or_else`, places. |
+| `interpreter/Interpreter.h` | The machine: frames and registers, the instruction loop, calls, classes and objects, the `async` queue, modules, error handling, budgets, the stack plan. By far the largest file. |
 | `interpreter/Value.h` | The value type (number, string, boolean, list, map, match, pattern, object, empty), equality, display form, and the read-only flag for constant lists. |
 | `interpreter/ClassModel.h` | What the interpreter knows about a class (`ClassInfo`: parent, fields in layout order, methods with inherited ones merged) and the data of an object. |
 | `interpreter/ProgramError.h` | The error that `fail` raises, carrying the `Error` object so that `or_else as` hands the same object to the handler. |
-| `interpreter/Environment.h` | Scopes: function scopes are isolated from callers, block scopes chain to the enclosing scope; global bridging. |
-| `interpreter/Signals.h` | How `return` and `stop` travel up the interpreter without exceptions. |
 | `interpreter/NativeFunctions.h` | Registers the built-ins and the table of libraries that `use DLC:` looks up. |
 | `common/StrData.h`, `Utf8.h`, `Width.h` | Shared immutable string storage with cached code point counts; UTF-8 helpers; terminal column widths. |
 | `common/NameInterner.h` | Turns identifier names into small numbers; the one locked process-wide table. |

@@ -63,7 +63,7 @@ mingw32-make -f Makefile.win       # cuffc.exe
 cli\build.bat                      # cli\cuffsh.exe
 ```
 
-The build links the Windows socket library and asks for a larger stack, because the evaluator is recursive, and the shell is linked statically, so there are no runtime DLLs to ship. Run `cuffsh.exe` from cmd, PowerShell or Windows Terminal. Git Bash (mintty) gives
+The build links the Windows socket library and asks for a larger stack than the Windows default, because the parser and the compiler follow nested source recursively, and the shell is linked statically, so there are no runtime DLLs to ship. Run `cuffsh.exe` from cmd, PowerShell or Windows Terminal. Git Bash (mintty) gives
 Windows programs no console, and `cuffsh` says so and exits; `winpty cuffsh.exe` works there.
 
 ## Check that it works

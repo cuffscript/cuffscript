@@ -217,6 +217,89 @@ namespace cuff
             return std::move(*this);
         }
 
+        // The three below are for the machine's registers and a program's variables: places that no structure
+        // owns, so the old content can be let go before the new one arrives, which the assignment operators cannot
+        // assume. `o` may be this very value (`x = x` compiles to a register stored into itself), and then nothing
+        // changes; the test for that is only made where it matters, off the path that numbers take.
+
+        // Moves `o` here and leaves it empty.
+        CUFF_ALWAYS_INLINE void take(Value &o) noexcept
+        {
+            if (isPlain(o.tag_))
+            {
+                const ValueType tag = o.tag_;
+                const uint64_t bits = o.u_.bits;
+                if (!isPlain(tag_))
+                    releaseCounted();
+                o.tag_ = ValueType::Empty;
+                tag_ = tag;
+                u_.bits = bits;
+                return;
+            }
+            if (this == &o)
+                return;
+            if (!isPlain(tag_))
+                releaseCounted();
+            takeFrom(o);
+        }
+
+        // Copies `o` here.
+        CUFF_ALWAYS_INLINE void put(const Value &o) noexcept
+        {
+            if (!isPlain(tag_))
+            {
+                if (this == &o)
+                    return;
+                releaseCounted();
+            }
+            tag_ = o.tag_;
+            if (isPlain(tag_))
+                u_.bits = o.u_.bits;
+            else
+                copyCounted(o);
+        }
+
+        // Copies `o` here when the old content may be what holds `o`: an item of the list, or a field of the object,
+        // that this register is about to stop referring to.
+        CUFF_ALWAYS_INLINE void putOwned(const Value &o) noexcept
+        {
+            if (isPlain(o.tag_))
+            {
+                const ValueType tag = o.tag_;
+                const uint64_t bits = o.u_.bits;
+                if (!isPlain(tag_))
+                    releaseCounted();
+                tag_ = tag;
+                u_.bits = bits;
+                return;
+            }
+            Value copy(o);
+            take(copy);
+        }
+
+        // Writes a plain value over this one. The machine does this on every arithmetic step, where a temporary
+        // and an assignment would cost a move each.
+        void setNumber(double d) noexcept
+        {
+            if (!isPlain(tag_))
+                releaseCounted();
+            tag_ = ValueType::Number;
+            u_.num = d;
+        }
+        void setBool(bool b) noexcept
+        {
+            if (!isPlain(tag_))
+                releaseCounted();
+            tag_ = ValueType::Boolean;
+            u_.bits = b ? 1 : 0;
+        }
+        void clear() noexcept
+        {
+            if (!isPlain(tag_))
+                releaseCounted();
+            tag_ = ValueType::Empty;
+        }
+
         bool truthy() const;
 
         std::string toDisplayString() const
@@ -540,11 +623,25 @@ namespace cuff
             return;
         }
         char buf[40];
-        int len;
         if (std::fabs(d) < 1e15 && d == std::floor(d))
-            len = std::snprintf(buf, sizeof buf, "%lld", static_cast<long long>(d));
-        else
-            len = std::snprintf(buf, sizeof buf, "%.15g", d);
+        {
+            // A whole number, which is what most numbers a program shows are: its digits, written from the last one
+            // back. The text is what "%lld" gives, without the cost of going through printf.
+            const long long n = static_cast<long long>(d);
+            unsigned long long u = n < 0 ? 0ULL - static_cast<unsigned long long>(n) : static_cast<unsigned long long>(n);
+            char *const end = buf + sizeof buf;
+            char *p = end;
+            do
+            {
+                *--p = static_cast<char>('0' + u % 10);
+                u /= 10;
+            } while (u != 0);
+            if (n < 0)
+                *--p = '-';
+            out.append(p, static_cast<size_t>(end - p));
+            return;
+        }
+        const int len = std::snprintf(buf, sizeof buf, "%.15g", d);
         out.append(buf, static_cast<size_t>(len));
     }
 

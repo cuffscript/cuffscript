@@ -15,9 +15,9 @@ _This table is generated from `engine/common/Limits.h` by `tools/docs.py`. Chang
 | Source size | 16 MiB | [`E2-009`](errors.md#e2-009) | The largest program, module file or shell entry. Each file is measured on its own. |
 | Nesting depth | 512 | [`E2-008`](errors.md#e2-008) | How deeply code may nest: blocks, parentheses, brackets, call arguments. The parser recurses on the native stack, so this also stops hostile input from exhausting it. It is checked against the stack that is really available as well, so on a very small stack it can trigger sooner. |
 | Expression length | 10,000 | [`E2-008`](errors.md#e2-008) | How tall one expression's tree may be: the operators, indexes and slices in one chain such as `a + b + c`, or the levels of nested expressions. Long chains are evaluated and freed without recursion, so this does not depend on the stack; it bounds the memory and time one expression can cost. |
-| Call depth | 1,000 | [`E4-017`](errors.md#e4-017) | How many function calls may be active at once. Independently, the stack budget below stops recursion whose frames are large; whichever is reached first raises the same error. |
-| Stack budget ceiling | 64 MiB |  | The most native stack the evaluator may use, however much the host offers or an embedder asks for. |
-| Default stack budget | 4 MiB | [`E4-017`](errors.md#e4-017) | The evaluator's stack budget when the real stack size cannot be determined (8 MiB in WebAssembly). When it can, the budget is derived from it instead: everything but a safety margin, up to the ceiling above, and never more than the thread really has even if a larger budget is configured. |
+| Call depth | 1,000 | [`E4-017`](errors.md#e4-017) | How many function calls may be active at once. A call takes a frame of the bytecode machine and no native stack, so this is the limit that ends runaway recursion, whatever the function's body looks like. |
+| Stack budget ceiling | 64 MiB |  | The most native stack the engine may use, however much the host offers or an embedder asks for. |
+| Default stack budget | 4 MiB | [`E4-017`](errors.md#e4-017) | The engine's native stack budget when the real stack size cannot be determined (8 MiB in WebAssembly). When it can, the budget is derived from it instead: everything but a safety margin, up to the ceiling above, and never more than the thread really has even if a larger budget is configured. A program's own calls do not draw on it. What does is work that nests inside the engine: the compiler following nested blocks, an object's `to_str` run while a value is shown, a field's default value that makes another object, a module that loads a module. |
 | String size | 128 MiB | [`E4-026`](errors.md#e4-026) | The longest string a program can build. |
 | List and map size | 32 Mi (33,554,432) | [`E4-026`](errors.md#e4-026) | The most elements one list or map can hold. |
 | Value nesting in output | 1,000 |  | How deeply nested lists and maps are written out when printed or converted to text; anything deeper is shown as `[...]` or `{...}`. |
@@ -51,10 +51,12 @@ untrusted scripts should always set both.
 
 ## Stack and recursion
 
-Two limits stop runaway recursion, and they are independent: the **call depth** counts active calls, and the
-**stack budget** counts the native stack the evaluator has used. Plain recursion reaches the call depth
-limit first. A function with a large body uses more stack per call, so it can meet the budget first. Either
-way the error is the same, `E4-017`, and it can be caught.
+Two limits stop runaway nesting, and they guard different things. The **call depth** counts the calls that
+are active: a call takes a frame of the engine's bytecode machine and no native stack, so every recursion
+ends at the same depth, whatever the function's body looks like. The **stack budget** bounds the native stack
+that the engine itself uses for work that nests inside it: an object's `to_str` that shows another object, a
+field's default value that makes another object, a module that loads a module. Either way the error is the
+same, `E4-017`, and it can be caught.
 
 The stack budget is derived from the stack the thread really has, so the engine is safe on a thread with a
 small stack. A budget that is configured larger than the thread can back is reduced to what exists. How
@@ -75,6 +77,6 @@ _This table is generated from `engine/common/Limits.h` by `tools/docs.py`. Chang
 | Parser stack per nesting level (`kParseStackBytesPerLevel`) | 4 KiB | Native stack the parser is assumed to need for one level of nesting. |
 | Parser stack margin (`kParseStackMargin`) | 262,144 | Stack left untouched when the parser sizes its own budget from the stack that is really available. |
 | Parser stack budget (`kParseStackBudget`) | 2304 KiB | Native stack the parser may use at most: a full nesting depth plus the margin. |
-| Stack per plain call (`kPlainCallStackBytes`) | 2 KiB | Native stack one interpreted call of an ordinary function is assumed to need at most. Measured at about 1.3 KiB; this leaves headroom for other compilers. |
+| Stack per nested engine call (`kNestedCallStackBytes`) | 3 KiB | Native stack one call that the engine makes from inside the machine is assumed to need at most: an object's `to_str` run while a value is shown, or a default value that makes another object. Measured at about 1.1 KiB and 1.6 KiB; this leaves headroom for other compilers. |
 | Pattern cache size (`kMaxRegexCacheEntries`) | 512 | Compiled patterns kept for reuse; the cache is emptied when it fills. |
 <!-- END GENERATED: internal-limits -->

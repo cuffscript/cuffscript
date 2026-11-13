@@ -12,6 +12,8 @@ A folder called `fixtures/` holds files that a test loads (modules, for instance
 
 The runners also run the programs in `examples/`, with their `.expected` output, and the programs in `examples/error_cases/`, with the codes in their `.expected_code` files.
 
+`fuzz.py` is not part of a run of the suite: it compares two builds of `cuffc` on random programs ([Testing](../docs/contributing/testing.md#the-machines-other-routes)).
+
 ## Areas
 
 Both `cases/` and `errors/` are divided by the part of the language a test is about, so a test is found by what it checks, not by when it was written. The table says which part of the [grammar](../docs/reference/grammar.md) each area answers for; `python3 tests/coverage.py` reads it and fails if a production of the grammar belongs to no area.

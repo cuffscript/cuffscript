@@ -61,9 +61,9 @@ checker before sending a change. `--list` also prints the first tests that cover
 | `syntax_test.cpp` | The grammar, production by production: what the parser accepts, what it rejects, and the hint it gives for a spelling it recognises but does not accept. The programs are parsed, never run. |
 | `classes_test.cpp` | The object model: that each interpreter owns its classes, what a `Session` keeps between entries, the order in which an object is made, how `with` looks a name up, private access, and how errors become objects. |
 | `builtins_test.cpp` | The built-in functions that touch the process's streams or shared state: `input()` and `DLC:random`. |
-| `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which file it is drawn from, and that a reported line and column always agree with the offset. |
+| `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which text it is drawn from (a module, an earlier entry of a `Session`, for every way a function can fail), and that a reported line and column always agree with the offset. |
 | `phenomena_test.cpp` | What has been printed when an error ends a run: a syntax error stops everything, a runtime error keeps the earlier lines, a waiting `async` call is dropped. The rest of [Phenomena](../guide/phenomena.md) is in `tests/cases/phenomena/`. |
-| `limits_test.cpp` | The limits and how they relate: long chains, the stack plan, a small real thread stack, and the limits on classes, members and inheritance depth. |
+| `limits_test.cpp` | The limits and how they relate: long chains, the call depth, what does and does not use native stack, the stack plan, how the stack that is left is measured and kept (per thread, and anew when the stack limit changes), a small real thread stack, and the limits on classes, members and inheritance depth. |
 | `dlc_guards_test.cpp` | The network and filesystem guards. |
 | `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time, including programs that declare classes and make objects. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
 
@@ -131,6 +131,38 @@ g++ -std=c++17 -O1 -g -fsanitize=thread -pthread -I. tests/unit/threads_test.cpp
 
 The `Sanitizers` workflow runs the first of these on every change to the engine or the tests. MinGW has no sanitizers, so neither is
 available through `run.ps1`.
+
+## The machine's other routes
+
+The bytecode machine reaches the same result by more than one route, and an ordinary program takes mostly one of them. Two
+build switches turn the other one on everywhere, so that the whole suite runs through it:
+
+| Build | What it changes | Why it is tested |
+| :--- | :--- | :--- |
+| `-DCUFF_DYNAMIC_NAMES` | The compiler proves nothing about names: every variable is looked up at run time and its declared type is read from the register's meta. | In a normal build that route is only taken by a name the compiler cannot settle, such as a variable that one branch of an `if` declares. A mistake in it would otherwise show only in unusual programs. |
+| `-DCUFF_VM_SWITCH` | The machine jumps between instructions through a `switch` and not through a table of labels. | It is the form a compiler other than GCC and Clang gets. |
+
+```sh
+g++ -std=c++17 -O2 -DNDEBUG -DCUFF_DYNAMIC_NAMES -o cuffc-dynamic main.cpp
+CUFFC=./cuffc-dynamic UNIT_FLAGS="-O2 -DCUFF_DYNAMIC_NAMES" bash tests/run.sh
+g++ -std=c++17 -O2 -DNDEBUG -DCUFF_VM_SWITCH -o cuffc-switch main.cpp
+CUFFC=./cuffc-switch UNIT_FLAGS="-O2 -DCUFF_VM_SWITCH" bash tests/run.sh
+```
+
+`tests/fuzz.py` compares two builds on random programs: each program is run with both, and the output, the error report and the
+exit status must be the same. The programs are made to do what people rarely write on purpose: read a name that only one branch
+declared, declare a name twice with two types in two blocks, assign through `with`, link globals, load a module into a block,
+raise and catch at random, call with the wrong arguments.
+
+```sh
+python3 tests/fuzz.py ./cuffc ./cuffc-dynamic                       # 2000 programs
+python3 tests/fuzz.py ./cuffc ./cuffc-asan --count 500 --seed 9000  # a release build against a sanitizer build
+```
+
+A program on which the builds differ is written to `fuzz-failures/seed_<n>.cuff`, and `--seed <n> --count 1` makes it again. Run
+the comparison after any change to `engine/bytecode/Compiler.h` or to `Interpreter::runLoop`, against the build from before the
+change as well: two builds that should behave the same are the cheapest test there is of a change that is meant to change nothing.
+The `Sanitizers` workflow runs both builds and both comparisons.
 
 ## A reduced build
 

@@ -1,5 +1,6 @@
 #include "engine/CuffEngine.h"
 #include "engine/EngineOptionsCli.h"
+#include "engine/debug/BytecodePrinter.h"
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -20,6 +21,7 @@ namespace
         out << "Usage: " << prog << " [options] [script.cuff]\n"
             << "  (no file, or -)        read the script from stdin\n"
             << "  --ast                  print tokens + AST instead of running the script\n"
+            << "  --bytecode             run the script, printing each piece of bytecode as it is compiled\n"
             << "  -h, --help             show this help and exit\n"
             << cuff::engineOptionsHelp()
             << "By default modules may be loaded from the script's own directory only.\n";
@@ -66,6 +68,11 @@ int main(int argc, char *argv[])
             if (arg == "--ast" || arg == "--tokens" || arg == "--debug")
             {
                 debugMode = true;
+                continue;
+            }
+            if (arg == "--bytecode")
+            {
+                options.onCompiled = [](const cuff::bc::Proto &proto) { std::cout << cuff::BytecodePrinter::print(proto); };
                 continue;
             }
             if (arg == "-h" || arg == "--help")

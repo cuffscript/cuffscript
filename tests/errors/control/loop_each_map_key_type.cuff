@@ -1,0 +1,7 @@
+note: E4-020
+note: A loop over a map takes its keys, and a key is a str: the loop variable's type is checked against each one as it is
+note: taken, exactly as it is for the elements of a list.
+map ages = {"Ada": 36, "Lin": 29}
+loop each number age in ages do:
+    print(age)
+end

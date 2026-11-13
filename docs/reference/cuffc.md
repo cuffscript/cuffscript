@@ -12,6 +12,7 @@ echo 'print(1 + 1)' | cuffc           # read the script from standard input
 cuffc --max-steps 1000000 --timeout 2000 job.cuff
 cuffc --no-network --no-filesystem untrusted.cuff
 cuffc --ast hello.cuff                # show how the program was understood, without running it
+cuffc --bytecode hello.cuff           # run it, showing the bytecode each part is compiled to
 ```
 
 With no file, or with `-`, the script is read from standard input. After `--`, every argument is a file name, so a file called `--odd.cuff` can be run with
@@ -24,6 +25,7 @@ With no file, or with `-`, the script is read from standard input. After `--`, e
 Usage: cuffc [options] [script.cuff]
   (no file, or -)        read the script from stdin
   --ast                  print tokens + AST instead of running the script
+  --bytecode             run the script, printing each piece of bytecode as it is compiled
   -h, --help             show this help and exit
   --root <dir>           allow 'use ... from' to load modules anywhere under <dir>
   --max-steps <n>        stop after <n> loop iterations + function calls (0 = unlimited)
@@ -39,6 +41,7 @@ By default modules may be loaded from the script's own directory only.
 | Option | What it does |
 | :--- | :--- |
 | `--ast` | Prints what the program was made of and does not run it: the raw tokens, the tokens after the lexer, the syntax tree, then `PARSE SUCCESS`. A program with a syntax error prints the error instead and exits with status 1. `--tokens` and `--debug` are older spellings of the same option. |
+| `--bytecode` | Runs the script and prints each piece of bytecode at the moment the engine compiles it: a top-level statement just before it runs, a function when it is first called, the default value of a field when the first object of its class is made. The listing goes to standard output, in order with what the program prints. [The bytecode machine](../internals/bytecode.md) explains how to read it. |
 | `--root <dir>` | The folder that `use ... from` and [`DLC:filesystem`](dlc/filesystem.md) may reach. Without it they are confined to the folder of the script. See [Modules](../guide/modules.md). |
 | `--max-steps <n>` | Stops the program with `E6-001` when the number of loop iterations plus calls of the program's own functions reaches `n`. Calls of library functions, `print` included, are not counted. `0` means unlimited, which is also the default. |
 | `--timeout <ms>` | Stops the program with `E6-002` when it has been running for `<ms>` milliseconds of real time, measured with a steady clock that the system clock cannot move. `0` means unlimited, which is also the default. |

@@ -52,28 +52,32 @@ namespace cuff::limits
     constexpr uint32_t kMaxExprHeight = 10000;
 
     // @limit Call depth | E4-017
-    // How many function calls may be active at once. Independently, the stack budget below stops recursion whose
-    // frames are large; whichever is reached first raises the same error.
+    // How many function calls may be active at once. A call takes a frame of the bytecode machine and no native
+    // stack, so this is the limit that ends runaway recursion, whatever the function's body looks like.
     constexpr int kMaxCallDepth = 1000;
 
     // @limit Stack budget ceiling
-    // The most native stack the evaluator may use, however much the host offers or an embedder asks for.
+    // The most native stack the engine may use, however much the host offers or an embedder asks for.
     constexpr size_t kMaxStackBudget = 64u * 1024 * 1024;
 
     // @limit Default stack budget | E4-017
-    // The evaluator's stack budget when the real stack size cannot be determined (8 MiB in WebAssembly). When it
+    // The engine's native stack budget when the real stack size cannot be determined (8 MiB in WebAssembly). When it
     // can, the budget is derived from it instead: everything but a safety margin, up to the ceiling above, and
-    // never more than the thread really has even if a larger budget is configured.
+    // never more than the thread really has even if a larger budget is configured. A program's own calls do not
+    // draw on it. What does is work that nests inside the engine: the compiler following nested blocks, an
+    // object's `to_str` run while a value is shown, a field's default value that makes another object, a module
+    // that loads a module.
 #if defined(__EMSCRIPTEN__)
     constexpr size_t kDefaultStackBudget = 8u * 1024 * 1024;
 #else
     constexpr size_t kDefaultStackBudget = 4u * 1024 * 1024;
 #endif
 
-    // @internal Stack per plain call
-    // Native stack one interpreted call of an ordinary function is assumed to need at most. Measured at about
-    // 1.3 KiB; this leaves headroom for other compilers.
-    constexpr size_t kPlainCallStackBytes = 2u * 1024;
+    // @internal Stack per nested engine call
+    // Native stack one call that the engine makes from inside the machine is assumed to need at most: an object's
+    // `to_str` run while a value is shown, or a default value that makes another object. Measured at about 1.1 KiB
+    // and 1.6 KiB; this leaves headroom for other compilers.
+    constexpr size_t kNestedCallStackBytes = 3u * 1024;
 
     // @limit String size | E4-026
     // The longest string a program can build.
@@ -158,12 +162,12 @@ namespace cuff::limits
 
     // ---- how the limits depend on one another ----------------------------------------------------------------
 
-    // The smallest stack budget the evaluator can end up with must still let plain recursion reach the call depth
-    // limit. If it could not, "maximum call depth (1000)" would be a number the language promises but cannot
-    // deliver on a platform that cannot report its stack size. (A function with a large body uses more stack per
-    // call and meets the stack budget first; that is what the budget is for.)
-    static_assert(kDefaultStackBudget >= static_cast<size_t>(kMaxCallDepth) * kPlainCallStackBytes,
-                  "kDefaultStackBudget cannot hold kMaxCallDepth plain calls: raise it, or lower kMaxCallDepth");
+    // The smallest stack budget the engine can end up with must still let `to_str` methods that show one another
+    // nest as deep as calls may. If it could not, such a program would meet the stack budget before "maximum call
+    // depth (1000)" on a platform that cannot report its stack size, and the limit the language names would not be
+    // the one that applies. (Plain recursion needs no native stack, so it reaches the call depth limit anywhere.)
+    static_assert(kDefaultStackBudget >= static_cast<size_t>(kMaxCallDepth) * kNestedCallStackBytes,
+                  "kDefaultStackBudget cannot hold kMaxCallDepth nested engine calls: raise it, or lower kMaxCallDepth");
 
     // A budget that was configured or derived is clamped to the ceiling, and the default must not exceed it.
     static_assert(kDefaultStackBudget <= kMaxStackBudget, "kDefaultStackBudget exceeds kMaxStackBudget");

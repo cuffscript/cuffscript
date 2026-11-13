@@ -1,0 +1,68 @@
+note: Assigning a variable, a field or an element to itself changes nothing, whatever it holds: the value is still
+note: there afterwards, and anything else that shares a list or an object with it still does.
+use DLC:list
+
+class Box do:
+    list items = [1, 2]
+    any link = empty
+end
+
+func in_function() do:
+    number n = 7
+    str s = "text"
+    list xs = [1, [2, 3]]
+    map m = {"k": xs}
+    Box b = Box()
+    any other = xs
+    n = n
+    s = s
+    xs = xs
+    m = m
+    b = b
+    print(n, s, xs, m, b.items)
+    add 4 to xs
+    print(other, m["k"].length())
+    b.items = b.items
+    b.link = b
+    b = b.link
+    b = b
+    xs[2] = xs[2]
+    m["k"] = m["k"]
+    print(b.items, b.link is b, xs, m)
+    return xs
+end
+list result = in_function()
+result = result
+print(result)
+
+note: the same at the top level, where a variable is the program's own
+number count = 3
+list rows = [[1], [2]]
+Box held = Box()
+any alias = rows
+count = count
+rows = rows
+held = held
+alias = alias
+add [3] to rows
+print(count, rows, alias, held.items)
+
+note: a name declared in one block and declared again after it, from its own old value
+if count is 3 do:
+    list picked = rows
+end
+if count > 0 do:
+    list picked = picked
+    print(picked)
+end
+
+note: a loop that hands a value round in a circle keeps every value
+list first = [1]
+list second = [2]
+loop repeat number i = 1 ~ 3 do:
+    list spare = first
+    first = second
+    second = spare
+    spare = spare
+end
+print(first, second)

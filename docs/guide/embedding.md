@@ -82,10 +82,11 @@ holds pointers into them, so a session that runs unbounded amounts of code shoul
 | `rootDir` | Where `use ... from` and `DLC:filesystem` may reach. | The script's folder |
 | `maxSteps` | Loop iterations plus function calls before `E6-001`; `0` is unlimited. | `0` |
 | `timeoutMs` | Milliseconds before `E6-002`; `0` is unlimited. | `0` |
-| `stackBudgetBytes` | Native stack the evaluator may use; `0` derives it from the real stack. A larger value than the thread has is reduced to what exists. | `0` |
+| `stackBudgetBytes` | Native stack the engine may use for work that nests inside it (a program's own calls use none); `0` derives it from the real stack. A larger value than the thread has is reduced to what exists. | `0` |
 | `networkEnabled` | Whether `DLC:network` calls are allowed. | `true` |
 | `allowPrivateNetworkTargets` | Whether `DLC:network` may reach loopback and private addresses. | `false` |
 | `filesystemEnabled` | Whether `DLC:filesystem` calls are allowed. | `true` |
+| `onCompiled` | A function the engine calls with each piece of bytecode as it compiles it (`const bc::Proto&`); `cuffc --bytecode` prints them with `BytecodePrinter::print` from `engine/debug/BytecodePrinter.h`. | none |
 
 A library that is switched off raises `E5-005` from every call; see [the rules for libraries](../reference/dlc/README.md#libraries-that-reach-outside-the-program).
 
@@ -108,8 +109,10 @@ both are locked, so sessions on different threads need no further care:
 - the random generator behind [`DLC:random`](../reference/dlc/random.md). It is one generator for the process, so `random_seed` in one session
   changes the sequence the others see.
 
-The engine measures the stack it is really running on, so it is safe on a thread with a small stack (the tests run it on threads of 512 KiB
-and 1 MiB), and ends a runaway recursion with the catchable `E4-017` instead of overflowing. See [Resource limits](../internals/resource-limits.md).
+A program's own calls take frames in the engine's bytecode machine and no native stack, so a script can recurse to the call depth limit on
+a thread with a small stack (the tests do it on 256 KiB). The engine measures the stack it is really running on for the work that does
+nest inside it, and ends that with the catchable `E4-017` instead of overflowing (the tests run it on threads of 512 KiB and 1 MiB). See
+[Resource limits](../internals/resource-limits.md).
 
 ## WebAssembly and npm
 

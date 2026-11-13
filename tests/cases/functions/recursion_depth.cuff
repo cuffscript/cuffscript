@@ -1,0 +1,60 @@
+note: How deep recursion may go is a count of calls, not a question of how much each call needs: up to 1000 calls may
+note: be active at once, whatever the function's body looks like.
+func depth(number n) do:
+    if n is 0 do:
+        return 0
+    end
+    return 1 + depth(n - 1)
+end
+print(depth(999))
+
+note: The same descent with locals, a loop and nested blocks around the call reaches the same depth.
+func heavy(number n) do:
+    number result = 0
+    list seen = [n]
+    if n > 0 do:
+        loop each number step in [1] do:
+            if step is 1 do:
+                result = step + heavy(n - 1)
+            end
+        end
+    end
+    return result
+end
+print(heavy(999))
+
+note: One call more is one too many, and the error is caught like any other.
+print(depth(1000)) or_else as Error e do:
+    print(e.code, e.message)
+end
+
+note: A method counts as a call just the same, and so does making an object of a class that has an init.
+class Counter do:
+    func down(number n) do:
+        if n is 0 do:
+            return "bottom"
+        end
+        return self.down(n - 1)
+    end
+end
+print(Counter().down(999))
+print(Counter().down(1000)) or_else as Error e do:
+    print(e.code)
+end
+
+class Nest do:
+    any inner = empty
+    func init(number levels) do:
+        if levels > 1 do:
+            self.inner = Nest(levels - 1)
+        end
+    end
+end
+Nest deep = Nest(1000)
+print(deep.inner.inner.inner isa Nest)
+Nest deeper = Nest(1001) or_else as Error e do:
+    print(e.code)
+end
+
+note: After the error the count is back where it was: the next call starts from the top.
+print(depth(999))

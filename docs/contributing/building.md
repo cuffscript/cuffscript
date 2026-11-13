@@ -18,7 +18,7 @@ wraps it.
 | `make clean` | Removes it. |
 | `make wasm` | The WebAssembly module, into `npm/dist/`. Needs Emscripten. |
 | `make wasm-clean` | Removes the module. |
-| `mingw32-make -f Makefile.win` | `cuffc.exe` on Windows. It links the Windows socket library and asks for a larger stack, because the evaluator is recursive. |
+| `mingw32-make -f Makefile.win` | `cuffc.exe` on Windows. It links the Windows socket library and asks for a larger stack than the Windows default, because the parser and the compiler follow nested source recursively. |
 | `./cli/build.sh` | `cli/cuffsh`, the interactive shell (Linux, macOS). |
 | `cli\build.bat` | `cli\cuffsh.exe` (Windows), statically linked so there are no runtime DLLs to ship. |
 

@@ -12,19 +12,24 @@ check fails if one does). To change a limit, change it there and run `python3 to
 
 Limits that depend on each other are tied together by `static_assert`s at the end of the file, so that changing one
 number cannot silently break a guarantee another one makes. For example: the smallest stack budget the engine can end up
-with must still let plain recursion reach the call depth limit, and a pattern at the nesting limit must fit in the pattern
-size limit.
+with must still hold as many nested `to_str` calls as the call depth limit allows, and a pattern at the nesting limit must
+fit in the pattern size limit.
 
-## The native stack
+## Calls and the native stack
 
-The evaluator is recursive, so deep recursion in a script is deep recursion on the native stack. Two limits guard it, and
-they are independent:
+A program's own calls do not use the native stack. A call makes a frame in the bytecode machine, on memory the machine
+manages, and the machine is a loop that does not call itself for it ([the bytecode machine](bytecode.md)). Two limits
+follow, and they guard different things:
 
-- **Call depth** counts active calls and raises `E4-017` at a fixed number. Plain recursion reaches it.
-- **Stack budget** counts the bytes of native stack in use and raises `E4-017` when they pass the budget. A function with a
-  large body uses more stack per call, so it meets the budget first. Measured on a release build, a plain call costs about
-  1.3 KiB and a function whose body has twenty nested `if`s about 8.6 KiB; the budget is what keeps the second kind of
-  program from overflowing.
+- **Call depth** counts the calls that are active and raises `E4-017` at a fixed number. It is the limit that ends runaway
+  recursion, and it is reached at the same depth by every function: a body with twenty nested blocks costs a deeper frame,
+  not more native stack.
+- **Stack budget** bounds the native stack that the engine itself uses, and raises `E4-017` when the stack in use passes
+  it. What draws on it is work that nests *inside* the engine: the compiler following nested blocks; an object's `to_str`
+  that the engine runs because a value is being shown, which may show another object; the default value of a field, which
+  may make another object; a module that loads a module. Measured on a release build, one level of nested `to_str` costs
+  about 1.1 KiB and one level of nested default values about 1.6 KiB. A default value that makes an object of its own
+  class nests without end, and the budget is what turns that into an error.
 
 `Interpreter::planStack(configured, available)` decides the budget:
 
@@ -33,24 +38,39 @@ they are independent:
 | Nothing configured, the real stack size is known | Everything but a safety margin, up to a ceiling. |
 | Nothing configured, the size is unknown | The default budget. |
 | A budget is configured and the thread can back it | The configured budget. |
-| A budget is configured that the thread **cannot** back | Reduced to what exists. Asking for more than there is must not turn a runaway recursion into a crash. |
+| A budget is configured that the thread **cannot** back | Reduced to what exists. Asking for more than there is must not turn runaway nesting into a crash. |
 
-The plan has two levels. `soft` is where the evaluator gives up with a catchable error; `hard` sits a few MiB below it
+The real stack is measured by `availableStackBytes()` (`engine/common/Attributes.h`): the distance from the current frame
+to the lowest address of the thread's stack, as the platform reports it (`pthread_getattr_np` on Linux,
+`pthread_get_stackaddr_np` and `pthread_get_stacksize_np` on macOS, `GetCurrentThreadStackLimits` on Windows, and
+`emscripten_stack_get_free` in WebAssembly). The parser asks at the start of every parse and the interpreter at the start
+of every run, so `cuffc hello.cuff` asks three times and `cuffsh` at least twice for every entry. For the first thread of
+a process, glibc and Bionic find the answer by reading `/proc/self/maps` and taking the stack limit (`RLIMIT_STACK`) into
+account, which with glibc costs about 125,000 instructions. The lowest address is therefore kept for each thread and
+asked for again only when the stack limit is no longer the one it was found with. Other C libraries are asked every time:
+musl measures the first thread's stack by how far it has grown so far, an answer that changes as it grows.
+
+The plan has two levels. `soft` is where the engine gives up with a catchable error; `hard` sits a few MiB below it
 and is the floor under which even leaf work, such as a regular-expression match, refuses to start. So a program that
 is near `soft` when it reaches something heavy still fails with an error. The parser has the same kind of floor, derived
 from the same measurement, so a deeply nested source is refused with `E2-008` when the stack would run out before the
 nesting limit.
 
-The tests run the interpreter on a real thread with a small stack, with a far larger budget requested, and check that the
-outcome is `E4-017`, not a crash (`tests/unit/limits_test.cpp`).
+The tests run the interpreter on a real thread with a small stack, with a far larger budget requested, and check that
+endless nesting ends in `E4-017`, not a crash, and that recursion to the call depth limit succeeds on a thread whose
+stack is far too small to recurse on natively (`tests/unit/limits_test.cpp`).
+
+The memory a frame takes is bounded with the calls: registers are handed out from blocks that grow as the program goes
+deeper and are reused when it comes back, and the call depth limit bounds how many frames there can be.
 
 ## Long chains use no stack
 
 `a + b + c + ...`, `x[1][2][3]...` and `s[1~5][2~4]...` lean to the left: each node's first operand is the next node of the
-chain. Evaluating one by recursion would use stack in proportion to its length, so a chain the parser accepted could still
-fail to run, and which length failed would depend on the platform. Above a small height, `Interpreter::evalSpine` walks the
-chain instead: it collects the nodes, evaluates the innermost operand, and applies each node's operation from the inside
-out, in the same left-to-right order the recursive form uses. Results, errors and error locations are identical.
+chain. Compiling one by recursion would use stack in proportion to its length, so a chain the parser accepted could still
+fail to compile, and which length failed would depend on the platform. `Compiler::gen` therefore walks the chain instead:
+it collects the nodes, compiles the innermost operand, and emits each node's instruction from the inside out, which is the
+left-to-right order the operations run in. The chain's intermediate results reuse one register, so its length costs
+instructions and no registers.
 
 A deep tree also has to be **freed**, and the default destructor recurses once per node. `Expr::~Expr` therefore takes a
 tall tree apart iteratively, moving each node's children onto a work list. Without it, a chain at the expression limit
@@ -62,7 +82,7 @@ cost, and the recursion in `--ast`, which is a debugging aid.
 
 ## Memory
 
-Strings, lists, maps, JSON text, pattern sizes and the `async` queue each have a size limit, and so do the shapes of a class: the depth of inheritance, the members of a class and the number of classes a program declares. A method call counts against the call depth and the stack budget like any call, so recursion through methods is bounded the same way. The engine does not count
+Strings, lists, maps, JSON text, pattern sizes and the `async` queue each have a size limit, and so do the shapes of a class: the depth of inheritance, the members of a class and the number of classes a program declares. A method call counts against the call depth like any call, and so does making an object of a class that has an `init`, so recursion through methods and constructors is bounded the same way. The engine does not count
 total memory: a host that needs to must set a limit on the process. A `std::bad_alloc` that reaches the front end is
 reported as `E6-003`, not a crash.
 

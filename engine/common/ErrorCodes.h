@@ -60,7 +60,7 @@ namespace cuff
         InvalidCollectionOperation = 4014, // An operation a list or map does not support.
         ElementNotFound = 4015, // A value to remove that is not in the list.
         UnsupportedOperation = 4016, // An operation not supported here, such as `return value` outside a function.
-        StackOverflow = 4017, // Recursion deeper than the call depth limit, or deeper than the native stack budget allows.
+        StackOverflow = 4017, // More calls active at once than the call depth limit allows, or nesting inside the engine deeper than the native stack budget allows.
         NestedFunctionNotSupported = 4018, // A function declared inside another function.
         AwaitOnNonAsync = 4019, // `await` applied to a function that is not `async`.
         DeclarationTypeMismatch = 4020, // A declared type that does not match the value.

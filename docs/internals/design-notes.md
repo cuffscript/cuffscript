@@ -11,7 +11,10 @@ Items 1 to 45 were written for the 3.x language. Where they show code with `set 
 describes (the order of `async` calls, limits, error locations, and so on) holds unless a later item says otherwise.
 Items 46 to 61 record the decisions of 4.0.0 and 4.0.1. Items 62 to 64 record 5.0.0, which are the language as it is now; where
 they disagree with items 4, 6, 28, 36, 46 and 53 (the spellings `set`, `change` and `to`, the soft keywords, the type check at
-declaration only, the removal of a number as a position, the optional parameter types) they win.
+declaration only, the removal of a number as a position, the optional parameter types) they win. Items 67 to 69 record 5.2.0,
+in which the engine became a bytecode machine. The items before them that describe how the engine runs a program (`execStatement`,
+`evalExpr`, `Environment`, `ExecOutcome`, the stack a call uses: items 13, 21, 22, 24, 29, 30 and 45 among them) describe the
+tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so.
 
 ## 1. The `async` / `await` execution model
 
@@ -1584,3 +1587,179 @@ takes regular files only.
   litter.
 - **The allowed folder itself is never moved or removed**, and every path, including both ends of a copy or move and a path through a
   symbolic link, goes through the same sandbox check as before.
+
+## 67. v5.2.0: a bytecode machine in place of the tree walk
+
+Items 21, 24 and 65 each ended at the same place: the evaluator walked the syntax tree, the profile was flat, and what was left
+was the cost of walking (a dispatch on the kind of each node, a hash probe for each name, a C++ call for each nested node). 5.2.0
+removes that cost by compiling the tree. What the language does is unchanged; [The bytecode machine](bytecode.md) describes the
+result, and this item records the decisions.
+
+- **Registers, not a stack.** A stack machine needs a push for each operand and a pop for each result, so `total = total + i` is
+  four or five instructions; with registers it is one, because a variable *is* a register and an instruction names its operands.
+  The compiler already has to know every variable of a function to give the parser's rule `E2-010` meaning, so giving each a
+  register costs nothing more.
+- **A fixed sixteen-byte instruction with offsets for operands.** Three 32-bit operands leave room for any frame and any jump
+  without a second encoding, and an operand that is already the register's distance in bytes from the frame saves the machine a
+  multiplication on every access. Code size is not what limits this engine; a program's code is small beside its tree.
+- **Compiled when first needed, piece by piece.** A function is compiled at its first call and a top-level statement just before
+  it runs. Compiling a whole program ahead was rejected for three reasons: a statement of the top level can use a variable
+  directly only if the compiler knows that the statements before it declared it, and with which type, which is known once they
+  have run (a `use` among them can declare anything); a function that is never called should cost nothing; and every mistake that
+  the old engine reported when its line ran must still be reported then, so nothing is gained by looking for it earlier. Where
+  the compiler can see such a mistake (`stop` outside a loop, an assignment to a constant) it emits an instruction that raises it.
+- **A name is settled by the compiler where its answer cannot change, and looked up where it can.** The language lets a variable be
+  declared in one branch of an `if` and read after it, be declared twice with two types in two blocks, appear through `with`,
+  be linked by `global` halfway down a function, or arrive from a module. Each of these was a property of the old `Environment`,
+  and programs and tests depend on them. The compiler therefore tracks which variables are certainly declared at each statement
+  and uses a register directly only then; every other use carries the chain of places to try, in the old order, and the machine
+  walks it. The meta word of a register (declared, constant, type) exists for those uses and is only kept for the variables that
+  have one; the compiler finds out which by compiling the piece again when a use asks, which ordinary code never does.
+- **Type checks are left out only when the compiler has a proof.** A store into a `number` variable of the sum of two `number`
+  variables cannot fail, and the instruction writes its result into the variable's register. Everything else is checked by the
+  machine, with the same error as before. The rule "a variable keeps the type it was declared with" has one implementation less
+  to trust than it seems: the proof and the check are both exercised by the build that proves nothing (item 69).
+- **A call makes a frame on top of its arguments, and the machine does not call itself.** The arguments are computed into
+  consecutive registers and become the callee's parameters where they are; the result comes back in the same register. One loop
+  runs every frame. This is what removed the stack a call used (item 68), and it is most of the gain on programs that call.
+- **Errors are still C++ exceptions.** They cost nothing until one is thrown, the libraries already throw them, and `or_else`
+  needs only a table of which instructions each handler guards. Unwinding without exceptions would have meant an error return
+  from every helper and library function. The catch blocks read no local of the loop, so the loop's state stays in machine
+  registers; that alone was worth 6% to 10% on the benchmark programs.
+- **What did not change.** Values and reference counts, the parser and the tree (compiled code points back into it for the
+  position of an error), the library interface, the class model, the order in which everything is evaluated, the step count of
+  every program, and the text of every error.
+
+Cost, counted in instructions as in item 65 (`valgrind --tool=callgrind`, release build, against 5.1.0):
+
+| Program | What it does | 5.1.0 | 5.2.0 | Fewer by |
+| :--- | :--- | ---: | ---: | ---: |
+| `fib` | `fib(30)`, 1.3 million calls | 4,063 M | 832 M | 4.9x |
+| `calls` | 1.5 million calls with a default parameter | 3,570 M | 817 M | 4.4x |
+| `loops` | 5 million passes of `loop repeat` and `loop while` in a function | 4,903 M | 752 M | 6.5x |
+| `toplevel` | The same loops at the top level | 4,903 M | 1,265 M | 3.9x |
+| `fields` | 1.5 million field reads, stores and method calls | 4,541 M | 1,140 M | 4.0x |
+| `objects` | 800 thousand objects made, with `init` and method calls | 4,666 M | 1,627 M | 2.9x |
+| `collections` | Lists, maps and f-strings | 1,737 M | 977 M | 1.8x |
+| `text` | Library calls on text and lists | 199 M | 159 M | 1.2x |
+| Start-up | `print("hello")` | 2.98 M | 2.77 M | 7% fewer |
+| The examples and test cases of 5.1.0, once each | 87 programs | 317 M | 297 M | 6% fewer |
+
+The last two rows are what a short script sees, and the machine is not what makes them lower. Compiling is not free: a
+statement of the top level is compiled and then run once, and on such code what the machine saves in running it the
+compiler spends. `classes/with_block.cuff` is made almost entirely of such statements; on a build with symbols, 5.1.0 runs
+its top level in 74 thousand instructions, and 5.2.0 in 76 thousand to run it and 65 thousand to compile it. Start-up is what
+is cheaper. The parser and the interpreter each measure the thread's stack before they begin, glibc finds the first
+thread's stack by reading `/proc/self/maps`, and 5.1.0 did that three times for `cuffc hello.cuff`, at about 125,000
+instructions each. 5.2.0 keeps the answer for as long as the stack limit is the same ([Resource limits](resource-limits.md)).
+That saves about 245,000 instructions on every run, which over the 87 programs is slightly more than the 20 million by
+which they come out lower: on code that runs once, compiling and the faster machine about cancel out. The key is the stack
+limit because glibc and Bionic derive the first thread's stack from it, so `setrlimit` in an embedding program is seen at
+the next parse or run; and the answer is not kept with musl, which measures the stack by how far it has grown. Wall-clock
+times follow the instruction counts (`fib` 246 ms to 47 ms, `loops` 302 ms to 46 ms on the development machine). A program that spends its time in libraries gains
+little, as `text` shows: the library is what it was.
+
+Two more things got cheaper on the way that are not the machine: `%` on two whole numbers takes an integer route that gives the same
+value as `fmod`, down to the sign of a zero result, at a seventh of its time (20 million pairs compared bit for bit, the limits
+of a double among them); and a whole number is turned into text by writing its digits, where `snprintf` was called before.
+
+What it costs: the stripped `cuffc` is 1,000 KB where it was 881 KB (13.5% larger), and the engine source is 781 KB where it was
+613 KB. A compiler and a machine are more code than a tree walk. Memory is the other way round: a program at the call depth
+limit peaks at 5.5 MB where it peaked at 7.4 MB, because a frame is a few registers and a call no longer has a scope with a
+table of its own.
+
+Tried and **not adopted**:
+
+- *Leaving a frame's registers uncleared when it returns.* It would save a pass over the registers on every return, and a list a
+  function built would then stay alive until another call happened to reuse the register. Memory that is held by nobody a
+  program can name is a worse property than a slower return.
+- *Moving a value by copying its bytes.* It would shorten every move, and it relies on `std::shared_ptr` being movable that way,
+  which every standard library allows in practice and none promises.
+- *Keeping the program's variables in registers.* A top-level loop reads and writes its variables through one more instruction
+  each (`GetG`, `SetG`), which is the difference between `toplevel` and `loops` above. Registers would need the variables written
+  back before every call, every `use` and every error; the gain is real and the risk was judged larger. A program that loops for
+  long at the top level can put the loop in a function.
+- *Remembering the callee in the call instruction.* A function can be declared again by a later entry in the shell, and a class can
+  take the place of a function's name, so the cache would need invalidating everywhere a name can change. The table lookup it would
+  save is three instructions.
+- *A `switch` for the labels.* Built with the same flags it runs 3% to 10% more instructions and takes 5% to 20% longer, for 12 KB
+  less binary. It stays as the form for compilers without labels as values, and is tested (item 69).
+- *Telling the compiler that its own code is cold.* 4 KB smaller, 0.3% more instructions over the examples and test cases.
+
+Two properties of the loop are easy to lose and are written down in [The bytecode machine](bytecode.md#rules-for-changing-the-machine):
+on Linux, GCC gives the whole loop a frame pointer, and so takes a register from it, as soon as one call in it passes a seventh
+argument on the stack; and a jump through the label table runs no destructors, which Clang refuses to compile and GCC compiles
+into a silent leak.
+
+## 68. v5.2.0: what the stack budget is for
+
+Items 22 and 45 bounded the native stack because a call in a script was a call in C++: each used about 1.3 KiB, more with every
+block it was nested in, and the stack budget was what stopped a function with a large body before the call depth limit could.
+With item 67 a script's call uses no native stack. Recursion to the call depth limit runs inside a budget of 5 KiB, and on a
+thread with a 256 KiB stack (`limits_test.cpp`).
+
+- **The call depth limit is now the only limit on recursion**, and it is reached at the same depth by every function on every
+  platform. Before, the depth a program reached before `E4-017` depended on the function's body and on the thread's stack. A
+  program that recursed deeply through large functions and failed can now run; none that ran can now fail. The limit itself was
+  left where it is: it is part of what the language promises, tests and programs expect it, and raising it is a decision about
+  the language, not a consequence of the engine.
+- **The stack budget remains, for what still nests inside the engine**: the compiler following nested blocks (about 0.3 KiB a
+  level), an object's `to_str` run because a value is shown (1.1 KiB), a field's default value that makes another object
+  (1.6 KiB), and a module that loads a module. The first and last are bounded by the nesting limits and the middle two by the
+  call depth limit or by the budget: a default value that makes an object of its own class never finishes, and `E4-017` is how
+  that ends. `Limits.h` ties the default budget to the call depth through the cost of one nested `to_str`, where it used to tie it
+  to the cost of one plain call.
+- **The message of `E4-017` for the budget is unchanged** ("native stack budget exhausted — calls and blocks are nested too
+  deeply"), because calls made by the engine and nested blocks are still what it means.
+- **Item 45 still holds, and was checked again.** The loop of the machine is one large function through which every uncaught
+  error unwinds, so on Windows it must not have a frame pointer together with saved `xmm` registers. The MinGW-w64 build was
+  disassembled: the loop addresses its frame from `rsp`, and no function of the engine saves `xmm6` to `xmm15` relative to a
+  frame pointer. (Windows passes arguments in a way that never produces the pushes which give the Linux build its frame pointer.)
+- **The larger stack the Windows build asks for stays**, for the parser: a source nested to the limit still needs it.
+
+## 69. v5.2.0: how a rewrite of the engine was checked, and what it found
+
+A change that is meant to change nothing has the best possible test: the thing it replaces. The old engine was kept as a
+binary, and every program was run through both.
+
+- **Every example, test case and error case**, with and without small step budgets (1, 2, 3, 7, 20, 61, 150, 400, 1,000 and
+  3,000 steps), so that a budget runs out at the same statement with the same output before it.
+- **About 110,000 generated programs.** The generator (now `tests/fuzz.py`) writes what people do not write on purpose: a name
+  read after the one branch that declares it, a name declared twice with two types, places through `with` and through fields,
+  `global` at random points, a module loaded into a function or a block, `fail` and `or_else` everywhere, constants, wrong
+  arguments. Half of them were also run as sessions, split into several entries for one interpreter as the shell would run them,
+  which is where a function meets a variable that was declared again with another type after the function was compiled.
+- **The same under AddressSanitizer and UndefinedBehaviorSanitizer**, and the suite's threads test under ThreadSanitizer.
+
+Four mistakes in the new engine were found this way and none by the hand-written tests, which is the argument for the method:
+an `init` that returns `self` gave back an empty value; assigning to an element of a constant map was allowed; an `init` that
+failed left a flag written into an object that had just been freed; and `x = x` for a list or an object released it. Each has a
+test now (`classes/init_return_value.cuff`, `errors/collections/constant_map_element_write.cuff`, `values/self_assignment.cuff`; the
+third is `errors/classes/class_init_error_no_object.cuff`, which only a sanitizer build can fail).
+
+The comparison also found places where the old engine was wrong, and 5.2.0 does not reproduce them:
+
+- **The type of a `loop each` variable was only checked for a list.** `loop each number key in a_map` ran with `key` holding a
+  str, although the language reference says the type is checked for every element. It is `E4-020` now, for a map's keys and a
+  text's characters as for a list. This is the one change of 5.2.0 that can stop a program that ran.
+- **An error in a function from another file was drawn against the wrong text in four cases**: in a parameter's default value, for
+  `stop`, `skip` or `return` outside a loop or function, in a field's default value, and inside a `to_str` that `print` ran. The
+  line and column were right and the text beside them came from the file that made the call. The machine stamps an error with
+  the text of the code it leaves, so there is one rule and no cases.
+
+For the part of the engine that has no predecessor to compare with, two builds stand in: `-DCUFF_DYNAMIC_NAMES` makes the
+compiler prove nothing, so every name and every type goes through the machine's own lookup and check, and `-DCUFF_VM_SWITCH`
+replaces the label table. Both must pass the whole suite and agree with the normal build on generated programs; CI runs that
+(`sanitizers.yaml`, the `other-routes` job). The first is the more useful: it turns a route that an ordinary program takes for
+one name in fifty into the only route there is.
+
+Other platforms. The MinGW-w64 build of `cuffc` and of every unit test was run under Wine and gives the output of the Linux build on
+every example and test; Wine looks file names up without regard to case, so it also reproduces the `dlc_filesystem_folders` failure
+that Windows and macOS showed, and shows the rewritten test passing. The WebAssembly build was made with Emscripten 3.1.6 (an old
+one: `STACK_SIZE` had to be written `TOTAL_STACK`) and run under Node 22 on every example and test. It passes them, with two
+exceptions that are not new: a program whose nesting is inside the engine (a default value that makes its own class, the
+regular-expression recursion limit) overflows the JavaScript call stack before the engine's own budget is reached, because
+with Emscripten's exception handling every C++ call in a `try` goes through a JavaScript frame. 5.1.0 fails the second of these
+in the same way, and failed a third that 5.2.0 passes: a script's own runaway recursion, which was nested C++ calls then and is
+frames of the machine now. Not checked, and said so in the changelog: macOS, Windows itself, a browser, and the Emscripten
+version the release is built with.

@@ -8,7 +8,7 @@ Short answers to the questions people ask first. Each answer links to the page t
 
 **What is the file extension?** `.cuff`. A program is plain UTF-8 text, and `cuffc` reads it from a file or from standard input.
 
-**Is it compiled or interpreted?** Interpreted. The engine reads a program, builds a syntax tree and walks it; there is no separate compile step and no bytecode. See [Architecture](../internals/architecture.md).
+**Is it compiled or interpreted?** Interpreted, by way of bytecode. The engine reads a program, builds a syntax tree, and compiles each function and each top-level statement into instructions for its own small machine the first time it is needed, in memory and while the program runs. There is no separate compile step and nothing is written to disk: you run the `.cuff` file. See [Architecture](../internals/architecture.md) and [The bytecode machine](../internals/bytecode.md).
 
 **Can I run it in a browser?** Yes: the engine builds to WebAssembly, and the `cuffscript-wasm` npm package ships the result. See [Embedding the engine](embedding.md#webassembly-and-npm).
 

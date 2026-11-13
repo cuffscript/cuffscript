@@ -42,6 +42,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | :--- | :--- |
 | [Architecture](internals/architecture.md) | The pipeline, the folders and the front ends |
 | [How it works](internals/how-it-works.md) | What the engine does while a program runs: collecting, scopes, calls, sharing, loops, errors, the async queue |
+| [The bytecode machine](internals/bytecode.md) | Compiled code: registers and frames, the instruction set, how names are settled, calls, loops, `or_else`, and the rules for changing the machine |
 | [Source map](internals/source-map.md) | Which file does what |
 | [Source locations and error reports](internals/source-locations.md) | How an error finds its line |
 | [The error model](internals/error-model.md) | What an error is, and who catches it |

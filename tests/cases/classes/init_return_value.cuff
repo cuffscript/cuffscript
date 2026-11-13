@@ -1,0 +1,24 @@
+note: What an init returns is not used: making an object gives the object, whatever init hands back.
+class Point do:
+    number x = 0
+    func init(number x) do:
+        self.x = x
+        return self
+    end
+end
+
+class Odd do:
+    number n = 1
+    func init() do:
+        return "not an object"
+    end
+end
+
+Point p = Point(3)
+print(p.x, Point(4).x, [Point(5).x, Point(6).x])
+Odd o = Odd()
+print(o isa Odd, o.n)
+
+note: called as a method on an object that exists, init is an ordinary function, and its value is what it returns
+print(o.init())
+print(p.init(8) is p, p.x)

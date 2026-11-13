@@ -57,6 +57,14 @@ true false
 - Nothing is replaced or deleted by surprise: `file_copy` and `file_move` stop at an existing destination, `file_removedir` takes only an
   empty folder, and no function removes a folder with something in it. Clearing a folder is a loop over `file_list` that removes each file.
 - File names may be written in any language; they are read as UTF-8 on every platform.
+- `file_list` sorts by the bytes of each name, which is the same order on every platform: capital letters come before small ones
+  (`"Zulu.txt"` before `"alpha.txt"`), and letters outside ASCII come after both.
+- Whether two names that differ only in the case of their letters are one file or two is decided by the file system, not by the
+  library. Where case is ignored, which is the usual arrangement on Windows and macOS, `file_write("Notes.txt", ...)` after
+  `file_write("notes.txt", ...)` writes the same file again, `file_exist` is `true` for either spelling, `file_copy("notes.txt", "Notes.txt")`
+  is `false` because the destination exists, and `file_list` gives the name as it was first written. Where case is kept apart, which is
+  the usual arrangement on Linux, they are two files. A script that has to behave the same everywhere gives its files names that differ
+  by more than case.
 
 ```cuff
 use DLC:filesystem
