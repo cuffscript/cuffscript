@@ -29,6 +29,7 @@ class Document:
         self.dirty = False
         self.line_ending = "\n"
         self.has_bom = False
+        self.gutter_anchor = None
         self.disk_stamp = None
         self.numbered_lines = 0
         self.untitled_number = 0
@@ -1363,6 +1364,15 @@ class CuffScriptIDE:
                 "<Button-5>", lambda event, d=doc: self.on_linux_wheel(event, d)
             )
 
+        # Click or drag in the line-number gutter to select whole lines.
+        gutter = doc.line_numbers
+        for sequence in ("<Button-1>", "<Double-Button-1>", "<Triple-Button-1>"):
+            gutter.bind(sequence, lambda event, d=doc: self.gutter_press(event, d))
+        gutter.bind("<B1-Motion>", lambda event, d=doc: self.gutter_drag(event, d))
+        gutter.bind(
+            "<ButtonRelease-1>", lambda event, d=doc: self.gutter_release(event, d)
+        )
+
         modifier = "Command" if sys.platform == "darwin" else "Control"
 
         def shortcut(action):
@@ -1434,6 +1444,56 @@ class CuffScriptIDE:
 
     def clear_output(self):
         return self.terminal_clear_screen()
+
+    @staticmethod
+    def _gutter_line(doc, event):
+        last = int(doc.editor.index("end-1c").split(".")[0])
+        try:
+            line = int(doc.line_numbers.index(f"@0,{event.y}").split(".")[0])
+        except (tk.TclError, ValueError):
+            line = last
+        return max(1, min(line, last)), last
+
+    @staticmethod
+    def _select_lines(doc, anchor, line, last):
+        editor = doc.editor
+        first, final = min(anchor, line), max(anchor, line)
+        start = f"{first}.0"
+        end = "end-1c" if final >= last else f"{final + 1}.0"
+        editor.tag_remove("sel", "1.0", tk.END)
+        editor.tag_add("sel", start, end)
+        editor.mark_set(tk.INSERT, end if final >= last or line >= anchor else start)
+
+    def gutter_press(self, event, doc):
+        line, last = self._gutter_line(doc, event)
+        if event.state & 0x1 and doc.gutter_anchor is not None:
+            anchor = doc.gutter_anchor  # Shift+click extends from the previous click
+        else:
+            anchor = doc.gutter_anchor = line
+        doc.editor.focus_set()
+        self._select_lines(doc, anchor, line, last)
+        return "break"
+
+    def gutter_drag(self, event, doc):
+        if doc.gutter_anchor is None:
+            return "break"
+        height = doc.line_numbers.winfo_height()
+        if event.y < 0:
+            doc.editor.yview_scroll(-1, "units")
+        elif event.y > height:
+            doc.editor.yview_scroll(1, "units")
+        doc.line_numbers.yview_moveto(doc.editor.yview()[0])
+        line, last = self._gutter_line(doc, event)
+        if event.y < 0:
+            line = int(doc.editor.index("@0,0").split(".")[0])
+        elif event.y > height:
+            line = int(doc.editor.index(f"@0,{height}").split(".")[0])
+        self._select_lines(doc, doc.gutter_anchor, max(1, min(line, last)), last)
+        return "break"
+
+    def gutter_release(self, event, doc):
+        self.on_key_release(event)
+        return "break"
 
     def sync_scroll(self, doc, *args):
         doc.editor.yview(*args)
