@@ -11,9 +11,12 @@ cuffsh
 __pycache__/
 testfile.cuff
 fuzz-failures/
+*.pyc
 
 *.log
 .DS_Store
 Thumbs.db
 
 /examples/embedding/host
+build/
+dist/
