@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import traceback
+import webbrowser
 import subprocess
 import signal
 import sys
@@ -1311,6 +1312,7 @@ class CuffScriptIDE:
 
         modifier = "Command" if sys.platform == "darwin" else "Control"
         self.root.bind("<F5>", lambda event: self.run_code())
+        self.root.bind("<F1>", lambda event: self.show_about())
         self.root.bind("<Shift-F5>", lambda event: self.stop_code())
         if sys.platform == "darwin":
             self.root.bind("<Command-r>", lambda event: self.run_code())
@@ -2895,7 +2897,34 @@ class CuffScriptIDE:
         self.editor.insert(tk.INSERT, value)
         self.editor.focus_set()
 
+    ABOUT_LINKS = (
+        ("GitHub", "https://github.com/cuffscript/cuffscript/"),
+        ("Website", "https://cuffscript.pages.dev/"),
+    )
+
+    def open_link(self, url):
+        try:
+            opened = webbrowser.open(url)
+        except Exception:
+            opened = False
+        if not opened:
+            # No browser available: put the address on the clipboard instead.
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(url)
+                self.status_var.set(f"Could not open a browser; copied {url}")
+            except tk.TclError:
+                pass
+
     def show_about(self):
+        existing = getattr(self, "about_dialog", None)
+        try:
+            if existing is not None and existing.winfo_exists():
+                existing.lift()
+                existing.focus_set()
+                return
+        except tk.TclError:
+            pass
         try:
             tk_version = self.root.tk.call("info", "patchlevel")
         except tk.TclError:
@@ -2910,7 +2939,6 @@ class CuffScriptIDE:
         dialog.transient(self.root)
         dialog.resizable(False, False)
         dialog.configure(background=background)
-        dialog.geometry("380x230")
         content = tk.Frame(dialog, background=background, padx=24, pady=20)
         content.pack(fill=tk.BOTH, expand=True)
         heading = tk.Frame(content, background=background)
@@ -2940,9 +2968,40 @@ class CuffScriptIDE:
             background=background,
             foreground=muted,
         ).pack(anchor="w")
+        link_color = "#4daafc" if dark else "#0969da"
+        for label, url in self.ABOUT_LINKS:
+            row = tk.Frame(content, background=background)
+            row.pack(anchor="w", pady=(10, 0))
+            tk.Label(
+                row,
+                text=f"{label}:",
+                width=8,
+                anchor="w",
+                background=background,
+                foreground=muted,
+            ).pack(side=tk.LEFT)
+            link = tk.Label(
+                row,
+                text=url,
+                cursor="hand2",
+                background=background,
+                foreground=link_color,
+                font=tkfont.Font(
+                    family=self.font_family,
+                    size=max(9, self.font_size - 2),
+                    underline=True,
+                ),
+            )
+            link.pack(side=tk.LEFT)
+            link.bind("<Button-1>", lambda event, u=url: self.open_link(u))
         ttk.Button(content, text="Close", command=dialog.destroy).pack(
             anchor="e", pady=(16, 0)
         )
+        dialog.update_idletasks()
+        dialog.geometry(
+            f"{max(420, dialog.winfo_reqwidth())}x{dialog.winfo_reqheight()}"
+        )
+        self.about_dialog = dialog
         dialog.bind("<Escape>", lambda event: dialog.destroy())
         dialog.bind("<Return>", lambda event: dialog.destroy())
         dialog.grab_set()
