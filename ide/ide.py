@@ -2322,15 +2322,25 @@ class CuffScriptIDE:
         self.find_regex = tk.BooleanVar(value=False)
         self.find_count_var = tk.StringVar()
 
+        # Labels have no theme-aware default colour: set it so the recolouring in apply_theme
+        # (which maps #24292f to the dark foreground) also reaches them.
+        label_color = (
+            "#d4d4d4" if getattr(self, "theme", "light") == "dark" else "#24292f"
+        )
         self.find_bar = tk.Frame(parent, background=background)
         tk.Frame(self.find_bar, height=1, background="#d8d8d8").pack(
             side=tk.BOTTOM, fill=tk.X
         )
         top = tk.Frame(self.find_bar, background=background)
         top.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 5))
-        tk.Label(top, text="Find", width=6, anchor="w", background=background).pack(
-            side=tk.LEFT
-        )
+        tk.Label(
+            top,
+            text="Find",
+            width=6,
+            anchor="w",
+            background=background,
+            foreground=label_color,
+        ).pack(side=tk.LEFT)
         self.find_entry = self._make_find_entry(top, self.find_var)
         self.find_entry.pack(side=tk.LEFT, ipady=2)
         tk.Label(
@@ -2372,7 +2382,12 @@ class CuffScriptIDE:
 
         self.replace_row = tk.Frame(self.find_bar, background=background)
         tk.Label(
-            self.replace_row, text="Replace", width=6, anchor="w", background=background
+            self.replace_row,
+            text="Replace",
+            width=6,
+            anchor="w",
+            background=background,
+            foreground=label_color,
         ).pack(side=tk.LEFT)
         self.replace_entry = self._make_find_entry(self.replace_row, self.replace_var)
         self.replace_entry.pack(side=tk.LEFT, ipady=2)
