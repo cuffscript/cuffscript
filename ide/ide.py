@@ -909,10 +909,21 @@ class CuffScriptIDE:
         editor_foreground = "#d4d4d4" if dark else "#24292f"
         doc.frame = tk.Frame(self.doc_container, background=editor_background)
         font = (self.font_family, self.font_size)
+        # The gutter must have exactly the editor's vertical metrics (same pady, no focus ring, and
+        # the same height as the editor, which loses a scrollbar's height at the bottom). Scroll
+        # positions are fractions of the total height, so any difference grows with the file.
+        gutter_holder = tk.Frame(doc.frame, background=editor_background)
+        gutter_holder.pack(side=tk.LEFT, fill=tk.Y)
+        gutter_spacer = tk.Frame(
+            gutter_holder, background="#252526" if dark else "#f2f3f5"
+        )
+        gutter_spacer.pack(side=tk.BOTTOM, fill=tk.X)
         doc.line_numbers = tk.Text(
-            doc.frame,
+            gutter_holder,
             width=4,
             padx=8,
+            pady=8,
+            highlightthickness=0,
             takefocus=False,
             borderwidth=0,
             background="#252526" if dark else "#f2f3f5",
@@ -922,7 +933,8 @@ class CuffScriptIDE:
             wrap=tk.NONE,
             cursor="arrow",
         )
-        doc.line_numbers.pack(side=tk.LEFT, fill=tk.Y)
+        doc.line_numbers.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        doc.gutter_spacer = gutter_spacer
 
         text_frame = tk.Frame(doc.frame, background=editor_background)
         text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -944,6 +956,7 @@ class CuffScriptIDE:
             autoseparators=True,
             maxundo=500,
             borderwidth=0,
+            highlightthickness=0,
             padx=8,
             pady=8,
             background=editor_background,
@@ -960,6 +973,8 @@ class CuffScriptIDE:
         doc.editor.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         doc.horizontal_scrollbar.configure(command=doc.editor.xview)
         doc.horizontal_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        doc.horizontal_scrollbar.update_idletasks()
+        gutter_spacer.configure(height=doc.horizontal_scrollbar.winfo_reqheight())
         doc.vertical_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self._configure_syntax_tags(doc.editor)
         doc.editor.bind("<Button-3>", self.show_editor_menu)
@@ -1082,6 +1097,21 @@ class CuffScriptIDE:
             side=tk.RIGHT
         )
 
+    def _comment_font(self):
+        """Italic comments, unless the italic face is taller than the regular one: a taller line
+        would push the code below out of step with the line-number gutter."""
+        italic = (self.font_family, self.font_size, "italic")
+        try:
+            regular = tkfont.Font(family=self.font_family, size=self.font_size)
+            slanted = tkfont.Font(
+                family=self.font_family, size=self.font_size, slant="italic"
+            )
+            if regular.metrics("linespace") != slanted.metrics("linespace"):
+                return (self.font_family, self.font_size)
+        except Exception:
+            pass
+        return italic
+
     def _configure_syntax_tags(self, editor):
         dark = self.theme == "dark"
         editor.tag_configure("keyword", foreground="#c586c0" if dark else "#7b3fb5")
@@ -1092,7 +1122,7 @@ class CuffScriptIDE:
         editor.tag_configure(
             "comment",
             foreground="#7f848e" if dark else "#8c959f",
-            font=(self.font_family, self.font_size, "italic"),
+            font=self._comment_font(),
         )
         editor.tag_configure("number", foreground="#b5cea8" if dark else "#b05a00")
         editor.tag_configure("function", foreground="#9cdcfe" if dark else "#005cc5")
@@ -1244,6 +1274,7 @@ class CuffScriptIDE:
             self.update_tab_scroll_region()
             for doc in self.docs:
                 self._refresh_tab(doc)
+                doc.gutter_spacer.configure(background="#252526" if dark else "#f2f3f5")
                 doc.line_numbers.configure(
                     background="#252526" if dark else "#f2f3f5",
                     foreground="#858585" if dark else "#9299a3",
@@ -3036,9 +3067,7 @@ class CuffScriptIDE:
         for doc in self.docs:
             doc.editor.configure(font=font, tabs=tabs)
             doc.line_numbers.configure(font=font)
-            doc.editor.tag_configure(
-                "comment", font=(self.font_family, self.font_size, "italic")
-            )
+            doc.editor.tag_configure("comment", font=self._comment_font())
 
     def change_font_size(self, amount):
         self.font_size = max(8, min(28, self.font_size + amount))
