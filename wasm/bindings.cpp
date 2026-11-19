@@ -7,6 +7,7 @@
 // instantiating the module, so no engine code changes were needed here.
 #include <emscripten/bind.h>
 #include "../engine/CuffEngine.h"
+#include "../engine/debug/BytecodePrinter.h"
 
 using namespace emscripten;
 
@@ -38,6 +39,16 @@ RunOutcome cuffDump(const std::string &source)
     return toOutcome(result);
 }
 
+// Compiles and executes `source`, printing each piece of bytecode as it is compiled,
+// mirroring `cuffc --bytecode`.
+RunOutcome cuffBytecode(const std::string &source, const std::string &scriptDir)
+{
+    cuff::CuffEngine::Options options;
+    options.onCompiled = [](const cuff::bc::Proto &proto)
+    { std::cout << cuff::BytecodePrinter::print(proto); };
+    return toOutcome(cuff::CuffEngine::execute(source, scriptDir, options));
+}
+
 EMSCRIPTEN_BINDINGS(cuffscript_wasm)
 {
     value_object<RunOutcome>("RunOutcome")
@@ -46,4 +57,5 @@ EMSCRIPTEN_BINDINGS(cuffscript_wasm)
 
     function("cuffRun", &cuffRun);
     function("cuffDump", &cuffDump);
+    function("cuffBytecode", &cuffBytecode);
 }
