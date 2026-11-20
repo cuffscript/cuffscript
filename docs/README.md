@@ -30,7 +30,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | [Libraries](reference/dlc/README.md) | One page per `use DLC:...` library |
 | [Built-in functions](reference/builtins.md), [function index](reference/functions.md) | What is always available, and every function in one list |
 | [`cuffc`](reference/cuffc.md), [`cuffsh`](reference/cuffsh.md) | The script runner and the interactive shell |
-| [C++ API](reference/cpp-api.md) | `CuffEngine`, `Session`, options and error reports |
+| [C++ API](reference/cpp-api.md) | `Engine`, host functions, options and error reports |
 | [Error catalogue](reference/errors.md) | Every error code, with an example and a fix |
 | [Limits](reference/limits.md) | Every limit and the error it raises |
 | [Known limitations](reference/known-limitations.md) | What the language does not do, and what surprises people |
@@ -41,7 +41,7 @@ The documentation is organised by what you are trying to do. If you are new, sta
 | Page | Covers |
 | :--- | :--- |
 | [Architecture](internals/architecture.md) | The pipeline, the folders and the front ends |
-| [How it works](internals/how-it-works.md) | What the engine does while a program runs: collecting, scopes, calls, sharing, loops, errors, the async queue |
+| [How it works](internals/how-it-works.md) | What the engine does while a program runs: collecting, scopes, calls, sharing, memory, loops, errors, tasks |
 | [The bytecode machine](internals/bytecode.md) | Compiled code: registers and frames, the instruction set, how names are settled, calls, loops, `or_else`, and the rules for changing the machine |
 | [Source map](internals/source-map.md) | Which file does what |
 | [Source locations and error reports](internals/source-locations.md) | How an error finds its line |

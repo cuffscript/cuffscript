@@ -1,13 +1,11 @@
 // The object model: who owns the class table, what survives between the runs of a session, the order things
 // happen in when an object is made, how `with` looks a name up, and how errors become objects.
 #include "engine/CuffEngine.h"
-#include "engine/Session.h"
 #include <iostream>
 #include <sstream>
 #include <string>
 
-using cuff::CuffEngine;
-using cuff::Session;
+using cuff::Engine;
 
 namespace
 {
@@ -56,10 +54,10 @@ namespace
 
     Captured runOnce(const std::string &src)
     {
-        return capture([&] { return CuffEngine::execute(src, "."); });
+        return capture([&] { return Engine::execute(src, "."); });
     }
 
-    Captured runIn(Session &session, const std::string &src)
+    Captured runIn(Engine &session, const std::string &src)
     {
         return capture([&] { return session.run(src); });
     }
@@ -83,33 +81,44 @@ int main()
 {
     // ---- the class table belongs to the interpreter -----------------------------------------------------------
     {
-        Session a, b;
+        Engine a, b;
         runIn(a, "class Shared do:\n    func who() do:\n        return \"a\"\n    end\nend\n");
         runIn(b, "class Shared do:\n    func who() do:\n        return \"b\"\n    end\nend\n");
         Captured ra = runIn(a, "print(Shared().who())\n");
         Captured rb = runIn(b, "print(Shared().who())\n");
         check(ra.out == "a\n" && rb.out == "b\n", "two sessions keep their own classes: " + ra.out + rb.out);
-        Session c;
+        Engine c;
         Captured rc = runIn(c, "print(Shared().who())\n");
         check(!rc.ok && rc.error.find("[E4-002]") != std::string::npos, "a new session does not see another's classes");
     }
 
     // ---- a session: classes and objects across entries ----------------------------------------------------------
     {
-        Session s;
+        Engine s;
         runIn(s, "class Counter do:\n    number n = 0\n    func bump() do:\n        self.n = self.n + 1\n        return self.n\n    end\nend\n"
                  "Counter c = Counter()\n");
         Captured r = runIn(s, "print(c.bump(), c.bump())\n");
         check(r.ok && r.out == "1 2\n", "an object made in one entry works in the next: " + r.out + r.error);
 
-        runIn(s, "class Counter do:\n    number n = 100\n    func bump() do:\n        self.n = self.n + 10\n        return self.n\n    end\nend\n");
+        // The entries are one program: a class is declared once in it.
+        r = runIn(s, "class Counter do:\n    number n = 100\n    func bump() do:\n        self.n = self.n + 10\n        return self.n\n    end\nend\n");
+        check(!r.ok && r.error.find("[E4-038]") != std::string::npos, "a later entry cannot declare a class again: " + r.error);
         r = runIn(s, "print(c.bump(), Counter().bump())\n");
-        check(r.ok && r.out == "3 110\n", "a class declared again applies to new objects only: " + r.out + r.error);
+        check(r.ok && r.out == "3 1\n", "and the class and its objects are as they were: " + r.out + r.error);
+
+        // A text whose class cannot be declared declares nothing: its functions are not left behind, so the corrected
+        // text runs.
+        r = runIn(s, "func helper() do:\n    return 7\nend\nclass Broken extends Missing do:\n    number n = 1\nend\n");
+        check(!r.ok && r.error.find("[E4-031]") != std::string::npos, "a class whose parent does not exist: " + r.error);
+        r = runIn(s, "print(helper())\n");
+        check(!r.ok && r.error.find("[E4-002]") != std::string::npos, "and the function of that text was not declared: " + r.out + r.error);
+        r = runIn(s, "func helper() do:\n    return 7\nend\nclass Broken do:\n    number n = 1\nend\nprint(helper(), Broken().n)\n");
+        check(r.ok && r.out == "7 1\n", "the corrected text runs: " + r.out + r.error);
 
         r = runIn(s, "class Counter do:\n    number n = 0\nend\nclass Counter do:\nend\n");
         check(!r.ok && r.error.find("[E4-038]") != std::string::npos, "the same class twice in one entry is an error");
 
-        Session t;
+        Engine t;
         runIn(t, "class A do:\n    func f() do:\n        return 1\n    end\nend\n");
         runIn(t, "func A() do:\n    return 2\nend\n");
         r = runIn(t, "print(1)\n");

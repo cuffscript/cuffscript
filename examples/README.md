@@ -12,7 +12,7 @@ The numbered programs teach the language in order, one subject at a time; the la
 | `06_text_and_patterns.cuff` | Pattern literals (`p"..."`), `matches`, `match`, `find`, `find_all`, `replace`, `replace_all`, `split` and `count`; captures, `[one:...]`, the `i` flag, escapes, patterns on Hangul |
 | `07_or_else.cuff` | `or_else` around one statement, what is and is not an error, and `or_else as` |
 | `08_errors_as_objects.cuff` | `fail`, the `Error` object a handler receives, and a class that extends `Error` |
-| `09_async.cuff` | `async` calls that are queued and run after the main program, and `await` |
+| `09_async.cuff` | Tasks: `async` calls that run while the program waits, `await` of a task and of a call, `done()`, errors in tasks |
 | `10_classes.cuff` | Fields, a constructor (`init`), methods, `private`, `to_str`, and objects that are shared rather than copied |
 | `11_inheritance.cuff` | `extends`, replacing a method, `super`, `init` in a child class, `isa` |
 | `12_with_block.cuff` | `with`: members by their plain names, `.name`, the lookup order, nested blocks |

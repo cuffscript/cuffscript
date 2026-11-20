@@ -1,21 +1,41 @@
-note: An async function called without await is queued. The queued calls run in order after the
-note: rest of the program has finished. await runs the call right there and gives its value.
+note: An async function called without await starts a task and gives a Task at once. A task runs when the
+note: program waits for something: await of a task, time_sleep, or a network request. While one task waits,
+note: the others run, so their waits overlap. await of a call runs the call right there.
+use DLC:time
 
-async func notify(str name) do:
-    print("[async] " + name + " done")
+async func brew(str drink, number seconds) do:
+    print("[task] " + drink + " started")
+    time_sleep(seconds)
+    print("[task] " + drink + " ready")
+    return drink
 end
 
-async func fetch_score() do:
-    print("[async] looking up the score")
-    return 87
+async func notify(str message) do:
+    print("[task] note: " + message)
 end
 
-print("[sync] start")
-notify("A")
-notify("B")
+print("[main] start")
+Task tea = brew("tea", 0.3)
+Task coffee = brew("coffee", 0.1)
+notify("the kettle is on")
+note: nothing has waited yet, so no task has run
+print("[main] two drinks ordered; tea done yet? " + to_str(tea.done()))
 
-number score = await fetch_score()
-print(f"[sync] score = {score}")
+note: awaiting coffee lets every task run; coffee is ready first
+print("[main] got " + await coffee)
+print("[main] got " + await tea + ", done: " + to_str(tea.done()))
 
-notify("C")
-print("[sync] end of the main program")
+note: an error in a task is raised again at its await, where or_else can catch it
+async func burnt() do:
+    time_sleep(0.05)
+    fail "the toast is burnt"
+end
+
+Task toast = burnt()
+await toast or_else as Error e do:
+    print("[main] caught: " + e.message)
+end
+
+note: await of a call runs it right here, like any call
+str cup = await brew("cocoa", 0)
+print("[main] end, with " + cup)

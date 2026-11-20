@@ -1160,8 +1160,19 @@ namespace cuff::bc
             }
             case ExprKind::SuperCall:
                 return genSuperCall(*std::get_if<SuperCall>(&call.data), dst, &aw);
-            default:
+            case ExprKind::FunctionCall:
                 return genCall(*std::get_if<FunctionCall>(&call.data), dst, &aw);
+            default:
+            {
+                // Not a call: the value is a task, and the task's result takes its place.
+                guard(aw.loc);
+                const uint32_t mark = top_;
+                const uint32_t base = allocTemp();
+                gen(call, static_cast<int32_t>(base));
+                top_ = base + 1;
+                emit(Op::Await, 0, off(base), 0, 0, &aw);
+                return callResult(base, dst, mark);
+            }
             }
         }
 
@@ -1558,8 +1569,19 @@ namespace cuff::bc
                 emit(Op::Use, 0, static_cast<int32_t>(curScope_), 0, 0, std::get_if<UseStmt>(&stmt.data));
                 break;
             case StmtKind::ExprStmt:
-                gen(*std::get_if<ExprStmt>(&stmt.data)->expr, kNoCell);
+            {
+                const Expr &e = *std::get_if<ExprStmt>(&stmt.data)->expr;
+                gen(e, kNoCell);
+                // A call that is a statement of its own: an async function started this way is not given a Task value.
+                if (e.kind == ExprKind::FunctionCall || e.kind == ExprKind::MethodCall || e.kind == ExprKind::SuperCall)
+                {
+                    Instr &last = p_->code.back();
+                    const Op op = static_cast<Op>(last.op);
+                    if (op == Op::Call || op == Op::CallW || op == Op::CallM || op == Op::CallS)
+                        last.x |= kCallDiscard;
+                }
                 break;
+            }
             case StmtKind::CollectionOp:
                 compileCollectionOp(*std::get_if<CollectionOpStmt>(&stmt.data));
                 break;

@@ -235,32 +235,37 @@ print(square(7))
 49
 ```
 
-### Functions that run later
+### Tasks: functions that run alongside
 
-An `async` function does not run where it is called. The call is put in a queue, the rest of the program runs, and the queued calls run afterwards in the
-order they were made. `await` runs a call right there instead:
+Calling an `async` function without `await` starts a **task** and gives a `Task` at once; the program goes on. The task runs
+when the program waits for something, and `await` of the task waits for it and gives its result:
 
 ```cuff
-async func job(str name) do:
-    print("ran " + name)
+use DLC:time
+
+async func cook(str dish, number minutes) do:
+    time_sleep(minutes / 100)
+    print(dish + " done")
+    return dish
 end
 
-job("a")
-job("b")
-print("main code first")
-await job("c")
-print("main code last")
+Task soup = cook("soup", 20)
+Task rice = cook("rice", 10)
+print("both on the stove")
+print("served: " + await soup + " and " + await rice)
 ```
 
 ```output
-main code first
-ran c
-main code last
-ran a
-ran b
+both on the stove
+rice done
+soup done
+served: soup and rice
 ```
 
-Nothing runs in parallel; `async` only changes *when* a call runs.
+The two waits overlap, so the program takes as long as the soup, not as long as both. Nothing runs in parallel: one thing
+runs at a time, and it is while one waits that the others run. `await cook("tea", 1)` runs a call right there, as an ordinary
+call. A call written on its own line, `cook("tea", 1)`, starts a task that nobody waits for; it runs when the program waits, or
+at its end. More is in [the language reference](../reference/language.md#65-asynchronous-functions-and-tasks).
 
 ## Handling errors
 

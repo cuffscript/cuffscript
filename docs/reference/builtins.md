@@ -11,6 +11,8 @@ These functions are always available. No `use` is needed.
 | `to_str(x)` | The display form of any value: the text `print` would write. |
 | `to_boolean(x)` | The truthiness of any value: `false`, `0`, `empty` and an empty string, list or map are false; everything else is true. |
 | `copy(x)` | A new list, map or object with the same elements or fields. The copy is shallow: a list or object inside it is shared with the original. Any other value is `E4-005`. |
+| `length(x)`, `contains(x, v)`, `index_of(x, v)` | The size of a string, list or map; whether it holds `v`; where `v` first is. See [below](#length-contains-and-index_of). |
+| `task_done(t)` | Whether the task `t` has finished, with a result or an error ([tasks](language.md#65-asynchronous-functions-and-tasks)). `t.done()` is the same. Any other value is `E4-005`. |
 | `pattern(text)`, `pattern(text, flags)` | A `pattern` made from a string while the program runs. `flags` is a string made of `i` (ignore case) and `m` (lines). A syntax error in the text is an `E3-0xx` error. For a pattern known in advance, write the literal `p"..."` instead. |
 
 ## Text functions
@@ -65,11 +67,24 @@ done
 Strings inside a list or a map are shown with quotes; the string on its own is not. Use `to_str` when you need the display text as a value, for
 example to join it to other text: `"total: " + to_str(42)`.
 
-## Not built in
+## `length`, `contains` and `index_of`
 
-`length`, `contains` and `index_of` are not built in; they come with the [string](dlc/string.md), [list](dlc/list.md) and [map](dlc/map.md)
-libraries. Without a `use DLC:...` line that loads them, calling one is `E4-002`. Between them they cover strings, lists and maps, with one gap: `index_of` has no meaning for a
-map and is not available from `DLC:map` alone.
+| Function | On a string | On a list | On a map |
+| :--- | :--- | :--- | :--- |
+| `length(x)` | The characters (code points) | The elements | The keys |
+| `contains(x, v)` | Whether the substring `v` occurs; `v` must be a `str`, and an empty `v` is always found | Whether an element is equal to `v`, compared as `is` compares | Whether `v` is a key; `v` must be a `str` |
+| `index_of(x, v)` | The 1-based position, in characters, of the first `v`, or `empty`; an empty `v` is at `1` | The 1-based position of the first element equal to `v`, or `empty` | `E4-005` |
+
+Any other type is `E4-005`. Up to 5.x these three came with `DLC:string`, `DLC:list` and `DLC:map`; a program that loads those
+libraries still works, and one that does not now needs no `use` for them.
+
+```cuff
+print(length("한글"), contains([1, [2]], [2]), index_of("hello", "l"), contains({"a": 1}, "a"))
+```
+
+```output
+2 true 3 true
+```
 
 ## Defining a function with a built-in's name
 

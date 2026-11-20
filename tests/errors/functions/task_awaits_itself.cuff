@@ -1,0 +1,8 @@
+note: E4-043 -- a task that awaits its own Task
+list box = []
+async func me() do:
+    global box
+    return await box[1]
+end
+add me() to box
+print(await box[1])

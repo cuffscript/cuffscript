@@ -82,13 +82,15 @@ cost, and the recursion in `--ast`, which is a debugging aid.
 
 ## Memory
 
-Strings, lists, maps, JSON text, pattern sizes and the `async` queue each have a size limit, and so do the shapes of a class: the depth of inheritance, the members of a class and the number of classes a program declares. A method call counts against the call depth like any call, and so does making an object of a class that has an `init`, so recursion through methods and constructors is bounded the same way. The engine does not count
-total memory: a host that needs to must set a limit on the process. A `std::bad_alloc` that reaches the front end is
-reported as `E6-003`, not a crash.
+Strings, lists, maps, JSON text, pattern sizes and the number of tasks each have a size limit, and so do the shapes of a class: the depth of inheritance, the members of a class and the number of classes a program declares. A method call counts against the call depth like any call, and so does making an object of a class that has an `init`, so recursion through methods and constructors is bounded the same way. The engine does not count
+total memory: a host that needs to must set a limit on the process. A `std::bad_alloc` is reported as `E6-003`, not a crash:
+the engine unwinds what was running, writes the report from memory it set aside for it, and can be used again. Taking a deeply
+nested value apart allocates nothing, so it works when memory has just run out. (One exception is outside the engine's reach:
+GCC's library for reading folders ends the process when it runs out of memory, so `file_list` can.)
 
-Two shapes are never freed: a list, map or object that refers to itself, directly or through others (reference counts cannot
-reach zero), and the process-wide table of identifier names. [Design notes](design-notes.md) records the first; `NameInterner.h` documents the
-second.
+A list, map or object that refers to itself, directly or through others, is freed by the engine's search for cycles
+([memory](how-it-works.md#memory)), not by its count. The process-wide table of identifier names is never freed; `NameInterner.h`
+documents why.
 
 ## Adding a limit
 

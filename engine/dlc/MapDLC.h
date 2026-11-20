@@ -7,9 +7,6 @@ namespace cuff
 
     inline void registerMapDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
-        reg["length"] = nativeLength;
-        reg["contains"] = nativeContains;
-
         reg["map_keys"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
             expectArgCount("map_keys", args, 1, loc);

@@ -9,12 +9,12 @@ cannot do yet. Every item links to the page that defines the behaviour. The [des
 - **No variable-length parameters.** A call passes at least as many arguments as the function has parameters without a default, and at most as many as it declares (`E4-010`).
 - **No `switch`.** Use `if` and `else if`.
 - **One kind of number.** Every number is a double-precision float. Whole numbers are exact up to 2<sup>53</sup>, and a whole number of 10<sup>15</sup> or more prints in exponent form. There are no integer, bitwise or big-number operations. See [types and values](language.md#2-types-and-values).
-- **Number literals are plain.** No exponent form (`1e5`), no leading or trailing point (`.5`, `5.`), no digit separators; a minus is an operator.
+- **Number literals are decimal.** No hexadecimal, binary or octal form, no leading or trailing point (`.5`, `5.`), no digit separators; a minus is an operator. The exponent form (`1e5`, `2.5e-3`) is accepted.
 - **Strings cannot be changed in place**, there are no `\u` escapes, and an f-string has no format specifiers (`{x:2}` is a syntax error). Text is handled as Unicode code points, so a letter made of several code points counts as several characters.
 - **Map keys are strings.** `loop each` over a map visits its keys, in the order they were added; use the key to read the value.
 - **A slice and the result of a call are not places.** An assignment, `add` and `remove` work on a name, an item or a field (`grid[2][3]`, `self.items`), not on `f()` or `x[1~2]`. See [places](language.md#51-places-assignment-add-remove).
 - **A `repeat` range is never empty.** `1 ~ 0` runs twice, counting down. See [loops](language.md#53-loops).
-- **`async` is not concurrency.** Queued calls run one after another after the main program. Nothing runs at the same time, and there is no sleep or timer.
+- **Tasks take turns; they do not run at the same time.** A task runs until it waits (`await`, `time_sleep`, a network request) or ends, and nothing interrupts one that does neither: a long computation in one task holds the others up. Waiting overlaps, computing does not, and there are no threads. A task cannot be cancelled. See [tasks](language.md#65-asynchronous-functions-and-tasks).
 - **Chained comparisons are not supported**: `1 < 2 < 3` is a type error.
 - **Reserved words** cannot be names, apart from the few the language reference lists. See [names and reserved words](language.md#15-names-and-reserved-words).
 
@@ -25,7 +25,7 @@ cannot do yet. Every item links to the page that defines the behaviour. The [des
 - **The fields of a class are fixed.** An object cannot gain a field that its class does not declare (`E4-033`), and a field's declared type is checked on its default value only.
 - **A class is declared at the top level of a file** and cannot be declared in a block, in a function or in a method (`E4-036`).
 - **Methods are not values**, like functions: `object.method` without the parentheses is an error (`E4-040`).
-- **A cycle of objects is never freed.** Two objects that refer to each other, or an object that holds itself in a field, stay in memory until the process ends, as a list that contains itself does. There are no destructors.
+- **There are no destructors.** An object is freed when nothing refers to it any more (a cycle of objects too, a little later), and nothing of the program runs when that happens.
 - **`from_json` gives a map, not an object.** Build the object from the map in your own code.
 
 ## Patterns
@@ -40,18 +40,24 @@ cannot do yet. Every item links to the page that defines the behaviour. The [des
 
 ## Libraries
 
+- **A network request looks up its host name without waiting the way it waits for the answer.** The lookup holds the program (and its other tasks) up until the system answers; the connection and the answer do not.
 - **`DLC:network` is plain HTTP.** There is no TLS, no custom headers, no cookies and no access to response headers; `https://` is refused. A redirect chain longer than the limit ends with the last redirect response. See [`DLC:network`](dlc/network.md).
 - **`DLC:filesystem` stays inside the sandbox folder and never replaces or deletes by surprise.** It cannot remove a folder that has something in it, copy a folder, or read file times and permissions, and `file_copy` and `file_move` stop at an existing destination. See [`DLC:filesystem`](dlc/filesystem.md).
+- **`DLC:hash` is not an audited cryptographic library.** Its hashes are written for the engine and checked against the published test vectors and against another implementation, but nobody has reviewed them as security code. It makes no random numbers, so a salt or a key must come from elsewhere; only `hash_equal` compares in constant time; SHA-1 and MD5 are there for compatibility, not security. See [`DLC:hash`](dlc/hash.md).
+- **`DLC:csv` reads and writes text that is in memory**, and every field it reads is a `str`. It knows nothing of types, sheets or encodings other than UTF-8. See [`DLC:csv`](dlc/csv.md).
+- **`DLC:path` only knows `/`.** A backslash is an ordinary character, so a Windows path written with backslashes is one name. See [`DLC:path`](dlc/path.md).
+- **`DLC:hardware` is only what the host gives.** The engine drives no device itself, so a part works as the host's function for it does; `cuffc --hardware` gives the battery and the temperature on Linux, the battery on Windows, and a beep (on Linux and macOS the terminal's bell, whose pitch and length the terminal decides). Reading a part does not wait the way tasks do: a host function that takes long holds the program up. A serial line is read as what has arrived, without waiting for more. See [`DLC:hardware`](dlc/hardware.md).
 - **`DLC:random` is not secure and not private to a program.** It is one generator for the whole process, and it must not be used for secrets. See [`DLC:random`](dlc/random.md).
-- **`DLC:time` is the wall clock** and has no calendar or formatting; those are in `DLC:datetime`.
+- **`DLC:time` is the wall clock and a sleep** and has no calendar, formatting or timers that call back; the calendar is in `DLC:datetime`. In WebAssembly a sleep keeps the processor busy.
 - **`DLC:datetime` has no time zone names.** A zone is an offset in minutes that the script gives (or `datetime_offset`, which reads the machine's), so it knows nothing about daylight saving rules, month or weekday names, or years outside 1 to 9999. See [`DLC:datetime`](dlc/datetime.md).
 - **`DLC:json` writes and reads UTF-8 text**, rejects what the standard rejects (comments, trailing commas, `NaN`), and cannot write a `match` or a `pattern`. An object is written as its public fields.
 
 ## Running it
 
 - **There is no execution budget unless one is set.** `cuffc` and an embedding host run a program for as long as it wants unless `--max-steps` or `--timeout` is given, and nothing limits total memory. See [Security](../../SECURITY.md).
-- **A list, map or object that refers to itself is never freed.** Values are reference counted, so a cycle stays in memory until the process ends. See the [design notes](../internals/design-notes.md).
+- **A cycle is freed a little later than other values.** Values are counted, and a list, map or object that refers to itself waits for the engine to look for cycles, which it does after it has made a good number of new ones ([memory](../internals/how-it-works.md#memory)). A cycle that a host still holds when its engine is destroyed is not freed.
 - **`--max-steps` counts loop iterations and calls of the program's own functions**, not calls of library functions, so a loop of library calls is bounded by the iterations only.
 - **The WebAssembly binding runs with the default options**: no step or time budget, and no way to switch libraries off. A browser cannot make ordinary network connections. See [Embedding the engine](../guide/embedding.md#webassembly-and-npm).
 - **In WebAssembly, work that nests inside the engine is bounded by the JavaScript engine's stack**, which is far smaller than a native thread's and which the engine cannot measure. A repeated group in a pattern (under Node 22, `(a)+` over more than 185 characters) or a field's default value that makes an object of its own class ends in a JavaScript `RangeError` thrown out of `cuffRun`, where a native build raises `E3-103` or `E4-017`. A program's own recursion and a repeated single character, such as `[any]*`, nest nothing and are not affected.
 - **Paths handed to the engine are in the platform's narrow encoding.** On Windows that is the ANSI code page; the shell converts its UTF-8 paths first.
+- **Running out of memory while `file_list` reads a folder ends the process.** The C++ library that lists folders on Linux (GCC's) ends the process when it cannot get memory, instead of reporting it; everywhere else running out of memory is `E6-003`, and the engine can be used again.

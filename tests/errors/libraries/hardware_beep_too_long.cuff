@@ -1,0 +1,2 @@
+use DLC:hardware
+hw_beep(440, 30)

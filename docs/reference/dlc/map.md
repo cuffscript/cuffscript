@@ -12,16 +12,14 @@ copies. An argument of the wrong type is `E4-005` and the wrong number of argume
 
 | Function | Result |
 | :--- | :--- |
-| `length(m)` | The number of keys. |
-| `contains(m, key)` | Whether the map has the key. `key` must be a string (`E4-005`). |
-| `map_has_key(m, key)` | The same as `contains`, spelled for maps. |
+| `map_has_key(m, key)` | Whether the map has the key, as the built-in `contains(m, key)` tells. `key` must be a string (`E4-005`). |
 | `map_keys(m)` | A list of the keys, in insertion order. |
 | `map_values(m)` | A list of the values, in the same order as the keys. |
 | `map_entries(m)` | A list of `[key, value]` pairs. |
 | `map_merge(a, b)` | A new map with the keys of both. Where both have a key, `b` wins and the key keeps the position it has in `a`; keys only in `b` follow. |
 
-`length` and `contains` are shared with [`DLC:string`](string.md) and [`DLC:list`](list.md). `index_of` is not a map
-function: asking a map for it is `E4-005`, and loading only `DLC:map` does not provide it at all.
+`length` (the number of keys) and `contains` (whether the map has a key, which must be a string) are [built in](../builtins.md#length-contains-and-index_of).
+`index_of` has no meaning for a map: asking a map for it is `E4-005`.
 
 ```cuff
 use DLC:map

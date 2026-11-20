@@ -1,0 +1,10 @@
+note: E4-026 -- at most 10000 tasks may be waiting at once
+use DLC:time
+async func sleeper() do:
+    time_sleep(5)
+end
+loop repeat number i = 1 ~ 10001 do:
+    sleeper()
+end
+time_sleep(0.001)
+print("this must not run")

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../parser/ASTNodes.h"
-#include "../common/TokenTypes.h"
+#include "../common/Token.h"
 #include "../interpreter/Value.h"
 #include <locale>
 #include <string>

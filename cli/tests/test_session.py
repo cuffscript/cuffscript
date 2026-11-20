@@ -526,6 +526,21 @@ check(
     any("[E4-033]" in l for l in s.nonblank()),
     s.nonblank(),
 )
+entry(s, "func pick() do:", "    return \"first\"", "end")
+entry(s, "func pick() do:", "    return \"second\"", "end")
+check(
+    "a later entry may not declare a function again: the entries are one program",
+    any("[E2-010]" in l for l in s.nonblank()),
+    s.nonblank(),
+)
+s.send("print(pick())\r", 0.4)
+check("and the first one stays", "first" in s.nonblank(), s.nonblank())
+entry(s, "func twice() do:", "end", "func twice() do:", "end")
+check(
+    "one entry may not declare a function twice",
+    any("[E2-010]" in l for l in s.nonblank()),
+    s.nonblank(),
+)
 s.send(":reset\r", 0.4)
 s.send("print(Counter())\r", 0.4)
 check(

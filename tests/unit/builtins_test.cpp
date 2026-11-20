@@ -33,7 +33,7 @@ namespace
         std::ostringstream out;
         std::streambuf *oldIn = std::cin.rdbuf(in.rdbuf());
         std::streambuf *oldOut = std::cout.rdbuf(out.rdbuf());
-        cuff::Session session;
+        cuff::Engine session;
         const auto outcome = session.run(source);
         std::cout.rdbuf(oldOut);
         std::cin.rdbuf(oldIn);
@@ -99,7 +99,7 @@ namespace
         check(!empty.success && empty.error.find("E4-025") != std::string::npos, "random_choice of an empty list is E4-025");
 
         // One generator per process: seeding in one session decides what another session draws next.
-        cuff::Session first, second;
+        cuff::Engine first, second;
         std::ostringstream sink;
         std::streambuf *oldOut = std::cout.rdbuf(sink.rdbuf());
         first.run("use DLC:random\nrandom_seed(99)\n");

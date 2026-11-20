@@ -1,0 +1,10 @@
+reports/2025/summary.final.txt
+summary.final.txt reports/2026/../2025/. .txt summary.final
+data/raw/input.csv /etc/hosts x
+["/", "usr", "local", "bin"] ["C:/", "Users", "ann"] ["a", "b"]
+notes.md a/b.tar Makefile.bak
+../../data/x.db c/d .
+true true false false
+ .bashrc .gz .
+/b ../../a . .
+. / a  b

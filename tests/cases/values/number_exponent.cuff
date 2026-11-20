@@ -1,0 +1,28 @@
+note: a number can be written with an exponent: digits, e or E, an optional sign, digits
+print(1e3, 1E3, 1.5e-3, 2e+2, 12e0, 0e5)
+print(1e3 is 1000, 2.5e-1 + 0.75, -1e2, 1e2 ** 2, 5e-1 * 4)
+
+note: what is printed in exponent form can be written back
+print(1e15, 1e21, 6.02e23, 1e-7, 1.7976931348623157e308)
+number avogadro = 6.02214076e23
+print(avogadro / 1e23)
+
+note: it is a number wherever a number can stand
+list items = [10, 20, 30]
+print(items[2e0], items[1e0 ~ 2])
+loop repeat number i = 1 ~ 3e0 do:
+    print(i)
+end
+print(1e3.to_str() + "!", 1e2 > 99)
+
+note: a number so small that it cannot be told from zero is zero
+print(1e-400)
+
+note: an `e` that no digits follow is not an exponent: this is the number 1 and the word end
+if true do: print(1) end
+number e5 = 7
+print(2 + e5)
+
+note: to_number reads the same form
+use DLC:convert
+print(to_number("1e3") is 1e3, to_number("2.5E-1"))

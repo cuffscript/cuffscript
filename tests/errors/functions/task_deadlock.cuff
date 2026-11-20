@@ -1,0 +1,13 @@
+note: E4-043 -- two tasks that await each other can never finish
+list both = []
+async func first() do:
+    global both
+    return await both[2]
+end
+async func second() do:
+    global both
+    return await both[1]
+end
+add first() to both
+add second() to both
+print(await both[1])

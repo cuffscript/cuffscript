@@ -1,7 +1,8 @@
 #pragma once
 
-#include "../common/Ascii.h"
+#include "../common/Attributes.h"
 #include "../common/Limits.h"
+#include "../common/Text.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -81,37 +82,39 @@ namespace cuff::net
             u_long mode = 1;
             ioctlsocket(s, FIONBIO, &mode);
         }
-        inline void setBlocking(cuff_socket_t s)
-        {
-            u_long mode = 0;
-            ioctlsocket(s, FIONBIO, &mode);
-        }
-        inline void setTimeouts(cuff_socket_t s, int ms)
-        {
-            DWORD t = static_cast<DWORD>(ms);
-            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&t), sizeof t);
-            setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&t), sizeof t);
-        }
+        inline void prepareSocket(cuff_socket_t) {}
         inline int sendAll(cuff_socket_t s, const char *data, size_t len)
         {
             return send(s, data, static_cast<int>(len), 0);
         }
-        // Waits for `s` to become readable or writable, until `ms` milliseconds have passed. A single socket in an
-        // fd_set is safe on Windows, where the set holds handles and not bit positions.
-        inline bool waitFor(cuff_socket_t s, bool write, int ms)
-        {
-            fd_set set;
-            FD_ZERO(&set);
-            FD_SET(s, &set);
-            struct timeval tv;
-            tv.tv_sec = ms / 1000;
-            tv.tv_usec = (ms % 1000) * 1000;
-            return select(0, write ? nullptr : &set, write ? &set : nullptr, nullptr, &tv) > 0;
-        }
-        inline void markTimedOut() { WSASetLastError(WSAEWOULDBLOCK); }
         inline int recvNow(cuff_socket_t s, char *buf, size_t len)
         {
             return recv(s, buf, static_cast<int>(len), 0);
+        }
+        // Waits until one of the sockets is ready or `ms` milliseconds have passed. A connection that failed shows
+        // in the set of exceptions on Windows, not in the set of writable sockets.
+        inline void pollSockets(SocketWait *items, size_t count, int ms)
+        {
+            fd_set readSet, writeSet, failSet;
+            FD_ZERO(&readSet);
+            FD_ZERO(&writeSet);
+            FD_ZERO(&failSet);
+            for (size_t k = 0; k < count; ++k)
+            {
+                const cuff_socket_t s = static_cast<cuff_socket_t>(items[k].socket);
+                FD_SET(s, items[k].write ? &writeSet : &readSet);
+                FD_SET(s, &failSet);
+            }
+            struct timeval tv;
+            tv.tv_sec = ms / 1000;
+            tv.tv_usec = (ms % 1000) * 1000;
+            if (select(0, &readSet, &writeSet, &failSet, &tv) <= 0)
+                return;
+            for (size_t k = 0; k < count; ++k)
+            {
+                const cuff_socket_t s = static_cast<cuff_socket_t>(items[k].socket);
+                items[k].ready = FD_ISSET(s, &readSet) || FD_ISSET(s, &writeSet) || FD_ISSET(s, &failSet);
+            }
         }
 #else
         inline void ensureInit() {}
@@ -123,21 +126,13 @@ namespace cuff::net
             int flags = fcntl(s, F_GETFL, 0);
             fcntl(s, F_SETFL, flags | O_NONBLOCK);
         }
-        inline void setBlocking(cuff_socket_t s)
+        inline void prepareSocket(cuff_socket_t s)
         {
-            int flags = fcntl(s, F_GETFL, 0);
-            fcntl(s, F_SETFL, flags & ~O_NONBLOCK);
-        }
-        inline void setTimeouts(cuff_socket_t s, int ms)
-        {
-            struct timeval tv;
-            tv.tv_sec = ms / 1000;
-            tv.tv_usec = (ms % 1000) * 1000;
-            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-            setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
 #if defined(__APPLE__)
             int one = 1;
-            setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);  // avoid SIGPIPE on write to a closed peer
+            setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one); // no SIGPIPE on a write to a peer that closed
+#else
+            (void)s;
 #endif
         }
         inline int sendAll(cuff_socket_t s, const char *data, size_t len)
@@ -148,24 +143,28 @@ namespace cuff::net
             return static_cast<int>(::send(s, data, len, 0));  // macOS: SIGPIPE already suppressed via SO_NOSIGPIPE above
 #endif
         }
-        // poll, not select: select can only watch descriptors below FD_SETSIZE (1024), and a program that hosts the
-        // engine may well have more files open than that.
-        inline bool waitFor(cuff_socket_t s, bool write, int ms)
-        {
-            struct pollfd p;
-            p.fd = s;
-            p.events = write ? POLLOUT : POLLIN;
-            p.revents = 0;
-            int rc;
-            do
-                rc = ::poll(&p, 1, ms);
-            while (rc < 0 && errno == EINTR);
-            return rc > 0;
-        }
-        inline void markTimedOut() { errno = EAGAIN; }
         inline int recvNow(cuff_socket_t s, char *buf, size_t len)
         {
             return static_cast<int>(::recv(s, buf, len, 0));
+        }
+        // Waits until one of the sockets is ready or `ms` milliseconds have passed. poll, not select: select can
+        // only watch descriptors below FD_SETSIZE (1024), and a program that hosts the engine may well have more
+        // files open than that.
+        inline void pollSockets(SocketWait *items, size_t count, int ms)
+        {
+            struct pollfd fds[limits::kMaxOpenRequests];
+            if (count > limits::kMaxOpenRequests)
+                count = limits::kMaxOpenRequests;
+            for (size_t k = 0; k < count; ++k)
+            {
+                fds[k].fd = static_cast<int>(items[k].socket);
+                fds[k].events = items[k].write ? POLLOUT : POLLIN;
+                fds[k].revents = 0;
+            }
+            if (::poll(fds, static_cast<nfds_t>(count), ms) <= 0)
+                return; // nothing is ready, or a signal arrived: the caller looks at the time and asks again
+            for (size_t k = 0; k < count; ++k)
+                items[k].ready = fds[k].revents != 0;
         }
 #endif
 
@@ -173,18 +172,6 @@ namespace cuff::net
         {
             const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
             return left <= 0 ? 0 : (left > 0x7FFFFFFF ? 0x7FFFFFFF : static_cast<int>(left));
-        }
-
-        // Reads what has arrived, waiting no later than `deadline`. When nothing arrives in time it fails the way a
-        // non-blocking read with nothing to read fails (wouldBlock()), and the caller's own check of the deadline ends it.
-        inline int recvSome(cuff_socket_t s, char *buf, size_t len, std::chrono::steady_clock::time_point deadline)
-        {
-            if (!waitFor(s, false, millisecondsLeft(deadline)))
-            {
-                markTimedOut();
-                return -1;
-            }
-            return recvNow(s, buf, len);
         }
 
         inline std::string toLower(std::string s)
@@ -410,102 +397,6 @@ namespace cuff::net
             return true;
         }
 
-        // Use a non-blocking connect so the TCP handshake is bounded by our
-        // explicit timeout rather than the operating system's default timeout.
-        inline bool connectWithTimeout(cuff_socket_t sock, const sockaddr *addr, socklen_t len, int timeoutMs)
-        {
-            setNonBlocking(sock);
-            int rc = ::connect(sock, addr, len);
-            if (rc == 0)
-            {
-                setBlocking(sock);
-                return true;
-            }
-            if (!inProgress())
-                return false;
-            if (!waitFor(sock, true, timeoutMs))
-                return false;
-            int err = 0;
-            socklen_t elen = sizeof err;
-            if (getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &elen) != 0 || err != 0)
-                return false;
-            setBlocking(sock);
-            return true;
-        }
-
-        inline bool readBytes(cuff_socket_t sock, std::string &out, size_t want, size_t cap,
-                              std::chrono::steady_clock::time_point deadline, std::string &err)
-        {
-            char buf[16384];
-            while (want == std::string::npos || out.size() < want)
-            {
-                if (std::chrono::steady_clock::now() > deadline)
-                {
-                    err = "timed out reading the response";
-                    return false;
-                }
-                int n = recvSome(sock, buf, sizeof buf, deadline);
-                if (n < 0)
-                {
-                    if (wouldBlock())
-                        continue;
-                    err = "connection error while reading the response";
-                    return false;
-                }
-                if (n == 0)
-                    break;
-                if (out.size() + static_cast<size_t>(n) > cap)
-                {
-                    err = "response exceeded the maximum allowed size";
-                    return false;
-                }
-                out.append(buf, static_cast<size_t>(n));
-            }
-            return true;
-        }
-
-        inline bool readLine(cuff_socket_t sock, std::string &pending, std::string &line,
-                             size_t cap, std::chrono::steady_clock::time_point deadline, std::string &err)
-        {
-            while (true)
-            {
-                size_t nl = pending.find('\n');
-                if (nl != std::string::npos)
-                {
-                    line = pending.substr(0, nl);
-                    if (!line.empty() && line.back() == '\r')
-                        line.pop_back();
-                    pending.erase(0, nl + 1);
-                    return true;
-                }
-                if (pending.size() > cap)
-                {
-                    err = "response header/line too large";
-                    return false;
-                }
-                if (std::chrono::steady_clock::now() > deadline)
-                {
-                    err = "timed out reading the response";
-                    return false;
-                }
-                char buf[4096];
-                int n = recvSome(sock, buf, sizeof buf, deadline);
-                if (n < 0)
-                {
-                    if (wouldBlock())
-                        continue;
-                    err = "connection error while reading the response";
-                    return false;
-                }
-                if (n == 0)
-                {
-                    err = "connection closed unexpectedly";
-                    return false;
-                }
-                pending.append(buf, static_cast<size_t>(n));
-            }
-        }
-
         struct RawResponse
         {
             int status = 0;
@@ -548,293 +439,570 @@ namespace cuff::net
             return nullptr;
         }
 
-        inline bool receiveResponse(cuff_socket_t sock, const HttpOptions &opts,
-                                    std::chrono::steady_clock::time_point deadline,
-                                    RawResponse &out, std::string &err)
+        // Reads a response from the bytes as they arrive. feed() is called whenever there is more to look at and
+        // says whether the response is complete, needs more bytes, or is not a response the client accepts.
+        class ResponseReader
         {
-            std::string pending, line;
-            if (!readLine(sock, pending, line, 8192, deadline, err))
-                return false;
-            size_t sp1 = line.find(' ');
-            size_t sp2 = sp1 == std::string::npos ? std::string::npos : line.find(' ', sp1 + 1);
-            if (sp1 == std::string::npos)
+        public:
+            enum class Result
             {
-                err = "malformed status line from server";
-                return false;
-            }
-            out.status = std::atoi(line.substr(sp1 + 1, sp2 == std::string::npos ? std::string::npos : sp2 - sp1 - 1).c_str());
+                More,
+                Complete,
+                Failed
+            };
 
-            while (true)
+            explicit ResponseReader(size_t maxBytes) : maxBytes_(maxBytes) {}
+
+            RawResponse response;
+            std::string error;
+
+            // The bytes that arrived; `closed` when the server has closed the connection and no more will come.
+            Result feed(const char *data, size_t size, bool closed)
             {
-                if (!readLine(sock, pending, line, 16384, deadline, err))
+                buffer_.append(data, size);
+                for (;;)
+                {
+                    const Result r = step(closed);
+                    if (r != Result::More)
+                        return r;
+                    if (!progressed_)
+                        return Result::More;
+                }
+            }
+
+            // The time for the whole request ran out, or the connection broke (`what` says which).
+            Result stopped(const char *what)
+            {
+                if (state_ == State::Trailers)
+                    return Result::Complete; // the body is whole; what follows the last chunk carries nothing the client uses
+                error = what;
+                return Result::Failed;
+            }
+
+        private:
+            enum class State
+            {
+                StatusLine,
+                Headers,
+                ChunkSize,
+                ChunkData,
+                ChunkEnd,
+                Trailers,
+                Counted, // a body of Content-Length bytes
+                ToClose  // a body that ends when the connection does
+            };
+
+            State state_ = State::StatusLine;
+            size_t maxBytes_;
+            std::string buffer_;
+            size_t pos_ = 0; // what is before this has been used
+            size_t want_ = 0;
+            bool progressed_ = false;
+
+            Result fail(const char *what)
+            {
+                error = what;
+                return Result::Failed;
+            }
+
+            // The next line, without its line end. A line longer than `cap` is not one the client reads.
+            enum class Line
+            {
+                Ready,
+                More,
+                TooLong,
+                Closed
+            };
+            Line line(std::string &out, size_t cap, bool closed)
+            {
+                const size_t nl = buffer_.find('\n', pos_);
+                if (nl == std::string::npos)
+                {
+                    if (buffer_.size() - pos_ > cap)
+                        return Line::TooLong;
+                    return closed ? Line::Closed : Line::More;
+                }
+                if (nl - pos_ > cap + 1)
+                    return Line::TooLong;
+                out.assign(buffer_, pos_, nl - pos_);
+                if (!out.empty() && out.back() == '\r')
+                    out.pop_back();
+                pos_ = nl + 1;
+                return Line::Ready;
+            }
+
+            Result lineProblem(Line l)
+            {
+                if (l == Line::More)
+                    return Result::More;
+                return fail(l == Line::TooLong ? "response header/line too large" : "connection closed unexpectedly");
+            }
+
+            // Takes what the buffer holds into the body. A body larger than the client accepts is an error.
+            bool takeBody(size_t count)
+            {
+                if (count > maxBytes_ - response.body.size())
                     return false;
-                if (line.empty())
+                response.body.append(buffer_, pos_, count);
+                pos_ += count;
+                return true;
+            }
+
+            void forgetUsed()
+            {
+                buffer_.erase(0, pos_);
+                pos_ = 0;
+            }
+
+            Result step(bool closed)
+            {
+                progressed_ = true;
+                std::string text;
+                switch (state_)
+                {
+                case State::StatusLine:
+                {
+                    const Line l = line(text, 8192, closed);
+                    if (l != Line::Ready)
+                        return progressed_ = false, lineProblem(l);
+                    const size_t sp1 = text.find(' ');
+                    const size_t sp2 = sp1 == std::string::npos ? std::string::npos : text.find(' ', sp1 + 1);
+                    if (sp1 == std::string::npos)
+                        return fail("malformed status line from server");
+                    response.status = std::atoi(text.substr(sp1 + 1, sp2 == std::string::npos ? std::string::npos : sp2 - sp1 - 1).c_str());
+                    state_ = State::Headers;
+                    return Result::More;
+                }
+                case State::Headers:
+                {
+                    const Line l = line(text, 16384, closed);
+                    if (l != Line::Ready)
+                        return progressed_ = false, lineProblem(l);
+                    if (!text.empty())
+                    {
+                        const size_t colon = text.find(':');
+                        if (colon != std::string::npos)
+                        {
+                            size_t value = colon + 1;
+                            while (value < text.size() && text[value] == ' ')
+                                ++value;
+                            response.headers.emplace_back(toLower(text.substr(0, colon)), text.substr(value));
+                        }
+                        return Result::More;
+                    }
+                    const std::string *encoding = findHeader(response, "transfer-encoding");
+                    const std::string *length = findHeader(response, "content-length");
+                    if (encoding && toLower(*encoding).find("chunked") != std::string::npos)
+                    {
+                        state_ = State::ChunkSize;
+                    }
+                    else if (length)
+                    {
+                        unsigned long long want = 0;
+                        if (!parseSize(*length, 10, want))
+                            return fail("malformed Content-Length in the response");
+                        if (want > maxBytes_)
+                            return fail("response exceeded the maximum allowed size");
+                        want_ = static_cast<size_t>(want);
+                        state_ = State::Counted;
+                    }
+                    else
+                    {
+                        state_ = State::ToClose;
+                    }
+                    return Result::More;
+                }
+                case State::ChunkSize:
+                {
+                    const Line l = line(text, 64, closed);
+                    if (l != Line::Ready)
+                        return progressed_ = false, lineProblem(l);
+                    unsigned long long size = 0;
+                    if (!parseSize(text.substr(0, text.find(';')), 16, size))
+                        return fail("malformed chunk size in the response");
+                    if (size == 0)
+                    {
+                        state_ = State::Trailers;
+                        return Result::More;
+                    }
+                    // Compared against what is left of the budget: body size plus chunk size can wrap around.
+                    if (size > maxBytes_ - response.body.size())
+                        return fail("response exceeded the maximum allowed size");
+                    want_ = static_cast<size_t>(size);
+                    state_ = State::ChunkData;
+                    return Result::More;
+                }
+                case State::ChunkData:
+                {
+                    if (buffer_.size() - pos_ < want_)
+                    {
+                        progressed_ = false;
+                        return closed ? fail("connection closed mid-chunk") : Result::More;
+                    }
+                    takeBody(want_);
+                    forgetUsed();
+                    state_ = State::ChunkEnd;
+                    return Result::More;
+                }
+                case State::ChunkEnd:
+                {
+                    const Line l = line(text, 8, closed);
+                    if (l != Line::Ready)
+                        return progressed_ = false, lineProblem(l);
+                    state_ = State::ChunkSize;
+                    return Result::More;
+                }
+                case State::Trailers:
+                {
+                    const Line l = line(text, 16384, closed);
+                    if (l == Line::More)
+                        return progressed_ = false, Result::More;
+                    return l == Line::Ready && !text.empty() ? Result::More : Result::Complete;
+                }
+                case State::Counted:
+                {
+                    const size_t have = buffer_.size() - pos_;
+                    const size_t missing = want_ - response.body.size();
+                    takeBody(std::min(have, missing));
+                    forgetUsed();
+                    progressed_ = false;
+                    // A server that closes early has sent what it had: the body is what arrived.
+                    return response.body.size() == want_ || closed ? Result::Complete : Result::More;
+                }
+                case State::ToClose:
+                {
+                    if (!takeBody(buffer_.size() - pos_))
+                        return fail("response exceeded the maximum allowed size");
+                    forgetUsed();
+                    progressed_ = false;
+                    return closed ? Result::Complete : Result::More;
+                }
+                }
+                return fail("connection error while reading the response");
+            }
+        };
+
+    }
+
+    // One request, carried out without ever waiting on the network: advance() does what can be done now and says
+    // whether the request is over. Between calls the caller waits for socket() to become ready, or for wakeAt().
+    // Finding the address of a host name is the one step that can hold the caller up.
+    class Request
+    {
+    public:
+        using Clock = std::chrono::steady_clock;
+
+        Request(const std::string &method, const std::string &url, const std::string &body, const std::string &contentType,
+                const HttpOptions &opts)
+            : opts_(opts), method_(method), url_(url), body_(body), contentType_(contentType), redirectsLeft_(opts.maxRedirects),
+              reader_(opts.maxResponseBytes)
+        {
+        }
+
+        Request(const Request &) = delete;
+        Request &operator=(const Request &) = delete;
+
+        ~Request() { release(); }
+
+        HttpResponse result;
+
+        cuff_socket_t socket() const { return sock_; }
+        bool wantsWrite() const { return phase_ == Phase::Connecting || phase_ == Phase::Sending; }
+        Clock::time_point wakeAt() const { return phase_ == Phase::Connecting ? connectDeadline_ : deadline_; }
+
+        // True when the request is over: `result` holds the response, or the reason there is none.
+        bool advance()
+        {
+            using namespace detail;
+            for (;;)
+            {
+                switch (phase_)
+                {
+                case Phase::Start:
+                    ensureInit();
+                    // One deadline for the whole request, so that following redirects cannot stretch it.
+                    deadline_ = Clock::now() + std::chrono::milliseconds(opts_.totalTimeoutMs);
+                    phase_ = Phase::Resolve;
                     break;
-                size_t colon = line.find(':');
-                if (colon == std::string::npos)
-                    continue;
-                std::string name = toLower(line.substr(0, colon));
-                size_t vstart = colon + 1;
-                while (vstart < line.size() && line[vstart] == ' ')
-                    ++vstart;
-                out.headers.emplace_back(std::move(name), line.substr(vstart));
-            }
-
-            const std::string *te = findHeader(out, "transfer-encoding");
-            const std::string *cl = findHeader(out, "content-length");
-
-            if (te && toLower(*te).find("chunked") != std::string::npos)
-            {
-                while (true)
+                case Phase::Resolve:
+                    if (!resolve())
+                        return finish();
+                    phase_ = Phase::NextAddress;
+                    break;
+                case Phase::NextAddress:
+                    if (!connectNext())
+                        return finish();
+                    break;
+                case Phase::Connecting:
                 {
-                    if (!readLine(sock, pending, line, 64, deadline, err))
-                        return false;
-                    unsigned long long chunkSize = 0;
-                    if (!parseSize(line.substr(0, line.find(';')), 16, chunkSize))
+                    int err = 0;
+                    socklen_t len = sizeof err;
+                    const bool known = getsockopt(sock_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&err), &len) == 0;
+                    SocketWait probe{static_cast<long long>(sock_), true, false};
+                    pollSockets(&probe, 1, 0);
+                    if (!known || err != 0)
                     {
-                        err = "malformed chunk size in the response";
+                        dropSocket();
+                        phase_ = Phase::NextAddress;
+                    }
+                    else if (probe.ready)
+                    {
+                        connected();
+                    }
+                    else if (Clock::now() > connectDeadline_)
+                    {
+                        dropSocket();
+                        phase_ = Phase::NextAddress;
+                    }
+                    else
+                    {
                         return false;
                     }
-                    if (chunkSize == 0)
+                    break;
+                }
+                case Phase::Sending:
+                {
+                    if (Clock::now() > deadline_)
+                        return fail("timed out sending the request");
+                    const int n = sendAll(sock_, request_.data() + sent_, request_.size() - sent_);
+                    if (n <= 0)
                     {
-                        while (readLine(sock, pending, line, 16384, deadline, err) && !line.empty())
-                        {
-                        }
-                        break;
-                    }
-                    // Compare against the remaining budget: body.size() + chunkSize can wrap around for a hostile size.
-                    if (chunkSize > opts.maxResponseBytes - out.body.size())
-                    {
-                        err = "response exceeded the maximum allowed size";
-                        return false;
-                    }
-                    while (pending.size() < static_cast<size_t>(chunkSize))
-                    {
-                        if (std::chrono::steady_clock::now() > deadline)
-                        {
-                            err = "timed out reading the response";
+                        if (n < 0 && wouldBlock())
                             return false;
-                        }
-                        char buf[16384];
-                        int n = recvSome(sock, buf, sizeof buf, deadline);
+                        return fail("connection error while sending the request");
+                    }
+                    sent_ += static_cast<size_t>(n);
+                    if (sent_ == request_.size())
+                        phase_ = Phase::Receiving;
+                    break;
+                }
+                case Phase::Receiving:
+                {
+                    char buf[16384];
+                    ResponseReader::Result r;
+                    if (Clock::now() > deadline_)
+                    {
+                        r = reader_.stopped("timed out reading the response");
+                    }
+                    else
+                    {
+                        const int n = recvNow(sock_, buf, sizeof buf);
+                        if (n < 0 && wouldBlock())
+                            return false;
                         if (n < 0)
-                        {
-                            if (wouldBlock())
-                                continue;
-                            err = "connection error while reading the response";
-                            return false;
-                        }
-                        if (n == 0)
-                        {
-                            err = "connection closed mid-chunk";
-                            return false;
-                        }
-                        pending.append(buf, static_cast<size_t>(n));
+                            r = reader_.stopped("connection error while reading the response");
+                        else
+                            r = reader_.feed(buf, static_cast<size_t>(n), n == 0);
+                        if (n == 0 && r == ResponseReader::Result::More)
+                            r = reader_.stopped("connection closed unexpectedly");
                     }
-                    out.body.append(pending, 0, static_cast<size_t>(chunkSize));
-                    pending.erase(0, static_cast<size_t>(chunkSize));
-                    if (!readLine(sock, pending, line, 8, deadline, err))
-                        return false;
+                    if (r == ResponseReader::Result::More)
+                        break;
+                    dropSocket();
+                    if (r == ResponseReader::Result::Failed)
+                        return fail(reader_.error);
+                    if (!followRedirect())
+                    {
+                        result.ok = true;
+                        result.status = reader_.response.status;
+                        result.body = std::move(reader_.response.body);
+                        result.finalUrl = url_;
+                        return finish();
+                    }
+                    break;
+                }
+                case Phase::Done:
+                    return true;
                 }
             }
-            else if (cl)
-            {
-                unsigned long long want = 0;
-                if (!parseSize(*cl, 10, want))
-                {
-                    err = "malformed Content-Length in the response";
-                    return false;
-                }
-                if (want > opts.maxResponseBytes)
-                {
-                    err = "response exceeded the maximum allowed size";
-                    return false;
-                }
-                out.body = std::move(pending);
-                if (out.body.size() < want)
-                {
-                    if (!readBytes(sock, out.body, static_cast<size_t>(want), opts.maxResponseBytes, deadline, err))
-                        return false;
-                }
-                else
-                {
-                    out.body.resize(static_cast<size_t>(want));
-                }
-            }
-            else
-            {
-                out.body = std::move(pending);
-                if (!readBytes(sock, out.body, std::string::npos, opts.maxResponseBytes, deadline, err))
-                    return false;
-            }
+        }
+
+    private:
+        enum class Phase
+        {
+            Start,
+            Resolve,
+            NextAddress,
+            Connecting,
+            Sending,
+            Receiving,
+            Done
+        };
+
+        const HttpOptions opts_;
+        std::string method_, url_, body_;
+        const std::string contentType_;
+        int redirectsLeft_;
+        Phase phase_ = Phase::Start;
+        Clock::time_point deadline_, connectDeadline_;
+
+        detail::ParsedUrl parsed_;
+        std::string port_;
+        addrinfo *resolved_ = nullptr;
+        addrinfo *next_ = nullptr;
+        bool blockedByPolicy_ = false;
+        cuff_socket_t sock_ = kCuffInvalidSocket;
+
+        std::string request_;
+        size_t sent_ = 0;
+        detail::ResponseReader reader_;
+
+        void dropSocket()
+        {
+            if (sock_ != kCuffInvalidSocket)
+                detail::closeSocket(sock_);
+            sock_ = kCuffInvalidSocket;
+        }
+
+        void release()
+        {
+            dropSocket();
+            if (resolved_)
+                freeaddrinfo(resolved_);
+            resolved_ = next_ = nullptr;
+        }
+
+        bool finish()
+        {
+            release();
+            phase_ = Phase::Done;
             return true;
         }
 
-    }
-
-    inline HttpResponse performRequest(const std::string &method, const std::string &initialUrl,
-                                       const std::string &requestBody, const std::string &contentType,
-                                       const HttpOptions &opts)
-    {
-        using namespace detail;
-        ensureInit();
-
-        HttpResponse result;
-        std::string url = initialUrl;
-        std::string method_ = method;
-        std::string body = requestBody;
-        // Keep one deadline for the request so response processing cannot extend
-        // the caller's total timeout indefinitely.
-        const auto overallDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(opts.totalTimeoutMs);
-
-        for (int redirectsLeft = opts.maxRedirects; redirectsLeft >= 0; --redirectsLeft)
+        bool fail(const std::string &why)
         {
-            ParsedUrl parsed;
-            std::string perr;
-            if (!parseUrl(url, parsed, perr))
-            {
-                result.errorMessage = perr;
-                return result;
-            }
+            result.errorMessage = why;
+            return finish();
+        }
 
+        bool resolve()
+        {
+            std::string err;
+            parsed_ = detail::ParsedUrl();
+            if (!detail::parseUrl(url_, parsed_, err))
+            {
+                result.errorMessage = err;
+                return false;
+            }
             addrinfo hints{};
             hints.ai_family = AF_UNSPEC;
             hints.ai_socktype = SOCK_STREAM;
-            addrinfo *resolved = nullptr;
-            std::string portStr = std::to_string(parsed.port);
-            int gai = getaddrinfo(parsed.host.c_str(), portStr.c_str(), &hints, &resolved);
-            if (gai != 0 || !resolved)
+            port_ = std::to_string(parsed_.port);
+            if (getaddrinfo(parsed_.host.c_str(), port_.c_str(), &hints, &resolved_) != 0 || !resolved_)
             {
-                result.errorMessage = "could not resolve host '" + parsed.host + "'";
-                return result;
+                result.errorMessage = "could not resolve host '" + parsed_.host + "'";
+                return false;
             }
-
-            cuff_socket_t sock = kCuffInvalidSocket;
-            bool blockedByPolicy = false;
-            for (addrinfo *p = resolved; p; p = p->ai_next)
-            {
-                if (!opts.allowPrivateTargets && isPrivateOrLoopback(p->ai_addr))
-                {
-                    blockedByPolicy = true;
-                    continue;
-                }
-                cuff_socket_t s = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-                if (s == kCuffInvalidSocket)
-                    continue;
-                if (connectWithTimeout(s, p->ai_addr, static_cast<socklen_t>(p->ai_addrlen), opts.connectTimeoutMs))
-                {
-                    sock = s;
-                    break;
-                }
-                closeSocket(s);
-            }
-            freeaddrinfo(resolved);
-
-            if (sock == kCuffInvalidSocket)
-            {
-                result.errorMessage = blockedByPolicy
-                    ? "'" + parsed.host + "' resolves to a private/loopback address, which DLC:network blocks by default"
-                    : "could not connect to '" + (parsed.ipv6Literal ? "[" + parsed.host + "]" : parsed.host) + ":" + portStr + "'";
-                return result;
-            }
-
-            setTimeouts(sock, opts.totalTimeoutMs);
-
-            std::string hostHeader = parsed.ipv6Literal ? "[" + parsed.host + "]" : parsed.host;
-            if (parsed.port != 80)
-                hostHeader += ":" + portStr;
-
-            std::string request;
-            request.reserve(256 + body.size());
-            request += method_ + " " + parsed.target + " HTTP/1.1\r\n";
-            request += "Host: " + hostHeader + "\r\n";
-            request += "User-Agent: " + opts.userAgent + "\r\n";
-            request += "Accept: */*\r\n";
-            request += "Connection: close\r\n";
-            if (!body.empty() || method_ == "POST")
-            {
-                request += "Content-Type: " + (contentType.empty() ? std::string("text/plain; charset=utf-8") : contentType) + "\r\n";
-                request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-            }
-            request += "\r\n";
-            request += body;
-
-            size_t sent = 0;
-            bool sendFailed = false;
-            while (sent < request.size())
-            {
-                if (std::chrono::steady_clock::now() > overallDeadline)
-                {
-                    result.errorMessage = "timed out sending the request";
-                    sendFailed = true;
-                    break;
-                }
-                int n = sendAll(sock, request.data() + sent, request.size() - sent);
-                if (n <= 0)
-                {
-                    if (n < 0 && wouldBlock())
-                        continue;
-                    result.errorMessage = "connection error while sending the request";
-                    sendFailed = true;
-                    break;
-                }
-                sent += static_cast<size_t>(n);
-            }
-            if (sendFailed)
-            {
-                closeSocket(sock);
-                return result;
-            }
-
-            RawResponse raw;
-            std::string rerr;
-            bool received = receiveResponse(sock, opts, overallDeadline, raw, rerr);
-            closeSocket(sock);
-
-            if (!received)
-            {
-                result.errorMessage = rerr;
-                return result;
-            }
-
-            bool isRedirect = (raw.status == 301 || raw.status == 302 || raw.status == 303 ||
-                               raw.status == 307 || raw.status == 308);
-            const std::string *location = isRedirect ? findHeader(raw, "location") : nullptr;
-            if (isRedirect && location && redirectsLeft > 0)
-            {
-                const std::string next = resolveReference(url, *location);
-                // Follow common redirect semantics: 303 switches to GET, 301/302
-                // switch POST to GET, while 307/308 preserve the original method/body.
-
-                if (raw.status == 303 || ((raw.status == 301 || raw.status == 302) && method_ == "POST"))
-                {
-                    method_ = "GET";
-                    body.clear();
-                }
-                url = next;
-                continue;
-            }
-
-            result.ok = true;
-            result.status = raw.status;
-            result.body = std::move(raw.body);
-            result.finalUrl = url;
-            return result;
+            next_ = resolved_;
+            blockedByPolicy_ = false;
+            return true;
         }
 
-        result.errorMessage = "too many redirects";
-        return result;
-    }
+        // Starts a connection to the next address the name stands for. False when there is none left.
+        bool connectNext()
+        {
+            using namespace detail;
+            for (; next_; next_ = next_->ai_next)
+            {
+                if (!opts_.allowPrivateTargets && isPrivateOrLoopback(next_->ai_addr))
+                {
+                    blockedByPolicy_ = true;
+                    continue;
+                }
+                sock_ = ::socket(next_->ai_family, next_->ai_socktype, next_->ai_protocol);
+                if (sock_ == kCuffInvalidSocket)
+                    continue;
+                // The connection is made without blocking, so that the time it may take is the client's to bound
+                // and not the operating system's.
+                setNonBlocking(sock_);
+                prepareSocket(sock_);
+                const int rc = ::connect(sock_, next_->ai_addr, static_cast<socklen_t>(next_->ai_addrlen));
+                next_ = next_->ai_next;
+                if (rc == 0)
+                {
+                    connected();
+                    return true;
+                }
+                if (inProgress())
+                {
+                    connectDeadline_ = Clock::now() + std::chrono::milliseconds(opts_.connectTimeoutMs);
+                    phase_ = Phase::Connecting;
+                    return true;
+                }
+                dropSocket();
+                return true; // the loop in advance() comes back for the address after this one
+            }
+            result.errorMessage = blockedByPolicy_
+                                      ? "'" + parsed_.host + "' resolves to a private/loopback address, which DLC:network blocks by default"
+                                      : "could not connect to '" + (parsed_.ipv6Literal ? "[" + parsed_.host + "]" : parsed_.host) + ":" + port_ + "'";
+            return false;
+        }
 
-    inline HttpResponse get(const std::string &url, const HttpOptions &opts)
-    {
-        return performRequest("GET", url, std::string(), std::string(), opts);
-    }
+        void connected()
+        {
+            freeaddrinfo(resolved_);
+            resolved_ = next_ = nullptr;
 
-    inline HttpResponse post(const std::string &url, const std::string &body, const std::string &contentType,
-                              const HttpOptions &opts)
+            std::string host = parsed_.ipv6Literal ? "[" + parsed_.host + "]" : parsed_.host;
+            if (parsed_.port != 80)
+                host += ":" + port_;
+            request_.clear();
+            request_.reserve(256 + body_.size());
+            request_ += method_ + " " + parsed_.target + " HTTP/1.1\r\n";
+            request_ += "Host: " + host + "\r\n";
+            request_ += "User-Agent: " + opts_.userAgent + "\r\n";
+            request_ += "Accept: */*\r\n";
+            request_ += "Connection: close\r\n";
+            if (!body_.empty() || method_ == "POST")
+            {
+                request_ += "Content-Type: " + (contentType_.empty() ? std::string("text/plain; charset=utf-8") : contentType_) + "\r\n";
+                request_ += "Content-Length: " + std::to_string(body_.size()) + "\r\n";
+            }
+            request_ += "\r\n";
+            request_ += body_;
+            sent_ = 0;
+            reader_ = detail::ResponseReader(opts_.maxResponseBytes);
+            phase_ = Phase::Sending;
+        }
+
+        // True when the response sends the client on to another address, which the request then goes to.
+        bool followRedirect()
+        {
+            const int status = reader_.response.status;
+            const bool redirect = status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+            const std::string *location = redirect ? detail::findHeader(reader_.response, "location") : nullptr;
+            if (!location)
+                return false;
+            if (redirectsLeft_ <= 0)
+            {
+                // The last answer the client may follow is given as it is.
+                return false;
+            }
+            --redirectsLeft_;
+            const std::string next = detail::resolveReference(url_, *location);
+            // 303 always becomes a GET, and 301 and 302 turn a POST into one; 307 and 308 keep the method and the body.
+            if (status == 303 || ((status == 301 || status == 302) && method_ == "POST"))
+            {
+                method_ = "GET";
+                body_.clear();
+            }
+            url_ = next;
+            phase_ = Phase::Resolve;
+            return true;
+        }
+    };
+
+    // Carries a request out and waits for it.
+    inline HttpResponse performRequest(const std::string &method, const std::string &url, const std::string &body,
+                                       const std::string &contentType, const HttpOptions &opts)
     {
-        return performRequest("POST", url, body, contentType, opts);
+        Request request(method, url, body, contentType, opts);
+        while (!request.advance())
+        {
+            SocketWait wait{static_cast<long long>(request.socket()), request.wantsWrite(), false};
+            detail::pollSockets(&wait, 1, detail::millisecondsLeft(request.wakeAt()) + 1);
+        }
+        return std::move(request.result);
     }
 
 }

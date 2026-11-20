@@ -34,7 +34,7 @@ space does not have to be renumbered.
 A program sees an error as an object of the built-in class `Error` (`message`, `code`, `line`, `column`, `hint`).
 Two kinds of error become one:
 
-- An error the program raises with `fail` is a `ProgramError` (`interpreter/ProgramError.h`, code `E7-001`). It carries the
+- An error the program raises with `fail` is a `ProgramError` (in `interpreter/Interpreter.h`, code `E7-001`). It carries the
   `Error` object that was raised, which may be of a class the program wrote, and a handler written `or_else as Error e` receives that
   very object. `fail e` inside a handler raises it again with its class intact.
 - An error the engine raises (a recoverable `CuffError`) is turned into a new `Error` object at the handler, from its code,
@@ -47,10 +47,14 @@ the marks, and the class name before the message when the object is not a plain 
 ## Who catches what
 
 - `or_else` (the interpreter) catches errors whose code is recoverable, and runs its block. With `as NAME` the block's scope gets the error object first.
-- Everything else propagates out of `Interpreter::run`. Before it leaves, `run` empties the queue of `async` calls that
-  have not started, so a failed run leaves nothing half done.
-- `Session::run` and `CuffEngine::execute` catch what escapes, through `renderCurrentException`. It renders a `CuffError`
-  as a report, and turns `std::bad_alloc` and any other exception into a report as well. They never throw.
+- An error in a task that no `or_else` of the task catches is kept with the task, and raised again at each `await` of it,
+  where an `or_else` around the `await` can catch it. An error in a task that nothing can await (a call written as a statement of
+  its own) is made unrecoverable and ends the program, and so is one in a task whose `Task` was never awaited, at the end.
+- Everything else propagates out of `Interpreter::run`. Before it leaves, `run` drops the tasks that are left and unwinds every
+  stack, so a failed run leaves nothing half done.
+- `Engine` catches what escapes, through `renderCurrentExceptionSafely`. It renders a `CuffError` as a report, and turns
+  `std::bad_alloc` (`E6-003`) and any other exception into a report as well; when memory has run out, it writes the report from
+  memory it set aside. It never throws.
 
 ## The report
 

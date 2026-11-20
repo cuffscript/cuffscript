@@ -100,8 +100,9 @@ Every variable a function declares has its own register for the whole call, so r
 move between registers and involves no table. Temporaries hold the operands of an expression that is being worked out,
 the arguments of a call that is being prepared, and a loop's own bookkeeping.
 
-Registers live in large blocks that never move (`Segment`), and frames in blocks of `Frame` records that never move
-either, so a pointer to a register or to a frame stays valid while other code runs. A program's variables of the top
+Registers live in blocks that never move (`Segment`), each twice the size of the one before, and frames in blocks of `Frame`
+records that never move either (32 to a block for the program, 4 for a task), so a pointer to a register or to a frame stays
+valid while other code runs. A program's variables of the top
 level are not registers: they live in a `VarTable`, one slot for each name, in chunks that never move, and compiled code
 refers to a slot by its address.
 
@@ -172,7 +173,8 @@ A jump that goes back to the start of a loop carries a flag that counts one pass
 | :--- | :--- |
 | `Call r i f` | Calls by name: a user function, else a class (which makes an object), else a native function. The arguments are the `i` registers from `r`, and the result replaces the first of them. |
 | `CallM r i c`, `CallS r i`, `CallW r i i` | A method call on the object in `r`, a `super` call, and a call by name inside `with`, where the name may be a method of the object. |
-| `AwaitF`, `AwaitM r`, `AwaitS` | What `await` checks before the arguments are worked out: that the function is `async`. |
+| `AwaitF`, `AwaitM r`, `AwaitS` | What `await` of a call checks before the arguments are worked out: that the function is `async`. |
+| `Await r` | `await` of any other value: the value in `r` must be a `Task`. Its result replaces it, at once when the task has finished, or when the running task, which waits for it, is taken up again. |
 | `Ret r`, `RetNil` | Returns a value, or `empty`. |
 | `ArgJmp i j`, `DefChk r i m` | The start of a function with default values: skips the code of a default whose argument was given; checks a default's value against the parameter's type. |
 | `ForPrep r r`, `ForNext r r j` | `loop repeat`: works out both ends once, then steps. |
@@ -217,7 +219,8 @@ frame (`dynVars_`). Only that piece of code pays for it.
 ### Functions that use the program's variables
 
 A function is compiled once, but the variable that `global count` links to may be declared again with another type
-later: by a module, or by a later entry in the shell. So when a function is compiled against a top-level variable, the
+later: by a module, or in a block beside the one that declared it (a name a block declares is forgotten when the block
+ends). So when a function is compiled against a top-level variable, the
 variable's slot is marked as watched, and declaring it differently marks every such function's code as out of date. The
 next call compiles the function again. If the function is running at that moment its old code is kept until it returns.
 
@@ -237,10 +240,16 @@ calling makes the callee's frame the current one and continues the loop, and ret
 How deep a program may recurse is therefore a count of frames ([limits](../reference/limits.md)), and does not depend on
 what the function's body looks like.
 
-The loop is entered again from inside itself in four cases, each of which is the engine calling back into a program
+The loop is entered again from inside itself in three cases, each of which is the engine calling back into a program
 while it is in the middle of something: an object's `to_str` run because a value is being shown, the default value of a
-field while an object is made, the top level of a module, and a queued `async` call. These do use native stack, and the
-stack budget is what bounds them ([resource limits](resource-limits.md)).
+field while an object is made, and the top level of a module. These do use native stack, and the stack budget is what
+bounds them ([resource limits](resource-limits.md)).
+
+A task is not one of them. Each task has a stack of its own, frames and registers as the program's has, and switching to
+it swaps which stack the loop works on: the loop returns, leaving the frames where they are, and is entered again on the
+other stack. A task's stack starts small (four frames and 32 registers) and grows as the program's does. When a task has to
+wait inside one of the three cases above, C++ is still on the native stack and the loop cannot return; the machine then
+runs the other tasks from where it is until the wait is over ([tasks](how-it-works.md#tasks)).
 
 ## Loops
 
@@ -279,7 +288,7 @@ Three kinds of instruction remember what they found last time, in a slot of thei
 - `CallM` remembers the class and the method it resolved to, with the method's compiled code.
 - A call or a name inside `with` remembers whether the name was a member of the object's class.
 
-A class that is declared again in the shell gets a new serial number, so nothing has to be invalidated.
+A class is declared once in an interpreter and lives as long as it, so the serial number a cache holds never goes stale.
 
 ## Rules for changing the machine
 
@@ -297,5 +306,10 @@ A class that is declared again in the shell gets a new serial number, so nothing
   passed on the stack, and GCC on Linux then gives the whole loop a frame pointer, which costs it a register.
 - Whatever a slow path needs (the node, the position, the call's name) is worked out in the slow path. The fast path of
   an instruction should touch its operands and nothing else.
+- Code that allocates (making a map, a list of many values) is a candidate for a function of its own, out of the loop.
+  How GCC shares the registers among the loop's values depends on everything inlined into it, also into instructions
+  that a benchmark never runs: in 6.0.0 an inlined `make_shared<ValueMap>` put `fr` on the stack, and every instruction
+  paid a load for it (3% more instructions for calls). After a change to the loop or to what it inlines, count the
+  instructions of the call and loop benchmarks with Callgrind, which does not vary between runs, and compare.
 - A change to what the compiler proves is checked against a build that proves nothing: `-DCUFF_DYNAMIC_NAMES` looks
   every name up at run time, and the whole suite must pass on it ([testing](../contributing/testing.md)).

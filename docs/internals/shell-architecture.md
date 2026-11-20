@@ -1,17 +1,17 @@
 # The shell's architecture
 
 `cuffsh` is a front end (see [Architecture](architecture.md#front-ends)): it reads what you type, hands text to the engine and
-prints what comes back. Everything about the terminal is in `cli/`; the engine is used only through `cuff::Session`.
+prints what comes back. Everything about the terminal is in `cli/`; the engine is used only through `cuff::Engine`.
 
 ## Files
 
 | File | Owns |
 | :--- | :--- |
 | `main.cpp` | Command-line parsing (the engine flags through `EngineOptionsCli.h`, the shell's own here), choosing between the interactive and the piped mode, and exit codes. |
-| `Repl.h` | The loop: show the prompt, take an entry, run `:` commands, hand everything else to the `Session`, print the outcome. It contains no parser, no interpreter and no error formatting. |
+| `Repl.h` | The loop: show the prompt, take an entry, run `:` commands, hand everything else to the `Engine`, print the outcome. It contains no parser, no interpreter and no error formatting. |
 | `LineEditor.h` | The prompt editor: raw per-key input, the buffer, wrapping and redrawing, history, paste handling, and the keyboard protocols. |
 | `Terminal.h` | Terminal detection, colour and escape-sequence setup, the terminal width, and the signal and Ctrl+C handling that governs what happens while code runs. |
-| `Interrupt.h` | One flag, set while `Session::run` is executing, that tells the Ctrl+C handler whether a computation is in progress. |
+| `Interrupt.h` | One flag, set while `Engine::run` is executing, that tells the Ctrl+C handler whether a computation is in progress. |
 | `Platform.h` | Everything that differs between operating systems: the command line as UTF-8, reading files and standard input, whether standard input is a console, and converting a UTF-8 path to the encoding the engine expects. |
 | `Text.h` | Trimming and the sanitising of text that goes to the screen. |
 | `Width.h` | Names the width helpers the editor uses; the tables themselves are the engine's (`engine/common/Width.h`), shared with the error reporter. |
@@ -23,7 +23,7 @@ prints what comes back. Everything about the terminal is in `cli/`; the engine i
 read an entry (LineEditor)  ->  starts with ':'?  ->  a session command (Repl)
                                    no
                                    v
-          Session::run(entry)  ->  Outcome { success, error }
+          Engine::run(entry)   ->  Outcome { success, error }
                                    v
                     print the error, if any, exactly as given
 ```
@@ -32,9 +32,9 @@ An entry is **exactly what was typed**. The shell does not decide that something
 engine, which reports its own error if the text is incomplete. That is why Shift+Enter exists, and why there is no
 continuation-prompt logic to keep in step with the grammar.
 
-Because the shell holds one `Session` for its whole life, a function or a class declared in one entry can be used by the next, and an
+Because the shell holds one `Engine` for its whole life, a function or a class declared in one entry can be used by the next, and an
 error inside it is drawn from the entry that declared it ([source locations](source-locations.md#sourceref-which-text)).
-`:reset` calls `Session::reset`. `:load` reads a file and runs it as one entry. Startup `file.cuff` is run the same way.
+`:reset` calls `Engine::reset`. `:load` reads a file and runs it as one entry. Startup `file.cuff` is run the same way.
 
 ## Piped input
 
@@ -66,7 +66,7 @@ An entry taller than the window is shown as a scrolling view around the cursor, 
 ## Ctrl+C
 
 The engine cannot be told to stop a computation once it has started. At the prompt, Ctrl+C cancels the entry (the editor sees the
-raw key). While `Session::run` is executing (`g_programRunning`), the handler in `Terminal.h` ends the process with status 130,
+raw key). While `Engine::run` is executing (`g_programRunning`), the handler in `Terminal.h` ends the process with status 130,
 because that is the only safe way out. `--timeout` is what keeps this rare: the engine ends a runaway entry with `E6-002` and the
 session survives.
 

@@ -1,7 +1,7 @@
 // cuffsh — interactive shell for CuffScript, built directly on the same
 // engine main.cpp/cuffc uses for one-shot script execution. Nothing here
 // re-implements language semantics: parsing/execution always go through
-// cuff::Session (see engine/Session.h). This file is
+// cuff::Engine (see engine/CuffEngine.h). This file is
 // the front end: prompt/keys live in LineEditor.h, terminal setup in
 // Terminal.h, platform differences in Platform.h, the session in Repl.h.
 

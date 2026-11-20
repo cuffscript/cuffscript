@@ -1,7 +1,13 @@
-[sync] start
-[async] looking up the score
-[sync] score = 87
-[sync] end of the main program
-[async] A done
-[async] B done
-[async] C done
+[main] start
+[main] two drinks ordered; tea done yet? false
+[task] tea started
+[task] coffee started
+[task] note: the kettle is on
+[task] coffee ready
+[main] got coffee
+[task] tea ready
+[main] got tea, done: true
+[main] caught: the toast is burnt
+[task] cocoa started
+[task] cocoa ready
+[main] end, with cocoa

@@ -8,6 +8,7 @@
 #include <emscripten/bind.h>
 #include "../engine/CuffEngine.h"
 #include "../engine/debug/BytecodePrinter.h"
+#include <iostream>
 
 using namespace emscripten;
 
@@ -17,7 +18,7 @@ struct RunOutcome
     std::string error;
 };
 
-static RunOutcome toOutcome(const cuff::CuffEngine::Result &result)
+static RunOutcome toOutcome(const cuff::Engine::Outcome &result)
 {
     return RunOutcome{result.success, result.error};
 }
@@ -27,26 +28,25 @@ static RunOutcome toOutcome(const cuff::CuffEngine::Result &result)
 // (see FS.mkdirTree/writeFile on the JS side).
 RunOutcome cuffRun(const std::string &source, const std::string &scriptDir)
 {
-    return toOutcome(cuff::CuffEngine::execute(source, scriptDir));
+    return toOutcome(cuff::Engine::execute(source, scriptDir));
 }
 
 // Parses `source` only and writes the token/AST dump to stdout, mirroring
 // `cuffc --ast`. Used by the IDE's AST view panel.
 RunOutcome cuffDump(const std::string &source)
 {
-    cuff::CuffEngine::Result result = cuff::CuffEngine::run(source);
-    cuff::CuffEngine::debugDump(result);
-    return toOutcome(result);
+    const cuff::Engine::Parsed parsed = cuff::Engine::parse(source);
+    cuff::Engine::dump(parsed);
+    return RunOutcome{parsed.success, parsed.error};
 }
 
-// Compiles and executes `source`, printing each piece of bytecode as it is compiled,
-// mirroring `cuffc --bytecode`.
+// Runs `source` and writes each piece of bytecode to stdout as the engine compiles it, in order with what the
+// program prints, mirroring `cuffc --bytecode`.
 RunOutcome cuffBytecode(const std::string &source, const std::string &scriptDir)
 {
-    cuff::CuffEngine::Options options;
-    options.onCompiled = [](const cuff::bc::Proto &proto)
-    { std::cout << cuff::BytecodePrinter::print(proto); };
-    return toOutcome(cuff::CuffEngine::execute(source, scriptDir, options));
+    cuff::Engine::Options options;
+    options.onCompiled = [](const cuff::bc::Proto &proto) { std::cout << cuff::BytecodePrinter::print(proto); };
+    return toOutcome(cuff::Engine::execute(source, scriptDir, options));
 }
 
 EMSCRIPTEN_BINDINGS(cuffscript_wasm)

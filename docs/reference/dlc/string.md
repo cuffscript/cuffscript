@@ -12,9 +12,6 @@ place. An argument of the wrong type is `E4-005` and the wrong number of argumen
 
 | Function | Result |
 | :--- | :--- |
-| `length(x)` | The characters in a string. Also works on lists and maps; see below. |
-| `contains(x, v)` | Whether the string `x` contains the substring `v`. `v` must be a string, and an empty `v` is always found. |
-| `index_of(x, v)` | The 1-based position, in characters, of the first `v` in `x`, or `empty` if there is none. An empty `v` is found at position `1`. |
 | `str_upper(s)`, `str_lower(s)` | The string in upper or lower case; see [case conversion](#case-conversion). |
 | `str_trim(s)`, `str_trim_start(s)`, `str_trim_end(s)` | The string without surrounding white space on both sides, the start, or the end. White space here is exactly space, tab, CR and LF; a form feed or a non-breaking space is not trimmed. |
 | `str_starts_with(s, prefix)`, `str_ends_with(s, suffix)` | Whether the string begins or ends with the given text. The empty string is a prefix and a suffix of everything. |
@@ -23,9 +20,9 @@ place. An argument of the wrong type is `E4-005` and the wrong number of argumen
 | `str_char_code(s)` | The code point of the first character. An empty string is `E4-025`. |
 | `str_from_char_code(n)` | The character with code point `n`, from 0 to 1114111, excluding the surrogate range (`E4-025`). |
 
-`length`, `contains` and `index_of` are shared with [`DLC:list`](list.md) and, for the first two, [`DLC:map`](map.md).
-`length` and `contains` become available when any of the three libraries is loaded, and `index_of` when `DLC:string` or
-`DLC:list` is. Each one works on every kind of value it is documented for, whichever library loaded it.
+`length`, `contains` and `index_of` are [built in](../builtins.md#length-contains-and-index_of): they need no `use`. On a string,
+`length` counts characters, `contains(x, v)` tells whether `v` (a string) occurs in `x`, where an empty `v` is always found, and
+`index_of(x, v)` is the 1-based position, in characters, of the first `v`, or `empty`; an empty `v` is found at position `1`.
 
 ```cuff
 use DLC:string

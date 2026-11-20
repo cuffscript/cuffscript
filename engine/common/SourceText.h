@@ -1,12 +1,34 @@
 #pragma once
 
-#include "SourceLocation.h"
+#include <string>
 #include <cstddef>
 #include <memory>
-#include <string>
 
 namespace cuff
 {
+
+    struct SourceLocation
+    {
+        int line = 1;
+        int column = 1;
+        int offset = 0;
+
+        SourceLocation() = default;
+
+        SourceLocation(int line, int column, int offset)
+            : line(line), column(column), offset(offset) {}
+
+        std::string toString() const
+        {
+            return "line " + std::to_string(line) + ", column " + std::to_string(column);
+        }
+    };
+
+    // The location of an error that has no place in any text: one raised for something a host program asked for.
+    inline SourceLocation noLocation()
+    {
+        return SourceLocation(0, 0, 0);
+    }
 
     // The program text a SourceLocation's offset points into.
     //

@@ -47,8 +47,8 @@ namespace cuff
         const Method *toStr = nullptr; // the nearest `to_str`, or null
         // A number no other class of the same interpreter has, so that what was looked up for one class (where a
         // field sits, which function a method name runs) can be kept beside the instruction that asked and tested
-        // with one comparison. An address would not do: a class that is declared again may be given the address of
-        // the one it replaced.
+        // with one comparison. (A class lives as long as its interpreter, so its address would do as well; the
+        // number takes half the room beside the instruction.)
         uint32_t serial = 0;
         SourceRef source; // the text the class was written in: where an error in a field's default value is drawn from
         // What the interpreter that declared the class keeps for it: how each field gets its first value.

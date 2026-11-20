@@ -50,23 +50,10 @@ E4-001 the variable does not exist yet
 
 **Use it.** Put the steps of a program first and the helpers under them. Classes may be written in any order too, even a child before its parent.
 
-### The last function of a name wins, everywhere
+### A function of your own replaces a library function, everywhere
 
-<!-- test: phenomena/last_declaration_wins -->
+<!-- test: phenomena/own_function_replaces_library -->
 ```cuff
-note: both calls print the same word, because every function was collected before the first line ran
-func pick() do:
-    return "first"
-end
-
-print(pick())
-
-func pick() do:
-    return "second"
-end
-
-print(pick())
-
 note: functions are looked up before the library, so one of your own replaces a library function everywhere, above its line too
 use DLC:string
 print(str_upper("hello"))
@@ -74,17 +61,23 @@ print(str_upper("hello"))
 func str_upper(str text) do:
     return "no thanks"
 end
+
+note: the built-in functions are replaced the same way
+print(length("four"))
+
+func length(str text) do:
+    return "long enough"
+end
 ```
 
 ```output
-second
-second
 no thanks
+long enough
 ```
 
-**Why.** Registering is a table with one entry per name, so a second `func pick` replaces the first before anything runs, and both calls reach it. Calls look in that table before they look in the libraries, which is why a function of your own can stand in for a library function, above its line as well as below.
+**Why.** Registering is a table with one entry per name, filled before anything runs. Calls look in that table before they look in the libraries, which is why a function of your own can stand in for a library function, above its line as well as below.
 
-**Watch out.** Nothing warns about a name used twice. If a function seems to do the wrong thing, search the file for another one of the same name.
+**Watch out.** Two functions of one name at the top level of a program cannot both be meant, so that is a syntax error, [`E2-010`](../reference/errors.md#e2-010) (up to 5.x the second one silently replaced the first). That holds across the texts one engine runs, too: a later entry in the shell cannot declare a function again. A module loaded with `use` may bring in a function of a name the program already has, which calls reach from the `use` on.
 
 ### A syntax error stops a program before its first line; a runtime error does not
 
@@ -338,11 +331,11 @@ c
 
 **Why.** `loop each` takes the items of the list, or the keys of the map, when the loop begins, and walks that. Adding to the list does not lengthen the loop, and a key removed from the map is still visited. This is what makes it safe to `add` and `remove` while looping.
 
-### An async call that is not awaited waits for the end
+### A task runs when the program waits, or at its end
 
 <!-- test: phenomena/async_waits -->
 ```cuff
-note: an async call that is not awaited waits until the program's own lines are done
+note: a task does not run until the code that is running waits or ends; these lines never wait
 async func hello(str who) do:
     print("hello " + who)
 end
@@ -366,7 +359,7 @@ hello a
 hello c
 ```
 
-**Why.** CuffScript runs one thing at a time. A call to an `async` function that is not awaited is put in a queue, and the queue is emptied, in order, after the last top-level line. `await` runs the call there and then. So the text of a program is not always the order of its output ([the queue](../internals/how-it-works.md#the-async-queue)).
+**Why.** CuffScript runs one thing at a time, and switches only when the code that is running waits or ends. A call of an `async` function that is not awaited starts a task, which is ready but does not run yet; `await` runs the call there and then. These lines never wait, so the two tasks run after the last of them, in the order they were started. A program that waits (`await` of a task, `time_sleep`, a network request) lets the tasks run at that point instead ([tasks](../internals/how-it-works.md#tasks)). So the text of a program is not always the order of its output.
 
 ### A default is worked out at every call
 

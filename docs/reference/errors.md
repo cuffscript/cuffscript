@@ -32,7 +32,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | :--- | :--- | :---: |
 | <a id="e1-001"></a>`E1-001` | A character that cannot begin any token. _Reserved: never raised._ | no |
 | <a id="e1-002"></a>`E1-002` | A string literal that is never closed. _Reserved: never raised._ | no |
-| <a id="e1-003"></a>`E1-003` | A malformed number literal. | no |
+| <a id="e1-003"></a>`E1-003` | A malformed number literal: a letter touching it, an exponent without digits, or a value too large. | no |
 | <a id="e1-004"></a>`E1-004` | Indentation that does not line up with the enclosing block. _Reserved: never raised._ | no |
 | <a id="e1-005"></a>`E1-005` | A space before the colon that opens a block. _Reserved: never raised._ | no |
 | <a id="e1-006"></a>`E1-006` | A block comment that is never closed. _Reserved: never raised._ | no |
@@ -98,20 +98,20 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e4-016"></a>`E4-016` | An operation not supported here, such as `return value` outside a function. | yes |
 | <a id="e4-017"></a>`E4-017` | More calls active at once than the call depth limit allows, or nesting inside the engine deeper than the native stack budget allows. | yes |
 | <a id="e4-018"></a>`E4-018` | A function declared inside another function. | yes |
-| <a id="e4-019"></a>`E4-019` | `await` applied to a function that is not `async`. | yes |
+| <a id="e4-019"></a>`E4-019` | `await` applied to a function that is not `async`, or to a value that is not a task. | yes |
 | <a id="e4-020"></a>`E4-020` | A declared type that does not match the value. | yes |
 | <a id="e4-021"></a>`E4-021` | `global` outside a function body. | yes |
 | <a id="e4-022"></a>`E4-022` | `return` outside any function. | yes |
 | <a id="e4-023"></a>`E4-023` | `stop` or `skip` outside any loop. | yes |
 | <a id="e4-024"></a>`E4-024` | A position or range bound that is not a whole number. | yes |
 | <a id="e4-025"></a>`E4-025` | An argument of the right type but a value the function or operator does not accept. | yes |
-| <a id="e4-026"></a>`E4-026` | A string, list, map, `async` queue or class declaration larger than its limit. | yes |
+| <a id="e4-026"></a>`E4-026` | A string, list, map, class declaration, or number of tasks larger than its limit. | yes |
 | <a id="e4-027"></a>`E4-027` | A `pure` function that reaches a global variable. | yes |
 | <a id="e4-028"></a>`E4-028` | A network request that failed, timed out, or targeted a blocked address. | yes |
 | <a id="e4-029"></a>`E4-029` | A `pure` function that calls a function that is not `pure`. | yes |
 | <a id="e4-030"></a>`E4-030` | An argument that does not match the parameter's declared type. | yes |
 | <a id="e4-031"></a>`E4-031` | A class name that is not declared, used as a type, in `extends`, in `isa` or as a constructor. | yes |
-| <a id="e4-032"></a>`E4-032` | A class that inherits from itself, through its ancestors, or from something that is not a class. | yes |
+| <a id="e4-032"></a>`E4-032` | A class that inherits from itself, through its ancestors, from something that is not a class, or from `Task`. | yes |
 | <a id="e4-033"></a>`E4-033` | A field or method that the object's class does not have. | yes |
 | <a id="e4-034"></a>`E4-034` | A `private` field or method used outside the class that declares it. | yes |
 | <a id="e4-035"></a>`E4-035` | A `.name` access or a `with` block applied to a value that is not an object. | yes |
@@ -121,6 +121,9 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | <a id="e4-039"></a>`E4-039` | A class whose name does not start with an uppercase letter. | yes |
 | <a id="e4-040"></a>`E4-040` | A method used as a value, or a field called as a method. | yes |
 | <a id="e4-041"></a>`E4-041` | A `pure` function or method that changes a field. | yes |
+| <a id="e4-042"></a>`E4-042` | A function that the host program added reported a failure. | yes |
+| <a id="e4-043"></a>`E4-043` | A task waits for something that can no longer happen: every task is waiting. | yes |
+| <a id="e4-044"></a>`E4-044` | A part of the device that this device does not have, or that the host did not give (DLC:hardware). | yes |
 
 ### Module Errors
 
@@ -169,7 +172,7 @@ reproduce, and codes that nothing in an ordinary program raises, are described a
 number x
 ```
 
-**E2-010.** A name is declared a second time where the same function, or the top level of the program, already declares it: in the same block, in a block inside it, or as a parameter or a loop variable with the name of a variable declared before. Give the second one another name, or assign to the first (`total = 2`). Two blocks side by side may declare the same name, and so may two functions.
+**E2-010.** A name is declared a second time where the same function, or the top level of the program, already declares it: in the same block, in a block inside it, or as a parameter or a loop variable with the name of a variable declared before. Give the second one another name, or assign to the first (`total = 2`). Two blocks side by side may declare the same name, and so may two functions. It is also raised for a second function of the same name at the top level of one file: both cannot be meant, so rename one or remove it (a later shell entry may still declare a function again).
 
 ```cuff error E2-010
 number total = 1
@@ -335,7 +338,7 @@ end
 outer()
 ```
 
-**E4-019.** `await` was applied to a call of a function that is not `async`. Declare the function `async func`, or drop the `await`.
+**E4-019.** `await` was applied to a call of a function that is not `async`, or to a value that is not a `Task`. Declare the function `async func`, or drop the `await`; to wait for a task, `await` the `Task` value its call gave.
 
 ```cuff error E4-019
 func f() do:
@@ -379,7 +382,7 @@ print("abc"[1.5])
 print(to_number("abc"))
 ```
 
-**E4-026.** A string, list, map or the queue of `async` calls grew past its limit (see [limits](limits.md)).
+**E4-026.** A string, list, map or class declaration grew past its limit, or too many tasks were started or are waiting at once (see [limits](limits.md)).
 
 ```cuff error E4-026
 use DLC:string
@@ -431,7 +434,7 @@ f("x")
 print(1 isa Ghost)
 ```
 
-**E4-032.** A class that extends itself, directly or through its ancestors, or extends something that is not a class.
+**E4-032.** A class that extends itself, directly or through its ancestors, extends something that is not a class, or extends the built-in `Task`.
 
 ```cuff error E4-032
 class A extends A do:
@@ -482,7 +485,7 @@ class Box do:
 end
 ```
 
-**E4-038.** A class has the name of a function, of another class or of the built-in `Error`. Classes and functions share one namespace.
+**E4-038.** A class has the name of a function, of another class or of a built-in class (`Error`, `Task`). Classes and functions share one namespace.
 
 ```cuff error E4-038
 func Report() do:
@@ -521,6 +524,28 @@ class Counter do:
     end
 end
 Counter().bump()
+```
+
+**E4-042.** A function that the host program added with `Engine::addFunction` reported a failure (`Args::fail`, or a C++ exception it let out). The message is the host's own, after the function's name. A program can catch it with `or_else`; what the failure means is in the host's documentation. See [embedding](../guide/embedding.md).
+
+**E4-043.** The program waits for something that can never happen: every task is waiting, and none waits for time to pass or for the network, so none can go on. Two tasks that await each other do this, and so does a task that awaits itself.
+
+```cuff error E4-043
+list tasks = []
+async func wait_for(number which) do:
+    global tasks
+    return await tasks[which]
+end
+add wait_for(2) to tasks
+add wait_for(1) to tasks
+print(await tasks[1])
+```
+
+**E4-044.** A [`DLC:hardware`](dlc/hardware.md) function for a part that this device does not have, or that the host did not give the program: hardware is off unless the host gives it (`cuffc --hardware`, or `Engine::Options::hardware`). The message says which function, and the host's reason when it gave one (`hw_battery(): this computer has no battery`). Ask `hw_supports` first, or catch it with `or_else`.
+
+```cuff error E4-044
+use DLC:hardware
+hw_led(0, true)
 ```
 
 ### Modules and libraries
@@ -574,7 +599,7 @@ print(withdraw(10, 50))
 
 ### Codes without an example
 
-- **`E1-003`** is raised for a number literal that is too large to represent, one written with hundreds of digits.
+- **`E1-003`** is raised for a number literal that is too large to represent (`1e400`, or one written with hundreds of digits), and for a number that a letter touches: an exponent without digits (`1e`), a hexadecimal form (`0x10`), digit separators (`1_000`), or a word written against a number (`2x`).
 - **`E2-008`** is raised for code nested deeper than the nesting limit, or a single expression longer than the expression limit, and **`E2-009`** for a program or shell entry larger than the source size limit. **`E3-011`** is the same kind of
   error for a pattern: one that is too large or nested too deeply. The values are in [limits](limits.md).
 - **`E5-005`** is raised by a call into `DLC:network` or `DLC:filesystem` when the host switched the library off (`--no-network`, `--no-filesystem`). The `use` line itself succeeds.

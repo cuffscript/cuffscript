@@ -44,7 +44,7 @@ then pass the entry file's directory as `scriptDir`.
 | :--- | :--- |
 | `mod.cuffRun(source, scriptDir)` | Parses and runs the program. `scriptDir` is the directory in the virtual file system that `use <name> from <path>` is resolved against. Returns `{ success, error }`; on failure `error` is the complete report, with the source line and a caret. |
 | `mod.cuffDump(source)` | Parses without running and writes the token and syntax-tree dump through `print`. Returns `{ success, error }`. |
-| `mod.cuffBytecode(source, scriptDir)` | Runs the program and writes each piece of bytecode as it is compiled through `print`. `scriptDir` resolves imports as in `cuffRun`. Returns `{ success, error }`. |
+| `mod.cuffBytecode(source, scriptDir)` | Runs the script and writes each piece of bytecode through `print` at the moment it is compiled, in order with what the program prints, like `cuffc --bytecode`. Returns `{ success, error }`. |
 | `mod.FS` | Emscripten's virtual file system, for the files of a multi-file project. |
 
 The module configuration takes `print` (called once per line a program prints), `printErr`, `stdin` (called once per byte that `input()` reads; return a byte from 0 to 255, or `null` at the end of the input) and `locateFile` (to fetch the `.wasm` file from somewhere else). Full types: `dist/cuffscript.d.ts`.

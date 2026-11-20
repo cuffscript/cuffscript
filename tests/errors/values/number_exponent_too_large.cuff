@@ -1,0 +1,2 @@
+note: E1-003 -- a number literal whose exponent makes it larger than any number
+print(1e999)

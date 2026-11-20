@@ -12,7 +12,7 @@ namespace cuff
     //
     // The table is shared by the whole process: a name gets the same number in every program, module and
     // thread, which is what lets a function from one module find the variables of another by number. Because
-    // threads share it, it is locked. An embedder may therefore run one Session per thread with no further
+    // threads share it, it is locked. An embedder may therefore run one Engine per thread with no further
     // care (see tests/unit/threads_test.cpp); the lock is held only for the lookup.
     //
     // Names are never removed, so the table grows by the number of *distinct* identifiers the process has ever

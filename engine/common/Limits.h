@@ -96,9 +96,30 @@ namespace cuff::limits
     // How deeply nested the text `from_json` reads, or the value `to_json` writes, may be.
     constexpr int kMaxJsonDepth = 200;
 
-    // @limit Queued async calls | E4-026
-    // How many `async` calls may wait to run at once.
-    constexpr size_t kMaxQueuedTasks = 1000000;
+    // @limit Tasks | E4-026
+    // How many tasks may exist at once that have not finished: those that have not started yet, and those that wait.
+    constexpr size_t kMaxTasks = 1000000;
+
+    // @limit Waiting tasks | E4-026
+    // How many tasks may be waiting at once (for another task, for `time_sleep`, for a network answer). A task that
+    // has started keeps its variables until it finishes, which one that has not started does not.
+    constexpr size_t kMaxWaitingTasks = 10000;
+
+    // @limit PBKDF2 iterations | E4-025
+    // The most rounds `hash_pbkdf2_sha256` may be asked for. Ten million take a few seconds, and the time limit is
+    // looked at when the call returns.
+    constexpr long long kMaxPbkdf2Iterations = 10000000;
+
+    // @limit PBKDF2 key length | E4-025
+    // The longest key, in bytes, `hash_pbkdf2_sha256` may be asked to derive.
+    constexpr long long kMaxPbkdf2Bytes = 1024;
+
+    // @limit Sleep | E4-025
+    // The longest `time_sleep` may be asked to wait, in seconds (1000 days).
+    constexpr int kMaxSleepSeconds = 86400000;
+
+    // How many network requests are under way at once; the ones started beyond that wait their turn.
+    constexpr size_t kMaxOpenRequests = 32;
 
     // @limit Class inheritance depth | E4-026
     // How many parent classes one class may have in a chain (`extends` of `extends` of ...).
@@ -183,9 +204,13 @@ namespace cuff::limits
     // A response is read into a string.
     static_assert(kHttpMaxResponseBytes <= kMaxStringBytes, "a network response could not be held in a string");
 
-    // Queued calls are counted against the same family of limits as collections: the queue is never allowed to
-    // outgrow what a list of the same calls could be.
-    static_assert(kMaxQueuedTasks <= kMaxCollectionItems, "kMaxQueuedTasks exceeds kMaxCollectionItems");
+    // Tasks are counted against the same family of limits as collections: there are never more of them than a list
+    // could hold.
+    static_assert(kMaxTasks <= kMaxCollectionItems, "kMaxTasks exceeds kMaxCollectionItems");
+    static_assert(kMaxWaitingTasks <= kMaxTasks, "more tasks could wait than could exist");
+
+    // Windows waits on sockets with select(), whose set holds 64 of them unless the host program raised that.
+    static_assert(kMaxOpenRequests <= 64, "more requests could be open than select() can wait on");
 
     // A chain of parents is a chain of classes, so it can be no longer than the number of classes.
     static_assert(static_cast<size_t>(kMaxInheritanceDepth) < kMaxClasses,

@@ -2,10 +2,13 @@
 #include "engine/EngineOptionsCli.h"
 #include "engine/debug/BytecodePrinter.h"
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -43,7 +46,7 @@ namespace
     }
 }
 
-int main(int argc, char *argv[])
+static int runCli(int argc, char *argv[])
 {
     std::ios::sync_with_stdio(false);
 
@@ -51,7 +54,7 @@ int main(int argc, char *argv[])
     bool onlyPaths = false; // after "--" every argument is a file name, even one that starts with '-'
     std::string path;
     bool havePath = false;
-    cuff::CuffEngine::Options options;
+    cuff::Engine::Options options;
 
     const std::vector<std::string> args(argv + 1, argv + argc);
     for (size_t i = 0; i < args.size(); ++i)
@@ -132,16 +135,44 @@ int main(int argc, char *argv[])
 
     if (debugMode)
     {
-        cuff::CuffEngine::Result result = cuff::CuffEngine::run(source);
-        cuff::CuffEngine::debugDump(result);
-        return result.success ? 0 : 1;
+        const cuff::Engine::Parsed parsed = cuff::Engine::parse(source);
+        cuff::Engine::dump(parsed);
+        return parsed.success ? 0 : 1;
     }
 
-    cuff::CuffEngine::Result result = cuff::CuffEngine::execute(std::move(source), scriptDir, options);
+    cuff::Engine::Outcome result = cuff::Engine::execute(std::move(source), scriptDir, options);
     if (!result.success)
     {
+        // A report that is empty could not be written: there was no memory left for it.
+        if (result.error.empty())
+            throw std::bad_alloc();
         std::cerr << "ERROR: " << result.error << "\n";
         return 1;
     }
     return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    // Nothing leaves main as an exception: one that did would end the process with an abort and no report. What can
+    // still arrive here is a failure outside a run, such as no memory while the arguments are read.
+    try
+    {
+        return runCli(argc, argv);
+    }
+    catch (const std::bad_alloc &)
+    {
+        std::fputs("ERROR: [E6-003] Resource Limit Error: the program ran out of memory\n", stderr);
+    }
+    catch (const std::exception &e)
+    {
+        std::fputs("ERROR: Internal error: ", stderr);
+        std::fputs(e.what(), stderr);
+        std::fputs("\n", stderr);
+    }
+    catch (...)
+    {
+        std::fputs("ERROR: Internal error: unknown exception\n", stderr);
+    }
+    return 1;
 }

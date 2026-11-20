@@ -30,7 +30,7 @@ namespace
     {
         std::ostringstream out;
         std::streambuf *old = std::cout.rdbuf(out.rdbuf());
-        cuff::Session session;
+        cuff::Engine session;
         const auto outcome = session.run(source);
         std::cout.rdbuf(old);
         return outcome.success ? out.str() : "ERROR " + outcome.error;

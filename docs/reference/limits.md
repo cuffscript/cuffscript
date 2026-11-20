@@ -22,7 +22,11 @@ _This table is generated from `engine/common/Limits.h` by `tools/docs.py`. Chang
 | List and map size | 32 Mi (33,554,432) | [`E4-026`](errors.md#e4-026) | The most elements one list or map can hold. |
 | Value nesting in output | 1,000 |  | How deeply nested lists and maps are written out when printed or converted to text; anything deeper is shown as `[...]` or `{...}`. |
 | JSON nesting | 200 | [`E4-025`](errors.md#e4-025) | How deeply nested the text `from_json` reads, or the value `to_json` writes, may be. |
-| Queued async calls | 1,000,000 | [`E4-026`](errors.md#e4-026) | How many `async` calls may wait to run at once. |
+| Tasks | 1,000,000 | [`E4-026`](errors.md#e4-026) | How many tasks may exist at once that have not finished: those that have not started yet, and those that wait. |
+| Waiting tasks | 10,000 | [`E4-026`](errors.md#e4-026) | How many tasks may be waiting at once (for another task, for `time_sleep`, for a network answer). A task that has started keeps its variables until it finishes, which one that has not started does not. |
+| PBKDF2 iterations | 10,000,000 | [`E4-025`](errors.md#e4-025) | The most rounds `hash_pbkdf2_sha256` may be asked for. Ten million take a few seconds, and the time limit is looked at when the call returns. |
+| PBKDF2 key length | 1 KiB | [`E4-025`](errors.md#e4-025) | The longest key, in bytes, `hash_pbkdf2_sha256` may be asked to derive. |
+| Sleep | 86,400,000 | [`E4-025`](errors.md#e4-025) | The longest `time_sleep` may be asked to wait, in seconds (1000 days). |
 | Class inheritance depth | 64 | [`E4-026`](errors.md#e4-026) | How many parent classes one class may have in a chain (`extends` of `extends` of ...). |
 | Members per class | 1,024 | [`E4-026`](errors.md#e4-026) | The most fields and methods one class can have, counting the ones it inherits. It also bounds the size of every object of that class. |
 | Classes | 4,096 | [`E4-026`](errors.md#e4-026) | The most classes a program can declare, modules included. The built-in `Error` class does not count. |
@@ -40,7 +44,7 @@ _This table is generated from `engine/common/Limits.h` by `tools/docs.py`. Chang
 
 Two limits are off unless the host or the person running the script sets them:
 
-| Option | `cuffc` / `cuffsh` flag | `CuffEngine::Options` | Raises |
+| Option | `cuffc` / `cuffsh` flag | `Engine::Options` | Raises |
 | :--- | :--- | :--- | :--- |
 | Steps | `--max-steps <n>` | `maxSteps` | [`E6-001`](errors.md#e6-001) |
 | Time | `--timeout <ms>` | `timeoutMs` | [`E6-002`](errors.md#e6-002) |

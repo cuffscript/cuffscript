@@ -18,9 +18,9 @@ next. Build it with `cli/build.sh` (Linux and macOS) or `cli\build.bat` (Windows
 guess that something "looks unfinished": whatever you submit is parsed and run exactly once, and any error is
 the engine's own report, in the same form `cuffc` prints.
 
-Each entry is read on its own, so an entry may declare a name that an earlier entry declared (`number x = 1`, then later `str x = "a"`): the new declaration replaces the old variable, and a name keeps its type from the declaration that is current. Inside one entry a name is declared once, as everywhere else.
+The entries of a session are one program, run a piece at a time: an entry uses the variables, functions and classes the entries before it declared, and the rules are the engine's, as in one file. So a name is declared once: an entry that declares again a function, a class or a top-level variable that an earlier entry declared is an error (`E2-010` for a function or a variable, `E4-038` for a class), and nothing of that entry runs. Give the variable a new value with `x = ...` instead, choose another name, or start again with `:reset`. A variable whose declaration never ran (its entry failed before that line) is not declared, and a later entry may declare it.
 
-A class declared in the shell stays for the rest of the session, like a function, and so do the objects made from it. Declaring a class again replaces it for the objects made after that; objects made before keep the class they were made from.
+A class declared in the shell stays for the rest of the session, like a function, and so do the objects made from it.
 
 ## Options
 
@@ -40,6 +40,8 @@ Usage: cuffsh [options] [file.cuff]
   --allow-private-network
                          let DLC:network reach loopback/private/link-local addresses
   --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)
+  --hardware             give DLC:hardware this computer's battery, temperature and beep
+                         (off by default: every hw_ function then raises E4-044)
   --no-color             disable colored output
   --no-banner            skip the startup banner
   -h, --help             show this help and exit
@@ -94,8 +96,8 @@ A line that starts with a colon is a command; it can never be valid CuffScript, 
 
 Any other word after the colon is reported as `Unknown command` and the session is untouched.
 
-Functions may be redefined. Errors in a function that was declared in an earlier entry are shown against
-the entry that declared it, not against the one that called it.
+Errors in a function that was declared in an earlier entry are shown against the entry that declared it, not
+against the one that called it.
 
 ## When input is not a terminal
 

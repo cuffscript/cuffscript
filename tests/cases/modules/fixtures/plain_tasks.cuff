@@ -1,0 +1,7 @@
+note: a module whose top level never waits: the tasks it starts run later, with the program's own
+async func from_module(str text) do:
+    print("module task: " + text)
+    return text
+end
+from_module("started by the module")
+print("the plain module ends")

@@ -130,7 +130,7 @@ function of your own with the name of a built-in replaces it.
 
 | Kind | Form | Notes |
 | :--- | :--- | :--- |
-| number | `42`, `3.14` | Decimal digits with an optional `.` followed by digits. There is no exponent form, no leading or trailing `.`, no digit separators. A leading `-` is the unary operator. |
+| number | `42`, `3.14`, `1e6`, `2.5E-3` | Decimal digits with an optional `.` followed by digits, then an optional exponent: `e` or `E`, an optional sign, and digits (`1e6` is a million, `2.5e-3` is 0.0025). There is no leading or trailing `.`, no digit separators and no hexadecimal, binary or octal form; a letter written against a number (`2x`, `1e`, `0x10`, `1_000`) is `E1-003`. A leading `-` is the unary operator. A number too large for a double is `E1-003`. |
 | str | `"text"` or `'text'` | May span lines. Escapes: `\"` `\'` `\\` `\n` `\t` `\r`; any other `\x` is kept as written (backslash and character), which is what lets patterns contain `\.`. |
 | f-string | `f"text {expression} text"` | Double quotes only. See section 4.8. |
 | pattern | `p"[num]+"`, `p"hello"i` | A pattern, written in the pattern language and checked when the program is read. Raw: a backslash is not an escape of the string, and `\"` is a quote. Flags `i` and `m` may follow. See section 4.7 and [patterns](patterns.md). |
@@ -154,6 +154,7 @@ function of your own with the name of a built-in replaces it.
 | `match` | The result of a successful pattern match (see `patterns.md`) | — (a failed match gives `empty`, not a `match` value) |
 | `pattern` | A compiled pattern: the value of a `p"..."` literal or of `pattern(text)` | never |
 | *a class* | An object made from a class (see [classes](classes.md)); the type `object` stands for any of them | never |
+| `Task` | A call of an `async` function that is running, waiting or finished (section 6.5); a built-in class | never |
 | `empty` | No value; the only value of the type `empty` | always |
 
 **Truthiness.** `if`, `else if`, `loop while` and `!` accept a value of any type and treat it as
@@ -163,8 +164,8 @@ function of your own with the name of a built-in replaces it.
 **References.** Lists, maps and objects are references. Assigning one to another variable, or passing it to
 a function, shares the same underlying value, so a change made through either name is seen through
 both. Numbers, strings, booleans and `empty` behave as values. A list or map that contains itself is
-legal; printing and comparing it terminates. (The engine never frees such a value; see
-`design-notes.md`, item 11.)
+legal; printing and comparing it terminates. Lists, maps and objects that refer only to each other, and to
+which nothing else refers any more, are freed while the program runs ([memory](../internals/how-it-works.md#memory)).
 
 **Equality (`is`).** Values of different types are never equal. Numbers compare by value and strings
 by content. Lists and maps compare structurally: the same length or keys, with equal elements. Two
@@ -608,8 +609,10 @@ number total = add_numbers(2, 3)
   function or a method is an error (`E4-018`).
 - A call is `name(arguments)`. It is a statement on its own line or an expression. It does not use
   `do:`. Calling a name that is not defined is an error (`E4-002`).
-- Declarations are **hoisted**: a function may be called above the line that declares it. If a name is
-  declared more than once, the last declaration in the file is the one every call uses.
+- Declarations are **hoisted**: a function may be called above the line that declares it. Two functions of one
+  name at the top level of a program are a syntax error (`E2-010`), also when one of them is in a later text that the same
+  engine runs (a later entry in the shell). (A module may bring in a function of a name the program has: from the `use`
+  on, that is the one calls reach.)
 - The number of arguments must be at least the number of parameters without a default and at most the number of parameters (`E4-010`). There are no variadic parameters.
 - A function that has the same name as a built-in function replaces it for the whole program.
 - Functions are not values. They cannot be stored in a variable, passed, returned or compared, and
@@ -655,20 +658,57 @@ Hi, Bob!
 
 `async` and `pure` are independent and may appear in either order, each at most once. In a class, `private` may come first (see [classes](classes.md)).
 
-### 6.5 Asynchronous functions
+### 6.5 Asynchronous functions and tasks
 
-CuffScript's `async` is cooperative and single-threaded; nothing runs in parallel.
+A call of an `async` function can run as a **task**: a call that goes on by itself while the code that made it
+continues. One thing runs at a time. A task runs until it waits or ends, and then the next one that can go on runs;
+nothing is interrupted, and no threads are involved.
 
-- `await f(...)` runs the function to completion immediately and gives its value.
-- `f(...)` **without** `await` does not run the function now. The call is queued and returns `empty`
-  at once. Queued calls run in the order they were queued, once, after all the top-level code of the
-  program has finished, and their return values cannot be observed.
-- A queued function may queue further calls; they run in the same pass, in order.
-- An error raised by a queued call stops the program, and the calls queued after it do not run. Such
-  an error is not caught by an `or_else` written on the line that queued the call, because that line
-  finished long before.
-- `await` on a function that is not `async` is an error (`E4-019`). The queue has a size limit
-  (see [limits](limits.md); `E4-026`).
+- `await f(...)` runs the function to its end right there and gives its value, as a call of any function does.
+- `f(...)` **without** `await` starts a task and gives a `Task` value at once. The task does not run yet: it runs
+  when the code that is running waits, or reaches the end of the program. Tasks that can go on run in the order in
+  which they started, or began to wait.
+- `await t`, where `t` is a `Task`, waits until that task has finished and gives its result. A task's result can be
+  awaited any number of times. A task that ended in an error raises that error at each `await` of it, where an
+  `or_else` can catch it.
+- `t.done()` (or `task_done(t)`) is `true` once the task has finished, with a result or an error.
+- Waiting lets the other tasks run: `await` of a task that has not finished, and the library functions that wait,
+  `time_sleep` ([time](dlc/time.md)) and the requests of [network](dlc/network.md). Waits overlap, so ten requests made
+  by ten tasks take about as long as the slowest of them.
+- A call written as a statement of its own (`notify("A")`) starts a task whose value nothing keeps. An error in such a
+  task ends the program. So does an error in a task whose `Task` is never awaited, when the program reaches its end.
+  An error that no `or_else` may catch (a limit, section 11.2) ends the program wherever it happens.
+- The program has ended when its last line has run and every task has finished.
+- Tasks that all wait for each other can never go on: that is `E4-043`, raised where the program waits. A task cannot
+  wait for itself (`E4-043`).
+- `await` of something that is neither a `Task` nor a call of an `async` function, and `await` of a call of a
+  function that is not `async`, are `E4-019`.
+- `Task` is a built-in class. A program cannot make one with `Task()`, extend it or declare a class of that name.
+- There may only be so many tasks, and so many waiting at once (see [limits](limits.md); `E4-026`). A time limit
+  ends a program that is waiting, too (`E6-002`).
+
+```cuff
+use DLC:time
+
+async func brew(str drink, number seconds) do:
+    time_sleep(seconds)
+    return drink + " is ready"
+end
+
+Task tea = brew("tea", 0.2)
+Task coffee = brew("coffee", 0.1)
+print(tea.done())
+print(await coffee)
+print(await tea)
+```
+
+```output
+false
+coffee is ready
+tea is ready
+```
+
+The two waits overlap: the program takes about 0.2 seconds, not 0.3.
 
 ### 6.6 Pure functions
 
@@ -818,7 +858,8 @@ end
 7. Errors that are not catchable (resource limits, internal errors, and syntax errors in a pattern) always end the program.
 
 `or_else` guards the one statement it follows; to guard several, put them in a function and guard the
-call. It cannot guard the work of an `async` call that is queued rather than awaited (section 6.5).
+call. It does not guard a task that the statement starts: a task's error is raised where the task is awaited, and an `or_else`
+around that `await` catches it (section 6.5).
 
 ### 8.3 Error objects and `fail`
 
@@ -907,14 +948,14 @@ loads the file `./lib/greetings.cuff`.
 | `to_str(x)` | The display form of any value (section 2). |
 | `to_boolean(x)` | The truthiness of any value (section 2). |
 | `copy(x)` | A new list, map or object with the same elements or fields (a shallow copy). Any other value is `E4-005`. |
+| `task_done(t)` | Whether a task has finished (section 6.5); `t.done()` is the same. Any other value is `E4-005`. |
 | `pattern(text)`, `pattern(text, flags)` | A pattern made from text while the program runs; `flags` is a string of `i` and `m`. A syntax error in the text is `E3-0xx`. |
 | `find`, `find_all`, `match`, `replace`, `replace_all`, `split`, `count` | Text functions that take the text first and a pattern second (section 4.7, [patterns](patterns.md)). |
 
 ### 10.3 `length`, `contains`, `index_of`
 
-These three are not available until a library that registers them is loaded: `length` and `contains` come with
-any of `DLC:string`, `DLC:list` or `DLC:map`, and `index_of` with `DLC:string` or `DLC:list`. Without one of those lines
-the call is `E4-002`, and `use DLC:map` alone does not give `index_of`.
+These three are always available, like the functions of section 10.2. (Up to 5.x they came with `DLC:string`,
+`DLC:list` or `DLC:map`.)
 
 | Function | Result |
 | :--- | :--- |
@@ -961,7 +1002,7 @@ risks in [the security policy](../../SECURITY.md); [the rules for libraries](dlc
 ### 11.1 Command line
 
 `cuffc` runs a script and `cuffsh` is the interactive shell; both take the same engine options. A program
-that embeds the engine sets the same choices through `CuffEngine::Options`. See [`cuffc`](cuffc.md) and
+that embeds the engine sets the same choices through `Engine::Options`. See [`cuffc`](cuffc.md) and
 [`cuffsh`](cuffsh.md) for every option.
 
 ### 11.2 Limits

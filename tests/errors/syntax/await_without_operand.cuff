@@ -1,0 +1,3 @@
+note: E2-001 -- await needs something to wait for
+number x = 1
+await

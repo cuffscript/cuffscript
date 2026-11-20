@@ -19,6 +19,7 @@ namespace cuff
         RecvPattern = 1u << 7,
         RecvObject = 1u << 8,
         RecvAny = (1u << 9) - 1,
+        RecvTask = 1u << 9, // an object that is a task: not one of "any" value
     };
 
     inline unsigned receiverBit(ValueType t)
@@ -73,6 +74,10 @@ namespace cuff
             {"to_str", "to_str", RecvAny, ""},
             {"to_number", "to_number", RecvAny, ""},
             {"to_boolean", "to_boolean", RecvAny, ""},
+            {"length", "length", RecvStr | RecvList | RecvMap, ""},
+            {"contains", "contains", RecvStr | RecvList | RecvMap, ""},
+            {"index_of", "index_of", RecvStr | RecvList, ""},
+            {"done", "task_done", RecvTask, ""},
 
             // DLC:string
             {"upper", "str_upper", RecvStr, "string"},
@@ -84,14 +89,8 @@ namespace cuff
             {"ends_with", "str_ends_with", RecvStr, "string"},
             {"repeat", "str_repeat", RecvStr, "string"},
             {"char_code", "str_char_code", RecvStr, "string"},
-            {"length", "length", RecvStr, "string"},
-            {"contains", "contains", RecvStr, "string"},
-            {"index_of", "index_of", RecvStr, "string"},
 
             // DLC:list
-            {"length", "length", RecvList, "list"},
-            {"contains", "contains", RecvList, "list"},
-            {"index_of", "index_of", RecvList, "list"},
             {"sort", "list_sort", RecvList, "list"},
             {"reverse", "list_reverse", RecvList, "list"},
             {"join", "list_join", RecvList, "list"},
@@ -101,8 +100,6 @@ namespace cuff
             {"flatten", "list_flatten", RecvList, "list"},
 
             // DLC:map
-            {"length", "length", RecvMap, "map"},
-            {"contains", "contains", RecvMap, "map"},
             {"keys", "map_keys", RecvMap, "map"},
             {"values", "map_values", RecvMap, "map"},
             {"has_key", "map_has_key", RecvMap, "map"},

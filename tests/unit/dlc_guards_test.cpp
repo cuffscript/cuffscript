@@ -14,7 +14,7 @@
 #include <unistd.h>
 #endif
 
-using cuff::CuffEngine;
+using cuff::Engine;
 namespace fs = std::filesystem;
 
 namespace
@@ -92,10 +92,10 @@ namespace
                                send(c, reply, sizeof reply - 1, 0);
                                close(c);
                            });
-        CuffEngine::Options options;
+        Engine::Options options;
         options.allowPrivateNetworkTargets = true;
         const std::string url = "http://127.0.0.1:" + std::to_string(ntohs(addr.sin_port)) + "/";
-        auto r = CuffEngine::execute("use DLC:network\nprint(network_get(\"" + url + "\")[\"body\"])\n", ".", options);
+        auto r = Engine::execute("use DLC:network\nprint(network_get(\"" + url + "\")[\"body\"])\n", ".", options);
         server.join();
         close(listener);
         for (int fd : held)
@@ -193,7 +193,7 @@ int main()
     fs::create_directories(root / "emptydir");
     std::ofstream(root / "victim.txt") << "x";
 
-    auto r = CuffEngine::execute("use DLC:filesystem\nfile_remove(\"emptydir\")\nfile_remove(\"victim.txt\")\n", root.string());
+    auto r = Engine::execute("use DLC:filesystem\nfile_remove(\"emptydir\")\nfile_remove(\"victim.txt\")\n", root.string());
     check(r.success, "file_remove script runs: " + r.error.substr(0, 120));
     check(fs::is_directory(root / "emptydir"), "file_remove leaves an empty directory alone");
     check(!fs::exists(root / "victim.txt"), "file_remove still deletes a regular file");
@@ -211,9 +211,9 @@ int main()
 
     auto run = [&](const std::string &body, bool filesystemOn = true)
     {
-        CuffEngine::Options options;
+        Engine::Options options;
         options.filesystemEnabled = filesystemOn;
-        return CuffEngine::execute("use DLC:filesystem\n" + body, root.string(), options);
+        return Engine::execute("use DLC:filesystem\n" + body, root.string(), options);
     };
 
     auto r2 = run("file_removedir(\"full\")\nfile_removedir(\".\")\nfile_move(\".\", \"moved_root\")\n");

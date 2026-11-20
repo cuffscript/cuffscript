@@ -20,9 +20,11 @@ export interface CuffScriptModule {
   cuffRun(source: string, scriptDir: string): RunOutcome;
   // Parses `source` only and writes a token/AST dump through `print`.
   cuffDump(source: string): RunOutcome;
+  // Runs the script and writes each piece of bytecode through `print` as it is compiled, as `cuffc --bytecode` does.
+  cuffBytecode(source: string, scriptDir: string): RunOutcome;
   // Emscripten's virtual filesystem (MEMFS). Available because the module
   // is built with FORCE_FILESYSTEM=1 — use it to mount multi-file projects
-  // before calling cuffRun/cuffDump.
+  // before calling cuffRun/cuffDump/cuffBytecode.
   FS: CuffScriptFS;
 }
 

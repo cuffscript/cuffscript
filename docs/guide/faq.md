@@ -132,7 +132,9 @@ end
 
 ## Errors
 
-**What does "undefined function 'length'" mean?** `length`, `contains` and `index_of` are library functions. Add `use DLC:string` (or `DLC:list`, or `DLC:map` for the first two) at the top. See [built-in functions](../reference/builtins.md).
+**Why does my async function not run where I call it?** A call without `await` starts a task, which runs when the program waits for something or reaches its end. Write `await f()` to run it there and then, or keep the `Task` it gives and `await` that when you need the result. See [tasks](../reference/language.md#65-asynchronous-functions-and-tasks).
+
+**What does "function 'x' is already declared in this file" mean?** Two functions of one name at the top level of one file (`E2-010`). Up to 5.x the second silently replaced the first; now one of them has to be renamed or removed.
 
 **What does "global variable 'x' is not visible inside a function" mean?** A function sees only its own variables. Name the global one first with `global x`. See [scope](../reference/language.md#7-scope).
 

@@ -46,18 +46,37 @@ jobs:
                 shell: bash
                 run: g++ -std=c++17 -O1 -g $SAN -o cuffc-san main.cpp
 
-            # Leak detection is off on purpose: a list or map that contains itself is reference counted and is never
-            # freed (docs/internals/design-notes.md), and some tests build exactly that. Everything else, including the
-            # unit tests, runs under the sanitizers.
+            # Leak detection is on: the engine frees cycles as well, so whatever is left at the end is a leak.
             -   name: Run the test suite
                 shell: bash
                 env:
-                    ASAN_OPTIONS: detect_leaks=0
+                    ASAN_OPTIONS: detect_leaks=1
                     UBSAN_OPTIONS: print_stacktrace=1
                     CUFFC: ./cuffc-san
                 run: |
                     export UNIT_FLAGS="-O1 -g $SAN"
                     bash tests/run.sh
+
+            # The search for cycles at nearly every step: a value it frees while something still uses it shows at once.
+            -   name: Build cuffc that looks for cycles at every step
+                shell: bash
+                run: g++ -std=c++17 -O1 -g $SAN -DCUFF_CYCLE_STRESS -o cuffc-stress main.cpp
+
+            -   name: Run the test suite looking for cycles at every step
+                shell: bash
+                env:
+                    ASAN_OPTIONS: detect_leaks=1
+                    UBSAN_OPTIONS: print_stacktrace=1
+                    CUFFC: ./cuffc-stress
+                run: |
+                    export UNIT_FLAGS="-O1 -g $SAN -DCUFF_CYCLE_STRESS"
+                    bash tests/run.sh
+
+            -   name: Run the tasks test under ThreadSanitizer
+                shell: bash
+                run: |
+                    g++ -std=c++17 -O1 -g -fsanitize=thread -pthread -I. tests/unit/tasks_test.cpp -o tasks-tsan
+                    ./tasks-tsan
 
     # The machine reaches the same result by more than one route. The suite runs on a build that looks every name up at
     # run time (ordinary code only takes that route for its unusual names) and on one that jumps between instructions

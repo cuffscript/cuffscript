@@ -66,8 +66,8 @@ await_statement = "await" postfix ;
 - `remove at expression from place` removes by position; `remove expression from place` removes by value (or, from a map, by key).
 - `global` links variables of the program to the function it is written in; it must come before the names are used. At the top level it is an error, because there every variable is already global.
 - `fail` raises an error; its value is an `Error` object or a string (see [errors are objects](classes.md#errors-are-objects)).
-- `await postfix` is the statement form; `await` can also be used inside an expression (`number x = await f()`).
-- An `expression` on its own is a statement; its value is discarded. This is how a call such as `print(1)` is a statement.
+- `await postfix` is the statement form; `await` can also be used inside an expression (`number x = await f()`). When the operand is a call of an `async` function, the call runs to its end in place; any other operand is worked out first and must then be a `Task` ([language reference](language.md#65-asynchronous-functions-and-tasks)). Which of the two it is, is known only when the program runs.
+- An `expression` on its own is a statement; its value is discarded. This is how a call such as `print(1)` is a statement. A call of an `async` function written this way starts a task that no `Task` value stands for.
 - `skip` and `stop` act on the nearest enclosing loop and are an error outside one.
 
 ```text
@@ -96,10 +96,11 @@ field          = [ "constant" ] type NAME "=" expression ;
 body           = { statement } ;
 ```
 
-- The body of an `if`, a loop, a `with`, a function or a class may be written on the same line as its header (`if x is 1 do: print("one") end`). An empty body may be written on one line only for a class (`class Oops extends Error do: end`).
+- The body of an `if`, a loop, a `with`, a function or a class may be written on the same line as its header (`if x is 1 do: print("one") end`). On the header's line a body is one statement or nothing: `func later() do: end`, `class Oops extends Error do: end`, `if ready do: else do: print("not yet") end`.
 - The words `async` and `pure` can appear in any order before `func`, each at most once. `private` may only appear in front of a member of a class.
 - A parameter is a type followed by its name (`list items`), and `any` takes every value. A parameter with a default is written `type NAME = expression`; the parameters without one come first.
 - A class contains fields and methods only, and appears only at the top level of a program or a module. A function is not declared inside another function or a method.
+- Two functions of one name at the top level of one text are a syntax error (`E2-010`). Two classes of one name are `E4-038`, reported before the program runs.
 - A body closes at the first `end` (or `else` for an `if` branch) that is not inside a deeper block.
 
 ```text
@@ -180,7 +181,7 @@ A list or map literal may end with a trailing comma; the arguments of a call and
 
 ```text
 NAME           = ( letter | "_" ) { letter | digit | "_" } ;       letter = "A".."Z" | "a".."z"
-NUMBER         = digit { digit } [ "." digit { digit } ] ;
+NUMBER         = digit { digit } [ "." digit { digit } ] [ ( "e" | "E" ) [ "+" | "-" ] digit { digit } ] ;
 STRING         = '"' { character | escape } '"'  |  "'" { character | escape } "'" ;
 FSTRING        = "f" '"' { character | escape | "{" expression "}" | "{{" | "}}" } '"' ;
 PATTERN        = "p" '"' { pattern_char } '"' [ "i" ] [ "m" ] ;
@@ -189,7 +190,7 @@ comment        = "note" ":" { any character up to the end of the line }
 ```
 
 - A name is not a [reserved word](language.md#15-names-and-reserved-words). The names of the types are ordinary names outside the places where a type may stand.
-- A number has digits on both sides of its point, and no sign or exponent: a minus is the prefix operator, and `.5`, `5.` and `1e5` are not numbers.
+- A number has digits on both sides of its point, and may end in an exponent (`1e5`, `2.5E-3`, `4e+2`). It has no sign of its own: a minus is the prefix operator. `.5` and `5.` are not numbers, and a letter may not touch a number (`2x`, `1e`, `0x10`, `1_000` are `E1-003`).
 - A string is written with double quotes or single quotes; an f-string only with double quotes. Inside a string a backslash starts an escape (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`); any other backslash and the character after it are kept as written. A string may span lines.
 - Inside an f-string, `{` begins an expression that runs to the matching `}`, and `{{` and `}}` are literal braces. The expression cannot contain a double quote, and there is no format specifier: `{x:2}` is a syntax error.
 - A pattern literal is raw: the text between the quotes goes to the [pattern parser](patterns.md) as written, except that `\"` stands for a quote. Any other backslash and the character after it are both kept, and a backslash always takes the character after it, so `p"a\\"` is the pattern `a\\` and the literal ends at the next quote. A literal may span lines. The flags `i` (ignore case) and `m` (lines) follow the closing quote with no space, each at most once. `p` and the quote must touch: `p "a"` is a variable `p` followed by a string.

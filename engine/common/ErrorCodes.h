@@ -16,7 +16,7 @@ namespace cuff
     {
         UnexpectedCharacter = 1001, // A character that cannot begin any token.
         UnterminatedString = 1002, // A string literal that is never closed.
-        InvalidNumberLiteral = 1003, // A malformed number literal.
+        InvalidNumberLiteral = 1003, // A malformed number literal: a letter touching it, an exponent without digits, or a value too large.
         InconsistentIndentation = 1004, // Indentation that does not line up with the enclosing block.
         ColonSpaceBeforeNotAllowed = 1005, // A space before the colon that opens a block.
         UnterminatedComment = 1006, // A block comment that is never closed.
@@ -62,20 +62,20 @@ namespace cuff
         UnsupportedOperation = 4016, // An operation not supported here, such as `return value` outside a function.
         StackOverflow = 4017, // More calls active at once than the call depth limit allows, or nesting inside the engine deeper than the native stack budget allows.
         NestedFunctionNotSupported = 4018, // A function declared inside another function.
-        AwaitOnNonAsync = 4019, // `await` applied to a function that is not `async`.
+        AwaitOnNonAsync = 4019, // `await` applied to a function that is not `async`, or to a value that is not a task.
         DeclarationTypeMismatch = 4020, // A declared type that does not match the value.
         InvalidGlobalDeclaration = 4021, // `global` outside a function body.
         ReturnOutsideFunction = 4022, // `return` outside any function.
         StopOutsideLoop = 4023, // `stop` or `skip` outside any loop.
         FractionalIndex = 4024, // A position or range bound that is not a whole number.
         InvalidArgumentValue = 4025, // An argument of the right type but a value the function or operator does not accept.
-        SizeLimitExceeded = 4026, // A string, list, map, `async` queue or class declaration larger than its limit.
+        SizeLimitExceeded = 4026, // A string, list, map, class declaration, or number of tasks larger than its limit.
         PureFunctionGlobalAccess = 4027, // A `pure` function that reaches a global variable.
         NetworkRequestFailed = 4028, // A network request that failed, timed out, or targeted a blocked address.
         PureFunctionImpureCall = 4029, // A `pure` function that calls a function that is not `pure`.
         ParameterTypeMismatch = 4030, // An argument that does not match the parameter's declared type.
         UnknownClass = 4031, // A class name that is not declared, used as a type, in `extends`, in `isa` or as a constructor.
-        InvalidInheritance = 4032, // A class that inherits from itself, through its ancestors, or from something that is not a class.
+        InvalidInheritance = 4032, // A class that inherits from itself, through its ancestors, from something that is not a class, or from `Task`.
         UnknownMember = 4033, // A field or method that the object's class does not have.
         PrivateMemberAccess = 4034, // A `private` field or method used outside the class that declares it.
         NotAnObject = 4035, // A `.name` access or a `with` block applied to a value that is not an object.
@@ -85,6 +85,9 @@ namespace cuff
         InvalidClassName = 4039, // A class whose name does not start with an uppercase letter.
         MethodNotCalled = 4040, // A method used as a value, or a field called as a method.
         PureFunctionFieldWrite = 4041, // A `pure` function or method that changes a field.
+        HostFunctionFailed = 4042, // A function that the host program added reported a failure.
+        TaskDeadlock = 4043, // A task waits for something that can no longer happen: every task is waiting.
+        HardwareUnsupported = 4044, // A part of the device that this device does not have, or that the host did not give (DLC:hardware).
         ModuleNotFound = 5001, // A module file that does not exist or cannot be read.
         ModuleParseFailed = 5002, // A module file that does not parse.
         CircularImport = 5003, // Modules that import each other in a cycle.

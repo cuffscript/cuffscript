@@ -2,17 +2,19 @@
 
 #include "../common/Attributes.h"
 #include "../common/Limits.h"
-#include "../common/NumberText.h"
-#include "../common/StrData.h"
-#include "../regex/PatternData.h"
+#include "../common/Text.h"
+#include "../regex/RegexEngine.h"
 #include "ClassModel.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <new>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 #include <string>
@@ -28,12 +30,38 @@ namespace cuff
     struct MatchResult;
     struct ObjectData;
 
+    // Where a list, a map or an object is entered in the books of the engine that made it (see CycleHeap, below).
+    // Six bytes aligned to two, so that it fits where each of the three had padding: a list and an object are no
+    // larger for it.
+    struct CycleLink
+    {
+        uint16_t slotLow = 0, slotHigh = 0; // its place in the books, plus one; 0 when no engine keeps it
+        uint16_t heap = 0;                  // which engine's books
+
+        uint32_t slot() const { return slotLow | (static_cast<uint32_t>(slotHigh) << 16); }
+        void setSlot(uint32_t s)
+        {
+            slotLow = static_cast<uint16_t>(s);
+            slotHigh = static_cast<uint16_t>(s >> 16);
+        }
+
+        enum Kind : unsigned
+        {
+            List,
+            Map,
+            Object
+        };
+        void enter(void *container, Kind kind);
+        void leave() noexcept;
+    };
+
+    // The three kinds that need no counting come first, so that telling them from the rest is one comparison.
     enum class ValueType
     {
         Empty,
         Number,
-        Str,
         Boolean,
+        Str,
         List,
         Map,
         Match,
@@ -317,7 +345,7 @@ namespace cuff
         // Empty, number and boolean hold their payload in `bits`; every other type holds a counted pointer.
         static constexpr bool isPlain(ValueType t)
         {
-            return t == ValueType::Empty || t == ValueType::Number || t == ValueType::Boolean;
+            return t <= ValueType::Boolean;
         }
 
         // Makes this value what `o` is and leaves `o` empty. This value must hold nothing that needs releasing.
@@ -418,61 +446,88 @@ namespace cuff
     struct ValueList
     {
         std::vector<Value> items;
+        CycleLink cycles;
         // Set once, when a `constant list` declaration freezes its fresh copy.
         bool isConstant = false;
+
+        ValueList() { cycles.enter(this, CycleLink::List); }
+        ValueList(const ValueList &o) : items(o.items), isConstant(o.isConstant) { cycles.enter(this, CycleLink::List); }
+        ValueList &operator=(const ValueList &o)
+        {
+            items = o.items;
+            isConstant = o.isConstant;
+            return *this;
+        }
         ~ValueList();
     };
 
+    // A map keeps its keys in the order they were first set. The keys and the values are two arrays; beside them is
+    // a table that says where in those arrays a key is, by the key's hash. The table holds positions only (four
+    // bytes each), not the keys again, and a map of a few keys has no table at all: its keys are looked through.
     class ValueMap
     {
     public:
+        ValueMap() { cycles.enter(this, CycleLink::Map); }
+        ValueMap(const ValueMap &o) : order_(o.order_), values_(o.values_), slots_(o.slots_) { cycles.enter(this, CycleLink::Map); }
+        ValueMap &operator=(const ValueMap &o)
+        {
+            if (this != &o)
+            {
+                ValueMap copy(o);
+                order_.swap(copy.order_);
+                values_.swap(copy.values_);
+                slots_.swap(copy.slots_);
+            }
+            return *this;
+        }
         ~ValueMap();
+
+        CycleLink cycles;
 
         void set(const std::string &key, Value v)
         {
-            auto it = index_.find(key);
-            if (it != index_.end())
+            const size_t at = find(key);
+            if (at != kNone)
             {
-                values_[it->second] = std::move(v);
+                values_[at] = std::move(v);
                 return;
             }
-            index_.emplace(key, values_.size());
+            // Room is made first, so that a failure to get memory leaves the map as it was.
+            const size_t n = order_.size();
+            if (n + 1 >= kNone)
+                throw std::length_error("map too large");
+            if (order_.capacity() == n)
+                order_.reserve(n < 4 ? 4 : n * 2);
+            if (values_.capacity() == n)
+                values_.reserve(n < 4 ? 4 : n * 2);
+            if (n + 1 > kLookedThrough && (n + 1) * 4 > slots_.size() * 3)
+                index(slots_.empty() ? 32 : slots_.size() * 2);
             order_.push_back(key);
             values_.push_back(std::move(v));
+            if (!slots_.empty())
+                place(n);
         }
 
-        bool has(const std::string &key) const { return index_.count(key) > 0; }
+        bool has(const std::string &key) const { return find(key) != kNone; }
 
         const Value *get(const std::string &key) const
         {
-            auto it = index_.find(key);
-            if (it == index_.end())
-                return nullptr;
-            return &values_[it->second];
+            const size_t at = find(key);
+            return at == kNone ? nullptr : &values_[at];
         }
 
         bool remove(const std::string &key)
         {
-            auto it = index_.find(key);
-            if (it == index_.end())
+            const size_t at = find(key);
+            if (at == kNone)
                 return false;
-            size_t idx = it->second;
-            index_.erase(it);
-            order_.erase(order_.begin() + static_cast<long>(idx));
-            values_.erase(values_.begin() + static_cast<long>(idx));
-            size_t later = order_.size() - idx;
-            if (later * 8 < index_.size())
-            {
-                for (size_t i = idx; i < order_.size(); ++i)
-                    index_[order_[i]] = i;
-            }
-            else
-            {
-                // Many keys moved: walking the index is cheaper than re-hashing each one.
-                for (auto &entry : index_)
-                    if (entry.second > idx)
-                        --entry.second;
-            }
+            order_.erase(order_.begin() + static_cast<std::ptrdiff_t>(at));
+            values_.erase(values_.begin() + static_cast<std::ptrdiff_t>(at));
+            // Every later key moved up by one, so the table is written again (in the memory it has).
+            if (order_.size() <= kLookedThrough)
+                std::vector<uint32_t>().swap(slots_);
+            else if (!slots_.empty())
+                index(slots_.size());
             return true;
         }
 
@@ -484,30 +539,106 @@ namespace cuff
         {
             order_.reserve(n);
             values_.reserve(n);
-            index_.reserve(n);
+            if (n > kLookedThrough)
+            {
+                size_t slots = 32;
+                while (n * 4 > slots * 3)
+                    slots *= 2;
+                if (slots > slots_.size())
+                    index(slots);
+            }
         }
 
-        void takeContainersInto(std::vector<Value> &out)
+        // For dismantleValues only: the map is being destroyed, and its values are taken from it one by one.
+        std::vector<Value> &valuesForTeardown() { return values_; }
+
+        // For CycleHeap only: empties the map, handing its values over. `out` has room for them.
+        void emptyInto(std::vector<Value> &out) noexcept
         {
-            for (auto &v : values_)
-                if (v.isList() || v.isMap() || v.isObject())
-                    out.push_back(v.takeOut());
+            for (Value &v : values_)
+                out.push_back(std::move(v));
+            values_.clear();
+            order_.clear();
+            std::vector<uint32_t>().swap(slots_);
         }
 
     private:
+        static constexpr size_t kNone = static_cast<uint32_t>(-1);
+        static constexpr size_t kLookedThrough = 8;
+
+        size_t find(const std::string &key) const
+        {
+            if (slots_.empty())
+            {
+                for (size_t i = 0, n = order_.size(); i < n; ++i)
+                    if (order_[i] == key)
+                        return i;
+                return kNone;
+            }
+            const size_t mask = slots_.size() - 1;
+            for (size_t at = std::hash<std::string>()(key) & mask;; at = (at + 1) & mask)
+            {
+                const uint32_t slot = slots_[at];
+                if (slot == 0)
+                    return kNone;
+                if (order_[slot - 1] == key)
+                    return slot - 1;
+            }
+        }
+
+        // Records in the table where key number `i` is.
+        void place(size_t i)
+        {
+            const size_t mask = slots_.size() - 1;
+            size_t at = std::hash<std::string>()(order_[i]) & mask;
+            while (slots_[at] != 0)
+                at = (at + 1) & mask;
+            slots_[at] = static_cast<uint32_t>(i + 1);
+        }
+
+        // Writes the table again, with `slots` places (a power of two, more than the keys there are).
+        void index(size_t slots)
+        {
+            slots_.assign(slots, 0);
+            for (size_t i = 0, n = order_.size(); i < n; ++i)
+                place(i);
+        }
+
         std::vector<std::string> order_;
         std::vector<Value> values_;
-        std::unordered_map<std::string, size_t> index_;
+        std::vector<uint32_t> slots_; // 0 for a free place, otherwise a key's position plus one
     };
 
-    // An instance of a class. The fields are in the order of ClassInfo::fields. `origin` is set on an Error that
-    // stands for an error the engine raised, so that `fail` can raise that error again unchanged.
+    // An instance of a class. The fields are in the order of ClassInfo::fields. `origin` is what the engine keeps
+    // behind an object of one of its own classes: on an Error that stands for an error the engine raised, that
+    // error, so that `fail` can raise it again unchanged; on a Task, the task.
     struct ObjectData
     {
         std::shared_ptr<const ClassInfo> cls;
         std::vector<Value> fields;
-        std::shared_ptr<const void> origin;
+        std::shared_ptr<void> origin;
+        // A value that `origin` keeps for this object, outside its fields: a task's result. The search for cycles
+        // looks through it as through a field, so that a task whose result refers back to the object that keeps its
+        // Task is freed like any cycle. Only the object made with the task has it, never a copy: two objects that
+        // both reported it would count one reference twice.
+        Value *held = nullptr;
+        CycleLink cycles;
         bool constructing = false; // true while its `init` runs: only then may a `constant` field be given its value
+
+        ObjectData() { cycles.enter(this, CycleLink::Object); }
+        ObjectData(const ObjectData &o) : cls(o.cls), fields(o.fields), origin(o.origin), constructing(o.constructing)
+        {
+            cycles.enter(this, CycleLink::Object);
+        }
+        ObjectData &operator=(const ObjectData &o)
+        {
+            cls = o.cls;
+            fields = o.fields;
+            origin = o.origin;
+            held = nullptr;
+            constructing = o.constructing;
+            return *this;
+        }
         ~ObjectData();
     };
 
@@ -527,6 +658,45 @@ namespace cuff
         return hook;
     }
 
+    // Something a library function waits for: a moment in time, or a socket becoming ready. A function that would
+    // otherwise hold the whole program up for that long hands one of these to the machine (activeWaitHook) and
+    // returns. The machine sets the task that called aside and runs the others; when the wait is over, the call's
+    // value is what finish() gives.
+    struct Wait
+    {
+        using Clock = std::chrono::steady_clock;
+        virtual ~Wait() = default;
+        // Does what can be done without blocking. True when there is nothing left to wait for.
+        virtual bool advance() = 0;
+        // The value of the call, or the error it ends with (thrown). Called once, after advance() returned true.
+        virtual Value finish(const SourceLocation &loc) = 0;
+        // The time by which advance() must be tried again even if nothing happened on the socket.
+        virtual Clock::time_point wakeAt() const = 0;
+        // True for a wait that opens a socket: the machine keeps the number of those that are open at once bounded,
+        // and does not call advance() for the first time before there is room.
+        virtual bool usesSocket() const { return false; }
+        // The socket advance() waits on (-1 when it waits for the time only), whether it waits to write to it, and
+        // how to wait on such sockets.
+        virtual long long socket() const { return -1; }
+        virtual bool wantsWrite() const { return false; }
+        virtual SocketPoller poller() const { return nullptr; }
+    };
+
+    // How a library function reaches the machine that is running, to hand it a Wait.
+    struct WaitHook
+    {
+        virtual void waitFor(std::unique_ptr<Wait> wait) = 0;
+
+    protected:
+        ~WaitHook() = default;
+    };
+
+    inline WaitHook *&activeWaitHook()
+    {
+        static thread_local WaitHook *hook = nullptr;
+        return hook;
+    }
+
     struct MatchResult
     {
         bool matched = false;
@@ -536,55 +706,482 @@ namespace cuff
         std::unordered_map<std::string, std::string> named;
     };
 
-    // Destroying a deeply nested list/map/object chain would recurse once per level through shared_ptr destructors.
+    // Destroying a deeply nested list/map/object chain would recurse once per level through shared_ptr destructors,
+    // so a container takes what it holds apart before its members are destroyed. This runs in destructors, often
+    // when memory has just run out, so it allocates nothing: the way back up from a container is kept in the slot
+    // its child was taken from (the last one, which is then dropped), as in the pointer-reversing tree walks.
     inline bool holdsOtherValues(const Value &v) { return v.isList() || v.isMap() || v.isObject(); }
 
-    inline void dismantleValues(std::vector<Value> &items)
+    // True for a list, map or object that this value alone refers to: destroying the value destroys it.
+    inline bool solelyHeld(const Value &v)
     {
-        size_t i = 0;
-        for (; i < items.size(); ++i)
-            if (holdsOtherValues(items[i]))
+        if (v.isList())
+            return v.asList().use_count() == 1;
+        if (v.isMap())
+            return v.asMap().use_count() == 1;
+        return v.isObject() && v.asObject().use_count() == 1;
+    }
+
+    inline std::vector<Value> &heldValues(const Value &v)
+    {
+        if (v.isList())
+            return v.asList()->items;
+        if (v.isMap())
+            return v.asMap()->valuesForTeardown();
+        return v.asObject()->fields;
+    }
+
+    inline void dismantleValues(std::vector<Value> &items) noexcept
+    {
+        size_t first = 0;
+        for (; first < items.size(); ++first)
+            if (solelyHeld(items[first]))
                 break;
-        if (i == items.size())
+        if (first == items.size())
             return;
 
-        std::vector<Value> pending;
-        for (; i < items.size(); ++i)
-            if (holdsOtherValues(items[i]))
-                pending.push_back(items[i].takeOut());
-
-        while (!pending.empty())
+        std::vector<Value> *cur = &items;
+        Value owner; // the container `cur` belongs to; empty while that is the one being destroyed
+        Value above; // the container `owner` was found in; empty when that is the one being destroyed
+        for (;;)
         {
-            Value v = std::move(pending.back());
-            pending.pop_back();
-            if (v.isList())
+            while (!cur->empty() && !solelyHeld(cur->back()))
+                cur->pop_back();
+            if (!cur->empty())
             {
-                auto &sp = v.asList();
-                if (sp && sp.use_count() == 1)
-                    for (auto &c : sp->items)
-                        if (holdsOtherValues(c))
-                            pending.push_back(c.takeOut());
+                // Down into the last value.
+                Value child = cur->back().takeOut();
+                cur->back() = std::move(above);
+                above = std::move(owner);
+                owner = std::move(child);
+                cur = &heldValues(owner);
             }
-            else if (v.isMap())
+            else if (owner.isEmpty())
             {
-                auto &sp = v.asMap();
-                if (sp && sp.use_count() == 1)
-                    sp->takeContainersInto(pending);
+                return;
             }
-            else if (v.isObject())
+            else if (above.isEmpty())
             {
-                auto &sp = v.asObject();
-                if (sp && sp.use_count() == 1)
-                    for (auto &c : sp->fields)
-                        if (holdsOtherValues(c))
-                            pending.push_back(c.takeOut());
+                // Up to where this began. `owner` holds nothing now, so letting it go nests no further.
+                owner = Value();
+                cur = &items;
+                cur->pop_back();
+            }
+            else
+            {
+                Value parent = std::move(above);
+                std::vector<Value> &held = heldValues(parent);
+                above = held.back().takeOut();
+                held.pop_back();
+                owner = std::move(parent);
+                cur = &held;
             }
         }
     }
 
-    inline ValueList::~ValueList() { dismantleValues(items); }
-    inline ValueMap::~ValueMap() { dismantleValues(values_); }
-    inline ObjectData::~ObjectData() { dismantleValues(fields); }
+    inline ValueList::~ValueList()
+    {
+        cycles.leave();
+        dismantleValues(items);
+    }
+    inline ValueMap::~ValueMap()
+    {
+        cycles.leave();
+        dismantleValues(values_);
+    }
+    inline ObjectData::~ObjectData()
+    {
+        cycles.leave();
+        dismantleValues(fields);
+    }
+
+    // ---- cycles ---------------------------------------------------------------------------------------------------
+    //
+    // Values are counted: a list, map or object is freed when the last value that refers to it goes. Counting alone
+    // never frees a cycle (two objects that hold each other, a list that contains itself), because each member keeps
+    // the next one's count above zero. A CycleHeap finds such groups and takes them apart.
+    //
+    // It keeps books of the lists, maps and objects made while its engine runs. To collect, it counts for each of
+    // them how many of the references to it come from inside the books (from the values the others hold). One whose
+    // count of references is higher than that is held from outside as well: by a variable, a register, a task, the
+    // host. Those, and everything that can be reached from them, are in use. What is left is referred to only by
+    // itself, and is emptied; the counts then fall to zero in the ordinary way.
+    //
+    // It errs on one side only. A reference it cannot see (in a structure it keeps no books of) counts as one from
+    // outside, so the worst it can do is leave a cycle unfreed. It never has to know where the engine's own
+    // references are, which is why it can run in the middle of a program.
+    //
+    // The books of one engine are written by one thread at a time, as the engine is: values an engine made are let
+    // go on the thread that is using that engine.
+    class CycleHeap
+    {
+    public:
+        CycleHeap()
+        {
+            std::lock_guard<std::mutex> lock(tableLock());
+            for (uint16_t id = 1; id < kHeaps; ++id)
+                if (!table()[id])
+                {
+                    table()[id] = this;
+                    id_ = id;
+                    break;
+                }
+            // With every number taken (thousands of engines alive at once) this one keeps no books.
+        }
+
+        CycleHeap(const CycleHeap &) = delete;
+        CycleHeap &operator=(const CycleHeap &) = delete;
+
+        // The engine's own references are gone when this runs (it is the engine's first member, so the last to be
+        // destroyed): what the books still hold is in use by the host or is a cycle. The cycles are freed, and the
+        // rest is struck from the books, since those go away here.
+        ~CycleHeap()
+        {
+            collect();
+            for (uintptr_t entry : slots_)
+                if ((entry & kKindMask) != kFree)
+                    linkOf(entry)->setSlot(0);
+            if (id_)
+            {
+                std::lock_guard<std::mutex> lock(tableLock());
+                table()[id_] = nullptr;
+            }
+        }
+
+        // The heap that new lists, maps and objects are entered in: that of the engine running on this thread.
+        static CycleHeap *&active()
+        {
+            static thread_local CycleHeap *heap = nullptr;
+            return heap;
+        }
+
+        // A heap that has no number keeps no books: nothing is entered while it is the active one.
+        struct Scope
+        {
+            CycleHeap *previous;
+            explicit Scope(CycleHeap *heap) : previous(active()) { active() = heap && heap->id_ ? heap : nullptr; }
+            ~Scope() { active() = previous; }
+        };
+
+        // Makes the count at `steps` run out at its next use once enough has been made for a collection to be worth
+        // it (the engine counts the steps of a program there, and collects when it finds the count was borrowed).
+        void ringAt(uint64_t *steps) { alarm_ = steps; }
+        bool rang() const { return armed_; }
+        // Gives the count its own value back.
+        uint64_t silence()
+        {
+            armed_ = false;
+            return saved_;
+        }
+        void setEnabled(bool on)
+        {
+            enabled_ = on;
+            untilDue_ = on ? limit_ : SIZE_MAX;
+        }
+
+        size_t tracked() const { return live_; }
+        bool due() const { return due_; }
+
+        void enter(void *container, CycleLink::Kind kind, CycleLink &link)
+        {
+            uint32_t slot = free_;
+            if (slot != 0)
+            {
+                free_ = static_cast<uint32_t>(slots_[slot - 1] >> 2);
+            }
+            else
+            {
+                if (CUFF_UNLIKELY(slots_.size() >= UINT32_MAX - 1))
+                    return;
+                slots_.push_back(0);
+                slot = static_cast<uint32_t>(slots_.size());
+            }
+            slots_[slot - 1] = reinterpret_cast<uintptr_t>(container) | kind;
+            link.setSlot(slot);
+            link.heap = id_;
+            ++live_;
+            if (CUFF_UNLIKELY(--untilDue_ == 0))
+                becomeDue();
+        }
+
+        static void leave(CycleLink &link) noexcept
+        {
+            CycleHeap *heap = table()[link.heap];
+            if (!heap)
+                return;
+            const uint32_t slot = link.slot();
+            heap->slots_[slot - 1] = (static_cast<uintptr_t>(heap->free_) << 2) | kFree;
+            heap->free_ = slot;
+            --heap->live_;
+            link.setSlot(0);
+        }
+
+        // Frees the cycles nothing else refers to; how many lists, maps and objects that was. It gives up, having
+        // changed nothing, when there is no memory for its own notes.
+        size_t collect() noexcept
+        {
+            due_ = false;
+            if (!id_ || live_ == 0 || collecting_)
+            {
+                untilDue_ = enabled_ ? limit_ : SIZE_MAX;
+                return 0;
+            }
+            collecting_ = true;
+            size_t freed = 0;
+            const size_t before = live_;
+            try
+            {
+                freed = sweep();
+            }
+            catch (...)
+            {
+            }
+            collecting_ = false;
+            // A program that makes no cycles is looked at less and less often; one that does, as often as it grows.
+            if (freed * 8 >= before)
+                patience_ = 1;
+            else if (patience_ < kMaxPatience)
+                patience_ *= 2;
+            limit_ = std::max<size_t>(kFirstLimit, live_ * patience_);
+#ifdef CUFF_CYCLE_STRESS
+            limit_ = 1 + live_ / 32;
+#endif
+            untilDue_ = enabled_ ? limit_ : SIZE_MAX;
+            return freed;
+        }
+
+    private:
+        static constexpr size_t kHeaps = 4096;
+        static constexpr uintptr_t kKindMask = 3, kFree = 3;
+        // A program makes this many lists, maps and objects before its engine first looks for cycles among them.
+        // (A build with CUFF_CYCLE_STRESS looks whenever one was made since it last looked, while fewer than 32 are
+        // alive: nearly at every step. With more, it waits for one new value for every 32 alive, so a test that
+        // keeps a hundred thousand values still ends. The tests use it to find a value that is freed too early.)
+        static constexpr size_t kFirstLimit = 10000;
+        static constexpr size_t kMaxPatience = 4;
+
+        CUFF_COLD void becomeDue()
+        {
+            due_ = true;
+            untilDue_ = SIZE_MAX;
+            ringIfDue();
+        }
+
+    public:
+        // A collection that came due while no run was going on (or as one ended in an error) is made at the next step.
+        void ringIfDue()
+        {
+            if (due_ && enabled_ && alarm_ && !armed_)
+            {
+                armed_ = true;
+                saved_ = *alarm_;
+                *alarm_ = 1;
+            }
+        }
+
+    private:
+        static CycleHeap **table()
+        {
+            static CycleHeap *heaps[kHeaps] = {};
+            return heaps;
+        }
+
+        static std::mutex &tableLock()
+        {
+            static std::mutex lock;
+            return lock;
+        }
+
+        static CycleLink *linkOf(uintptr_t entry)
+        {
+            void *at = reinterpret_cast<void *>(entry & ~kKindMask);
+            switch (entry & kKindMask)
+            {
+            case CycleLink::List:
+                return &static_cast<ValueList *>(at)->cycles;
+            case CycleLink::Map:
+                return &static_cast<ValueMap *>(at)->cycles;
+            default:
+                return &static_cast<ObjectData *>(at)->cycles;
+            }
+        }
+
+        // Calls `visit` with every value a recorded list, map or object holds.
+        template <typename Visit>
+        static void forEachHeld(uintptr_t entry, Visit &&visit)
+        {
+            for (const Value &v : valuesOf(entry))
+                visit(v);
+            if ((entry & kKindMask) == CycleLink::Object)
+                if (const Value *held = static_cast<ObjectData *>(reinterpret_cast<void *>(entry & ~kKindMask))->held)
+                    visit(*held);
+        }
+
+        static std::vector<Value> &valuesOf(uintptr_t entry)
+        {
+            void *at = reinterpret_cast<void *>(entry & ~kKindMask);
+            switch (entry & kKindMask)
+            {
+            case CycleLink::List:
+                return static_cast<ValueList *>(at)->items;
+            case CycleLink::Map:
+                return static_cast<ValueMap *>(at)->valuesForTeardown();
+            default:
+                return static_cast<ObjectData *>(at)->fields;
+            }
+        }
+
+        // The place in these books of what `v` refers to, plus one; 0 when it is not in them. `count` is set to the
+        // number of references there are to it.
+        uint32_t slotOf(const Value &v, long &count) const
+        {
+            const CycleLink *link;
+            if (v.isList())
+            {
+                link = &v.asList()->cycles;
+                count = v.asList().use_count();
+            }
+            else if (v.isMap())
+            {
+                link = &v.asMap()->cycles;
+                count = v.asMap().use_count();
+            }
+            else if (v.isObject())
+            {
+                link = &v.asObject()->cycles;
+                count = v.asObject().use_count();
+            }
+            else
+                return 0;
+            return link->heap == id_ ? link->slot() : 0;
+        }
+
+        size_t sweep()
+        {
+            const size_t n = slots_.size();
+            // For each entry: how many references to it were found inside the books, and how many there are.
+            std::vector<uint32_t> inside(n, 0);
+            std::vector<long> total(n, 0);
+            for (size_t s = 0; s < n; ++s)
+            {
+                if ((slots_[s] & kKindMask) == kFree)
+                    continue;
+                forEachHeld(slots_[s], [&](const Value &v)
+                            {
+                                long count = 0;
+                                if (const uint32_t slot = slotOf(v, count))
+                                {
+                                    ++inside[slot - 1];
+                                    total[slot - 1] = count;
+                                }
+                            });
+            }
+
+            // In use: held from outside the books, and all that can be reached from there.
+            std::vector<uint8_t> inUse(n, 0);
+            std::vector<uint32_t> pending;
+            for (size_t s = 0; s < n; ++s)
+            {
+                if ((slots_[s] & kKindMask) == kFree || inUse[s])
+                    continue;
+                if (inside[s] != 0 && static_cast<long>(inside[s]) >= total[s])
+                    continue;
+                inUse[s] = 1;
+                pending.push_back(static_cast<uint32_t>(s));
+                while (!pending.empty())
+                {
+                    const uint32_t at = pending.back();
+                    pending.pop_back();
+                    forEachHeld(slots_[at], [&](const Value &v)
+                                {
+                                    long count = 0;
+                                    const uint32_t slot = slotOf(v, count);
+                                    if (slot && !inUse[slot - 1])
+                                    {
+                                        inUse[slot - 1] = 1;
+                                        pending.push_back(slot - 1);
+                                    }
+                                });
+                }
+            }
+
+            // The rest is held only by itself. Its values are taken out together, so that none of it is destroyed
+            // while another part still points to it, and are let go at the end.
+            size_t values = 0, freed = 0;
+            for (size_t s = 0; s < n; ++s)
+                if ((slots_[s] & kKindMask) != kFree && !inUse[s])
+                {
+                    values += valuesOf(slots_[s]).size() + 1;
+                    ++freed;
+                }
+            if (freed == 0)
+                return 0;
+            std::vector<Value> doomed;
+            doomed.reserve(values);
+            for (size_t s = 0; s < n; ++s)
+            {
+                const uintptr_t entry = slots_[s];
+                if ((entry & kKindMask) == kFree || inUse[s])
+                    continue;
+                void *at = reinterpret_cast<void *>(entry & ~kKindMask);
+                switch (entry & kKindMask)
+                {
+                case CycleLink::List:
+                {
+                    std::vector<Value> &items = static_cast<ValueList *>(at)->items;
+                    for (Value &v : items)
+                        doomed.push_back(std::move(v));
+                    items.clear();
+                    break;
+                }
+                case CycleLink::Map:
+                    static_cast<ValueMap *>(at)->emptyInto(doomed);
+                    break;
+                default:
+                {
+                    // An object keeps its fields, empty: code that reaches one finds it by its place.
+                    ObjectData &o = *static_cast<ObjectData *>(at);
+                    for (Value &v : o.fields)
+                        doomed.push_back(std::move(v));
+                    if (o.held)
+                        doomed.push_back(std::move(*o.held));
+                    break;
+                }
+                }
+            }
+            return freed;
+        }
+
+        std::vector<uintptr_t> slots_; // a list, map or object and which it is; or the next free place
+        uint32_t free_ = 0;            // the first free place, plus one
+        uint16_t id_ = 0;
+        bool enabled_ = true;
+        bool armed_ = false;
+        bool collecting_ = false;
+        bool due_ = false;
+        size_t live_ = 0;
+#ifdef CUFF_CYCLE_STRESS
+        size_t limit_ = 1;
+#else
+        size_t limit_ = kFirstLimit;
+#endif
+        size_t untilDue_ = limit_; // what may still be entered before the next collection is due
+        size_t patience_ = 1;
+        uint64_t *alarm_ = nullptr;
+        uint64_t saved_ = 0;
+    };
+
+    inline void CycleLink::enter(void *container, Kind kind)
+    {
+        if (CycleHeap *heap = CycleHeap::active())
+            heap->enter(container, kind, *this);
+    }
+
+    inline void CycleLink::leave() noexcept
+    {
+        if (slotLow | slotHigh)
+            CycleHeap::leave(*this);
+    }
 
     inline bool Value::truthy() const
     {

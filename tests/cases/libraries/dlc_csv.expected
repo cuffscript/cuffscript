@@ -1,0 +1,20 @@
+4
+3 ["name", "city", "note"]
+3 ["Ann", "Seoul", "likes "tea", and cake"]
+3 ["Bob", "Busan", "two
+lines"]
+3 ["", "", ""]
+[{"player": "Ann", "points": "12"}, {"player": "Bob", "points": "7"}] 19
+id,label
+1,plain
+2.5,"with, comma"
+true,"say ""hi"""
+," padded "
+
+x,y,z
+1,a,
+,b,false
+
+true
+[["a", "b"], ["c", "d"]] [] [["x", ""]] ""
+

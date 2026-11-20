@@ -2,11 +2,11 @@
 
 #include "CuffError.h"
 #include "SourceText.h"
-#include "Utf8.h"
-#include "Width.h"
+#include "Text.h"
 #include <algorithm>
 #include <exception>
 #include <new>
+#include <memory>
 #include <string>
 
 namespace cuff
@@ -81,7 +81,7 @@ namespace cuff
     // and a wide character such as Hangul takes two columns. Returns false when there is no source to draw from.
     inline bool buildSnippet(const std::string &source, const SourceLocation &loc, Snippet &out)
     {
-        if (source.empty() || loc.offset < 0)
+        if (source.empty() || loc.offset < 0 || loc.line == 0)
             return false;
 
         const size_t bom = (source.size() >= 3 && static_cast<unsigned char>(source[0]) == 0xEF &&
@@ -183,6 +183,8 @@ namespace cuff
     inline std::string errorHeadlineOnly(const CuffError &e)
     {
         std::string out = "[" + errorCodeTag(e.code) + "] " + e.category;
+        if (e.location.line == 0)
+            return out; // raised for a host program's own request: there is no text to point into
         if (e.source && !e.source->name.empty())
             out += " in '" + e.source->name + "'";
         return out + " at " + e.location.toString();
@@ -252,6 +254,39 @@ namespace cuff
         catch (...)
         {
             return "Internal error: unknown exception";
+        }
+    }
+
+    // The same, for a caller that must not fail in turn. When memory has run out, writing the report can run out
+    // again, and that second failure would leave a `catch` block and end the process. `reserve` is memory the
+    // caller set aside for this moment: it is released before a second try. A report that still cannot be written
+    // is left empty.
+    inline std::string renderCurrentExceptionSafely(const SourceRef &source, std::unique_ptr<char[]> *reserve = nullptr) noexcept
+    {
+        try
+        {
+            return renderCurrentException(source);
+        }
+        catch (...)
+        {
+        }
+        if (reserve)
+            reserve->reset();
+        try
+        {
+            return renderCurrentException(source);
+        }
+        catch (...)
+        {
+        }
+        try
+        {
+            return "[" + errorCodeTag(ErrorCode::OutOfMemory) + "] " + errorCategoryName(ErrorCode::OutOfMemory) +
+                   ": the program ran out of memory";
+        }
+        catch (...)
+        {
+            return std::string();
         }
     }
 

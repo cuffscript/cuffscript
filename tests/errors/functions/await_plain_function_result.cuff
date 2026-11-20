@@ -1,0 +1,8 @@
+note: E4-019 -- a function that is not async cannot be awaited, whatever it returns
+async func work() do:
+    return 1
+end
+func start() do:
+    return work()
+end
+print(await start())

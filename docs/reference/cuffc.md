@@ -34,6 +34,8 @@ Usage: cuffc [options] [script.cuff]
   --allow-private-network
                          let DLC:network reach loopback/private/link-local addresses
   --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)
+  --hardware             give DLC:hardware this computer's battery, temperature and beep
+                         (off by default: every hw_ function then raises E4-044)
 By default modules may be loaded from the script's own directory only.
 ```
 <!-- END GENERATED: help-cuffc -->
@@ -48,12 +50,13 @@ By default modules may be loaded from the script's own directory only.
 | `--no-network` | Switches [`DLC:network`](dlc/network.md) off: every call into it raises `E5-005`. |
 | `--allow-private-network` | Lets `DLC:network` reach loopback, private and link-local addresses, which it refuses by default. |
 | `--no-filesystem` | Switches [`DLC:filesystem`](dlc/filesystem.md) off in the same way. |
+| `--hardware` | Gives [`DLC:hardware`](dlc/hardware.md) what this computer has without a library: the battery, the temperature and a beep, as [its page](dlc/hardware.md#what---hardware-gives) lists. Without it every `hw_` function raises `E4-044`. |
 | `-h`, `--help` | Prints the usage text and exits with status 0. |
 
 A number given to `--max-steps` or `--timeout` must be a non-negative decimal integer: a sign, a space, trailing text or a value that is too large is a command-line error.
 
 An option that `cuffc` does not know is an error (exit status 2), and so is giving more than one script, an option that needs a value and has none,
-or a malformed value. The engine options (`--root`, `--max-steps`, `--timeout`, `--no-network`, `--allow-private-network`, `--no-filesystem`) are shared with
+or a malformed value. The engine options (`--root`, `--max-steps`, `--timeout`, `--no-network`, `--allow-private-network`, `--no-filesystem`, `--hardware`) are shared with
 [`cuffsh`](cuffsh.md): both programs read them with the same code, so they mean the same thing in both, and a host that embeds the engine can read them with
 `parseEngineOption` ([C++ API](cpp-api.md#command-line-options)).
 

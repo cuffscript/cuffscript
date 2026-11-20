@@ -1,0 +1,12 @@
+note: E4-006 -- an async call that is a statement of its own has no Task that could be awaited,
+note: so an error in it stops the program, even while other code is waiting, and no or_else catches it.
+use DLC:time
+async func broken() do:
+    time_sleep(0.001)
+    return 1 / 0
+end
+broken()
+time_sleep(0.05) or_else do:
+    print("this must not catch the error of the task")
+end
+print("this must not run")

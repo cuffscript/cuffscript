@@ -45,7 +45,7 @@ namespace
             const char *name;
         } kinds[] = {{cuff::RecvStr, "str"},     {cuff::RecvList, "list"},   {cuff::RecvMap, "map"},         {cuff::RecvNumber, "number"},
                      {cuff::RecvBoolean, "boolean"}, {cuff::RecvEmpty, "empty"}, {cuff::RecvMatch, "match"}, {cuff::RecvPattern, "pattern"},
-                     {cuff::RecvObject, "object"}};
+                     {cuff::RecvObject, "object"}, {cuff::RecvTask, "task"}};
         if (mask == cuff::RecvAny)
             return "any";
         std::string out;

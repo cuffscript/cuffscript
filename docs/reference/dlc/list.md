@@ -13,9 +13,6 @@ wrong type is `E4-005` and the wrong number of arguments is `E4-010`.
 
 | Function | Result |
 | :--- | :--- |
-| `length(x)` | The number of elements. |
-| `contains(x, v)` | Whether the list has an element equal to `v`. Elements are compared the way `is` compares them, so `[2]` is found in `[1, [2]]` and `"1"` is not found in `[1]`. |
-| `index_of(x, v)` | The 1-based position of the first element equal to `v`, or `empty`. |
 | `list_sort(xs)` | A copy in ascending order. All elements must be numbers, or all must be strings (`E4-005` otherwise); an empty list is fine. Strings are ordered by code point, so every capital letter comes before every lowercase one. |
 | `list_reverse(xs)` | A copy in reverse order. |
 | `list_join(xs, separator)` | The elements of a list of strings joined with `separator`. Every element must already be a string (`E4-005`; use `to_str` first). An empty list gives the empty string. |

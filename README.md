@@ -76,8 +76,6 @@ To read a script from standard input, run `cuffc` without a file. Use `--help` t
 ## A Longer Example
 
 ```cuff
-use DLC:list
-
 list scores = [72, 95, 88, 61]
 number total = 0
 
@@ -125,7 +123,7 @@ Ann has 30 points
 - Classes with fields, methods, inheritance and private members, and a `with` block
 - A built-in pattern-matching language with word-style tokens (`[num]`, `[email]`) instead of cryptic symbols, and patterns as values (`p"..."`)
 - Async functions, modules, and recoverable errors that are objects (`or_else as`, `fail`)
-- Eleven built-in libraries: math, strings, lists, maps, conversion, time, dates, random numbers, JSON, files and a small HTTP client
+- Fifteen built-in libraries: math, strings, lists, maps, conversion, time, dates, random numbers, JSON, CSV, hashes and encodings, paths, files, a small HTTP client, and the device's hardware (battery, buttons, lights, sensors, pins), which the host program gives
 - Error reports with the source line, a caret under the position, and a hint, and a [catalogue](docs/reference/errors.md) of every error code
 - Limits on nesting, recursion, size and matching work, so a script can fail without crashing its host
 - A C++ API for embedding the engine, plus a WebAssembly build target

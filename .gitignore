@@ -11,12 +11,14 @@ cuffsh
 __pycache__/
 testfile.cuff
 fuzz-failures/
-*.pyc
 
 *.log
 .DS_Store
 Thumbs.db
 
 /examples/embedding/host
-build/
-dist/
+
+# PyInstaller output of the desktop IDE
+ide/build/
+ide/dist/
+ide/__pycache__/

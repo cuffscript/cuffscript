@@ -1,0 +1,13 @@
+main waits for the slow one
+slow starts
+quick starts
+slow is back; the quick one finished meanwhile: true
+quick
+true true
+ran while the top level slept
+the top level goes on
+true
+child a starts
+child b starts
+child a and child b
+125250

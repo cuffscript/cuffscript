@@ -1,4 +1,4 @@
-note: an async call that is not awaited waits until the program's own lines are done
+note: a task does not run until the code that is running waits or ends; these lines never wait
 async func hello(str who) do:
     print("hello " + who)
 end

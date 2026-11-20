@@ -1,0 +1,16 @@
+note: paths as text: nothing here looks at the disk, so the answers are the same everywhere
+use DLC:path
+
+str file = "reports/2026/../2025/./summary.final.txt"
+print(path_normalize(file))
+print(path_basename(file), path_dirname(file), path_extension(file), path_stem(file))
+print(path_join("data", "raw", "input.csv"), path_join("data/", "/etc", "hosts"), path_join("", "x"))
+print(path_split("/usr/local/bin"), path_split("C:/Users/ann"), path_split("a//b/"))
+print(path_with_extension("notes.txt", ".md"), path_with_extension("a/b.tar.gz", ""), path_with_extension("Makefile", ".bak"))
+print(path_relative("/srv/app/logs", "/srv/data/x.db"), path_relative("a/b", "a/b/c/d"), path_relative("a", "a"))
+print(path_is_absolute("/tmp"), path_is_absolute("C:/tmp"), path_is_absolute("tmp/x"), path_is_absolute("C:tmp"))
+
+note: a name that starts with a dot has no extension because of it, and .. at the root stays at the root
+print(path_extension(".bashrc"), path_stem(".bashrc"), path_extension("archive.tar.gz"), path_extension("trailing."))
+print(path_normalize("/../a/../../b"), path_normalize("../../a"), path_normalize(""), path_normalize("./"))
+print(path_dirname("a"), path_dirname("/a"), path_dirname("a/b/"), path_basename("/"), path_basename("a/b/"))

@@ -87,7 +87,7 @@ Link to a page, not to a line. When you rename or move a file, `tools/docs.py ch
 | The syntax or meaning of the language | The [language reference](../reference/language.md), and the [pattern reference](../reference/patterns.md) for patterns. The [grammar](../reference/grammar.md) lists what the parser accepts, so a change to the shape of a statement or an expression updates it too |
 | A word with a special meaning in these pages | The [glossary](../reference/glossary.md) |
 | Something the language cannot do, or a behaviour that surprises | [Known limitations](../reference/known-limitations.md) and, for beginners, the [FAQ](../guide/faq.md) |
-| The public C++ API (`CuffEngine`, `Session`, the options) | The [C++ API reference](../reference/cpp-api.md), and the options table in [Embedding the engine](../guide/embedding.md#options) |
+| The public C++ API (`Engine`, `Args`, the options) | The [C++ API reference](../reference/cpp-api.md), and the options table in [Embedding the engine](../guide/embedding.md#options) |
 | What a CI workflow does | [Continuous integration](ci.md) |
 | Where a source file lives, or what it is for | The [source map](../internals/source-map.md) |
 | How the engine works | The page under [`docs/internals/`](../internals/architecture.md) that describes that part |

@@ -2,10 +2,9 @@
 
 #include "../interpreter/Value.h"
 #include "../common/Limits.h"
-#include "../common/Ascii.h"
-#include "../common/Utf8.h"
+#include "../common/Text.h"
 #include "../common/CuffError.h"
-#include "../common/SourceLocation.h"
+#include "../common/SourceText.h"
 #include <functional>
 #include <unordered_map>
 #include <unordered_set>

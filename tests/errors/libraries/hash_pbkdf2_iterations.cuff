@@ -1,0 +1,2 @@
+use DLC:hash
+print(hash_pbkdf2_sha256("password", "salt", 0))

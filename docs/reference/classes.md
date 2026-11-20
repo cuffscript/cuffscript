@@ -254,7 +254,7 @@ print(to_json(Box()))
 
 ## Async methods
 
-An `async` method is queued like an `async` function: the call returns at once and the body runs later, with the object it was called on. `await object.method()` runs it now and gives its result.
+An `async` method starts a task like an `async` function: the call gives a `Task` at once and the body runs later, with the object it was called on. `await object.method()` runs it now and gives its result.
 
 ```cuff
 class Job do:
@@ -268,18 +268,22 @@ end
 
 Job j = Job()
 j.run(1)
-print("queued")
+print("started")
 print(await j.run(2))
+Task later = j.run(3)
+print(await later)
 ```
 
 ```output
-queued
+started
 job 2
 4
 job 1
+job 3
+6
 ```
 
-The calls that were queued and not awaited run when the main program ends.
+`await later` waits, so the tasks that are ready run first, in the order they were started: `j.run(1)`, then `later`. A task that has not run when the program's last line has, runs then. `Task` is a built-in class of its own: it cannot be extended (`E4-032`) or made with `Task()`.
 
 ## The `with` block
 

@@ -1,0 +1,15 @@
+battery false
+button false
+led false
+beep false
+screen_text false
+serial false
+sensor false
+pin false
+pwm false
+analog false
+no battery
+E4-044 hw_led() is not supported on this device
+-1
+E4-044
+E4-025 hw_pwm() expects the duty from 0 to 1, got 1.5

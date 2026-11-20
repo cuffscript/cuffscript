@@ -1,0 +1,23 @@
+note: a body on its header's line may be empty, as a body on its own lines may
+func later() do: end
+async func later_too(number n) do: end
+print(later(), await later_too(1))
+
+number n = 0
+if n is 0 do: end
+if n is 1 do: else do: print("else") end
+if n is 1 do: print("one") else if n is 0 do: else do: print("neither") end
+loop while n > 0 do: end
+loop repeat number i = 1 ~ 3 do: end
+loop each number item in [1, 2] do: end
+
+class Marker do: end
+class Quiet do:
+    func init() do: end
+    func nothing() do: end
+end
+print(Quiet().nothing())
+with Quiet() do: end
+
+print(1 / 0) or_else do: end
+print("done")

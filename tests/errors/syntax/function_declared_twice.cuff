@@ -1,0 +1,10 @@
+note: two functions of one name at the top level of a file cannot both be meant
+func pick() do:
+    return "first"
+end
+
+print(pick())
+
+func pick() do:
+    return "second"
+end

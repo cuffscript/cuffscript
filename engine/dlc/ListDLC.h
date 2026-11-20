@@ -9,10 +9,6 @@ namespace cuff
 
     inline void registerListDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
-        reg["length"] = nativeLength;
-        reg["contains"] = nativeContains;
-        reg["index_of"] = nativeIndexOf;
-
         reg["list_sort"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
             expectArgCount("list_sort", args, 1, loc);

@@ -1,0 +1,7 @@
+note: E4-006 -- a task whose Task was kept but never awaited: its error is the error of the program,
+note: reported when the program ends.
+async func broken() do:
+    return 1 / 0
+end
+Task t = broken()
+print("the lines of the program still run")

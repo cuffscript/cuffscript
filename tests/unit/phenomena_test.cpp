@@ -6,7 +6,7 @@
 #include <sstream>
 #include <string>
 
-using cuff::CuffEngine;
+using cuff::Engine;
 
 namespace
 {
@@ -34,7 +34,7 @@ namespace
     {
         std::ostringstream sink;
         std::streambuf *old = std::cout.rdbuf(sink.rdbuf());
-        CuffEngine::Result r = CuffEngine::execute(source, ".", CuffEngine::Options());
+        Engine::Outcome r = Engine::execute(source, ".", Engine::Options());
         std::cout.rdbuf(old);
         Run out;
         out.printed = sink.str();

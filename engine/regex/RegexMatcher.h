@@ -1,10 +1,10 @@
 #pragma once
 
-#include "RegexAst.h"
+#include "RegexParser.h"
 #include "../common/Attributes.h"
 #include "../common/CuffError.h"
-#include "../common/SourceLocation.h"
-#include "../common/Utf8.h"
+#include "../common/SourceText.h"
+#include "../common/Text.h"
 #include <string>
 #include <vector>
 #include <unordered_map>

@@ -32,7 +32,7 @@ relative to the fragment (line 1, column 1). They are then moved to where they r
 
 - The tokenizer stores a literal's value **after** escapes are decoded, so an offset into the value is not an offset into the source.
   `LiteralParser::buildValueOffsets` decodes the literal again from the program text, with the same table of escapes
-  (`tokenizer/Escapes.h`, shared with the tokenizer), and records for every byte of the value the source offset it came from.
+  (the escape table in `lexer/Tokenizer.h`, shared with the tokenizer), and records for every byte of the value the source offset it came from.
 - `FragmentOrigin::map` turns a position in the fragment into one in the program: the offset through that table, then
   line and column counted forward from the literal's own location (`locationAfter`, the tokenizer's rules). So an escape such
   as `\t` or `\"` before or inside the braces takes its two source columns, and a literal that runs over several lines puts the
@@ -51,9 +51,9 @@ that text and, for a file loaded with `use`, its name.
 
 1. `parseProgram` gives the `SourceRef` to the parser, and the parser stamps it on the program and on every
    `FunctionDecl`.
-2. When a CuffError leaves a function body (`execFunctionBody`) or a module's top-level code, it is given the
+2. When a CuffError leaves the frame of a function (`Interpreter::handleError`) or a module's top-level code, it is given the
    `SourceRef` of the function or module (`CuffError::attachSource`), unless something closer already did.
-3. `Session::run` attaches the entry's own `SourceRef` to whatever is still unlabelled, so a parse error and an error in
+3. `Engine::run` attaches the entry's own `SourceRef` to whatever is still unlabelled, so a parse error and an error in
    the entry's top-level code are drawn from the entry.
 
 So an error is drawn from the text it was found in, however many files or shell entries lie between where it happened and

@@ -4,7 +4,7 @@
 #include <iostream>
 #include <string>
 
-using cuff::CuffEngine;
+using cuff::Engine;
 
 namespace
 {
@@ -28,14 +28,14 @@ namespace
 
     void accepts(const std::string &name, const std::string &src)
     {
-        CuffEngine::Result r = CuffEngine::run(src, false);
+        Engine::Parsed r = Engine::parse(src, false);
         check(r.success, name + ": should parse, got: " + r.error.substr(0, 200));
     }
 
     void rejects(const std::string &name, const std::string &src, const std::string &code = "E2-001",
                  const std::string &hint = "")
     {
-        CuffEngine::Result r = CuffEngine::run(src, false);
+        Engine::Parsed r = Engine::parse(src, false);
         const bool codeOk = !r.success && contains(r.error, "[" + code + "]");
         check(codeOk, name + ": should fail with " + code + ", got: " + (r.success ? std::string("success") : r.error.substr(0, 200)));
         if (codeOk && !hint.empty())
@@ -172,7 +172,8 @@ int main()
     accepts("method call on literals", "use DLC:string\nprint(\"a\".upper(), [1].length(), 5.sqrt())\n");
     accepts("keyword as method name", "use DLC:string\nprint(\"a\".repeat(2))\n");
     accepts("await", "async func f() do:\n    return 1\nend\nnumber r = await f()\nawait f()\n");
-    rejects("await a non-call", "number r = await 5\n");
+    rejects("await without an operand", "number r = await\n");
+    accepts("await of any value (whether it is a task is known when it runs)", "number r = await 5\n");
     accepts("grouping", "print((1 + 2) * 3)\n");
 
     // ---- pattern literals -----------------------------------------------------------------------------------------

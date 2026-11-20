@@ -1,0 +1,3 @@
+note: E4-019 -- await needs a task or a call of an async function
+str text = "not a task"
+print(await text)

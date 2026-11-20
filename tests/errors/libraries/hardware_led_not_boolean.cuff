@@ -1,0 +1,2 @@
+use DLC:hardware
+hw_led(1, "on")

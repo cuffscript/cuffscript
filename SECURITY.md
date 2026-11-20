@@ -44,7 +44,7 @@ they share the same sandboxed root; nothing else performs file access.
 
 Two things are deliberately left to the embedder:
 
-- **An execution budget.** `--max-steps`, `--timeout` and the matching `CuffEngine::Options` are off unless set.
+- **An execution budget.** `--max-steps`, `--timeout` and the matching `Engine::Options` are off unless set.
 - **Process-level limits.** The engine does not count total memory. Apply memory and CPU limits to the process that hosts untrusted code.
 
 The numbers are on the [limits page](docs/reference/limits.md), and the design is described in [Resource limits](docs/internals/resource-limits.md) and in
@@ -59,6 +59,16 @@ Two pieces of state are shared by every program a process runs, and a long-lived
 
 ---
 
+## DLC:hardware
+
+`use DLC:hardware` reaches nothing by itself: every `hw_` function is `E4-044` until the host gives the part of its device as a function of its own
+(`Engine::Options::hardware`), and `cuffc` and `cuffsh` give the battery, the temperature and a beep only with `--hardware`. So what a script can do to
+a device is exactly what the host gave it. The engine checks a script's arguments before they reach the host (whole numbers from 0 to 65535 for a
+button, a light, a line or a pin; a frequency, a length or a duty in its range), but it cannot know what a pin is wired to: a host that gives pins or
+a serial line to scripts it did not write should give only the ones that are safe to drive, and check the rest in its own functions.
+
+---
+
 ## DLC:network
 
 `use DLC:network` gives a script real outbound HTTP access (`network_get` and `network_post`, plain HTTP only: there is no TLS, so `https://` is rejected rather than silently
@@ -66,7 +76,7 @@ downgraded). This is a meaningfully different trust boundary from everything els
 
 - **It is on by default.** Unlike the module sandbox, which is safe by default and widened explicitly, network access is available unless the host switches it off, because
   that is what makes `use DLC:network` useful out of the box for a script you run yourself. If you embed this engine to run scripts you did not write (a web IDE, a
-  multi-tenant service, anything processing untrusted input), set `CuffEngine::Options::networkEnabled = false` (or run `cuffc --no-network`) before the script runs, not after.
+  multi-tenant service, anything processing untrusted input), set `Engine::Options::networkEnabled = false` (or run `cuffc --no-network`) before the script runs, not after.
 - **SSRF is blocked by default, not eliminated.** Every resolved address is checked against loopback, private and link-local ranges (including the common cloud-metadata
   address `169.254.169.254` and the IPv6 unspecified address `::`, which reaches the local host on Linux) right before connecting, so a script cannot reach `localhost`, your
   internal network or instance metadata through it. The check is on the resolved IP, not the hostname text, and it applies to every redirect target as well, but it is a single
@@ -88,7 +98,7 @@ it follows the same sandbox-by-default model that module loading uses, not a sep
   host configured). An absolute path or a `../`-style escape is rejected with `E5-008` (`FilesystemAccessDenied`) before anything is touched. There is no separate filesystem-specific
   root to configure; widening `--root` widens module loading and `DLC:filesystem` together, deliberately.
 - **It is on by default, like `DLC:network`, for the same reason.** A script you run yourself should be able to read and write files next to it without extra configuration. If you
-  embed this engine to run scripts you did not write, set `CuffEngine::Options::filesystemEnabled = false` (or run `cuffc --no-filesystem`) before the script runs, not after.
+  embed this engine to run scripts you did not write, set `Engine::Options::filesystemEnabled = false` (or run `cuffc --no-filesystem`) before the script runs, not after.
 - **Nothing inside the root is treated as sensitive.** Anything the sandbox root contains, including a `.env` file the script was never given the name of, is readable and writable if
   the script can guess or list the path. Do not point `--root` at a directory that holds anything you would not want an untrusted script to read, write or delete.
 - **Symlinks that point outside the root are rejected; deleting is permanent.** Every path is resolved with `std::filesystem::weakly_canonical` before the containment check, so a symlink

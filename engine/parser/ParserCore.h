@@ -1,8 +1,7 @@
 #pragma once
 
-#include "../common/Ascii.h"
+#include "../common/Text.h"
 #include "../common/Token.h"
-#include "../common/TokenTypes.h"
 #include "../common/Attributes.h"
 #include "../common/CuffError.h"
 #include "../common/Limits.h"
@@ -134,13 +133,24 @@ namespace cuff
         NameScope &operator=(const NameScope &) = delete;
     };
 
-    // A function starts with no names declared: it cannot see the variables of the code around it.
+    // A function starts with no names declared: it cannot see the variables of the code around it, nor those that
+    // earlier texts declared.
     struct FunctionNames
     {
         std::vector<uint32_t> &names;
+        size_t &earlier;
         std::vector<uint32_t> saved;
-        explicit FunctionNames(std::vector<uint32_t> &n) : names(n), saved(std::move(n)) { names.clear(); }
-        ~FunctionNames() { names = std::move(saved); }
+        size_t savedEarlier;
+        FunctionNames(std::vector<uint32_t> &n, size_t &e) : names(n), earlier(e), saved(std::move(n)), savedEarlier(e)
+        {
+            names.clear();
+            earlier = 0;
+        }
+        ~FunctionNames()
+        {
+            names = std::move(saved);
+            earlier = savedEarlier;
+        }
         FunctionNames(const FunctionNames &) = delete;
         FunctionNames &operator=(const FunctionNames &) = delete;
     };
@@ -164,6 +174,7 @@ namespace cuff
         SourceRef source; // the text the tokens came from; stamped onto every function declared (see SourceText.h)
         ParseContext ctx;
         std::vector<uint32_t> declared; // the names that the blocks around the statement being parsed have declared
+        size_t earlierDeclared = 0;     // how many of them, at the start, earlier texts of the program declared
 
         explicit ParserCore(std::vector<Token> t, SourceRef src = nullptr) : tokens(std::move(t)), source(std::move(src)) {}
 
@@ -219,6 +230,10 @@ namespace cuff
                 return "`=` stores a value in a variable; to compare two values write `is`";
             const Token *before = pos > 0 ? &tokens[pos - 1] : nullptr;
             const bool afterWord = before && (before->is(TokenType::IDENTIFIER) || before->is(TokenType::FUNCTION));
+            // Any keyword written where a declaration has its name: `number if = 1`, `func end() do:`.
+            const bool keyword = t.type >= TokenType::CONSTANT && t.type <= TokenType::ISA;
+            if (keyword && afterWord && (peek(1).is(TokenType::ASSIGN) || (before->is(TokenType::FUNCTION) && peek(1).is(TokenType::LPAREN))))
+                return "'" + t.value + "' is a reserved word, so it cannot be used as a name";
             switch (t.type)
             {
             case TokenType::ADD:
@@ -375,8 +390,10 @@ namespace cuff
         void declareName(const Token &name)
         {
             const uint32_t id = internName(name.value);
-            if (std::find(declared.begin(), declared.end(), id) != declared.end())
-                throw SyntaxError(ErrorCode::DuplicateDeclaration, "'" + name.value + "' is already declared here",
+            const auto it = std::find(declared.begin(), declared.end(), id);
+            if (it != declared.end())
+                throw SyntaxError(ErrorCode::DuplicateDeclaration,
+                                  "'" + name.value + (static_cast<size_t>(it - declared.begin()) < earlierDeclared ? "' is already declared" : "' is already declared here"),
                                   name.location,
                                   "give it a new value with `" + name.value + " = ...`, or choose another name");
             declared.push_back(id);

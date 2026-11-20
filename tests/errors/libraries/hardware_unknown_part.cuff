@@ -1,0 +1,2 @@
+use DLC:hardware
+print(hw_supports("wifi"))

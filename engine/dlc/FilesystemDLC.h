@@ -24,7 +24,7 @@ namespace cuff
     {
         throw ModuleError(ErrorCode::DLCFeatureUnavailable,
                           std::string("DLC:filesystem's ") + fn + "() is disabled for this run (filesystem access was turned off by the host)",
-                          loc, "the host embedding this engine controls this — see CuffEngine::Options::filesystemEnabled");
+                          loc, "the host embedding this engine controls this — see Engine::Options::filesystemEnabled");
     }
 
     [[noreturn]] inline void throwFilesystemAccessDenied(const char *fn, const std::string &rawPath, const SourceLocation &loc)

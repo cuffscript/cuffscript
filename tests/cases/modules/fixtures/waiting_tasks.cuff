@@ -1,0 +1,9 @@
+note: a module whose top level waits: tasks run while it does, and the program goes on when the module is done
+use DLC:time
+async func slow_answer() do:
+    time_sleep(0.002)
+    return 42
+end
+Task answer_task = slow_answer()
+number ANSWER = await answer_task
+print("the waiting module ends")

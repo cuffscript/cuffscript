@@ -18,6 +18,7 @@ and what is written by hand is checked against the code:
 
   * every library function must be mentioned on its library's page, and a page may not mention a function the
     library does not have;
+  * the lists of functions that the desktop IDE (ide/ide.py) colours must be the engine's;
   * every relative link and heading anchor in every Markdown file must resolve;
   * every example in a ```cuff block that is followed by an ```output block is run and its output compared; a
     ```cuff error E4-006 block must fail with that error; a ```cuff run block must succeed.
@@ -205,7 +206,13 @@ def block_errors(descriptions, records):
     return "\n".join(out)
 
 
-LIBRARIES = ["math", "string", "time", "datetime", "random", "list", "map", "convert", "json", "network", "filesystem"]
+def libraries(records):
+    """The libraries in the order of the engine's table (dlcTable), which is the order introspect lists their functions in."""
+    order = []
+    for r in records:
+        if r[0] == "fn" and r[1] not in order:
+            order.append(r[1])
+    return order
 
 
 def functions_by_library(records):
@@ -236,7 +243,7 @@ def block_function_index(records):
 
     rows = ["| Function | Library | Method |", "| :--- | :--- | :--- |"]
     entries = [(n, "always available", "builtins.md", method_cell("", n)) for n in builtins]
-    for lib in LIBRARIES:
+    for lib in libraries(records):
         for n in libs.get(lib, []):
             entries.append((n, "`DLC:%s`" % lib, "dlc/%s.md" % lib, method_cell(lib, n)))
     for n, where, page, method in sorted(entries):
@@ -247,7 +254,7 @@ def block_function_index(records):
 def block_dlc_table(records):
     libs = functions_by_library(records)
     rows = ["| Library | Load it with | Functions | Reference |", "| :--- | :--- | ---: | :--- |"]
-    for lib in LIBRARIES:
+    for lib in libraries(records):
         rows.append("| %s | `use DLC:%s` | %d | [%s](%s.md) |" % (lib, lib, len(libs.get(lib, [])), lib, lib))
     return BANNER.format(src="the engine's library tables") + "\n\n" + "\n".join(rows)
 
@@ -327,7 +334,7 @@ def apply_blocks(blocks, write, require_binaries):
 def check_library_pages(records):
     libs = functions_by_library(records)
     builtins = [r[1] for r in records if r[0] == "builtin"]
-    pages = {lib: DOCS / "reference" / "dlc" / (lib + ".md") for lib in LIBRARIES}
+    pages = {lib: DOCS / "reference" / "dlc" / (lib + ".md") for lib in libraries(records)}
     for lib, page in pages.items():
         if not page.exists():
             problem("docs/reference/dlc/%s.md is missing" % lib)
@@ -517,6 +524,32 @@ def check_examples(require_binaries):
 
 # ---------------------------------------------------------------------------------------------------------------
 
+def check_ide_words(records):
+    """The desktop IDE (ide/ide.py) colours the built-in and library functions from lists of its own: they must be the
+    engine's, or a new function is shown as an ordinary name."""
+    path = ROOT / "ide" / "ide.py"
+    if not path.exists():
+        return
+    text = read(path)
+    m = re.search(r"    BUILTINS = \{(.*?)\n    \}", text, re.S)
+    n = re.search(r"    LIBRARY_FUNCTIONS = set\(\s*\((.*?)\)\.split\(\)", text, re.S)
+    if not m or not n:
+        problem("ide/ide.py: could not find BUILTINS and LIBRARY_FUNCTIONS")
+        return
+    ide_builtins = set(re.findall(r'"(\w+)"', m.group(1)))
+    ide_functions = set(" ".join(re.findall(r'"([^"]*)"', n.group(1))).split())
+    builtins = {r[1] for r in records if r[0] == "builtin"}
+    functions = {r[2] for r in records if r[0] == "fn"}
+    for name in sorted(builtins - ide_builtins):
+        problem("ide/ide.py: BUILTINS lacks the built-in %s" % name)
+    for name in sorted(ide_builtins - builtins):
+        problem("ide/ide.py: BUILTINS has %s, which is not a built-in" % name)
+    for name in sorted(functions - ide_functions):
+        problem("ide/ide.py: LIBRARY_FUNCTIONS lacks %s" % name)
+    for name in sorted(ide_functions - functions):
+        problem("ide/ide.py: LIBRARY_FUNCTIONS has %s, which no library has" % name)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate and check the documentation.")
     parser.add_argument("command", choices=["generate", "check"])
@@ -539,6 +572,8 @@ def main():
             check_library_pages(records)
         if records is not None:
             check_limit_duplicates(limits, records)
+        if records is not None:
+            check_ide_words(records)
         check_versions()
         check_links()
         check_tables()

@@ -35,9 +35,8 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 - Name DLC functions `library_verb` (`math_sqrt`, `str_upper`, `list_sort`,
   `file_read`, ...). The name alone tells you which library a function belongs to,
   and because every library shares a single `natives_` map, it also lowers the risk
-  of colliding with another library. The only exceptions are the polymorphic
-  functions that deliberately share one implementation across several types
-  (`length`/`contains`/`index_of`).
+  of colliding with another library. The built-in functions have no prefix
+  (`length`, `contains`, `index_of`, `task_done`): they belong to no library.
 - A DLC function that touches the file system must not open paths directly; route
   them through `resolveSandboxedPath()` (`engine/dlc/FilesystemDLC.h`, which uses
   `isInsideRoot()` from `engine/common/PathSandbox.h` internally). Module loading
@@ -45,8 +44,7 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 - A dangerous library that the host must be able to switch off entirely (such as
   network or file system) should get an options struct following the pattern of
   `NetworkDLCOptions`/`FilesystemDLCOptions`: add a member for it to `DLCOptions`, and
-  pass the value along `Interpreter::Config` (the type `CuffEngine::Options` and
-  `Session` use as well) → `DLCOptions` (filled in by `Interpreter::execUse()`) → your
+  pass the value along `Interpreter::Config` (the type `Engine::Options` is) → `DLCOptions` (filled in by `Interpreter::useStatement()`) → your
   library. The command-line flag is added once, in `engine/EngineOptionsCli.h`
   (`parseEngineOption` and `engineOptionsHelp`); `cuffc` and `cuffsh` both read their
   engine flags through it, so neither needs to change.
@@ -60,6 +58,19 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
 - A function that can build a large string or list should check the size with
   `ensureStringSize`/`ensureItemCount` before building the result (the limits are
   in `engine/common/Limits.h`).
+- A function that has to wait (for time, for a socket) must not block, or every task of the
+  program waits with it. It describes the wait as a `Wait` (`engine/interpreter/Value.h`:
+  `advance()` does what can be done without blocking and says whether the wait is over,
+  `wakeAt()` when to try again anyway, `socket()` and `wantsWrite()` what to poll,
+  `finish()` the call's value or its error) and hands it to the machine:
+  `if (WaitHook *machine = activeWaitHook()) { machine->waitFor(std::make_unique<MyWait>(...)); return Value(); }`.
+  The value returned there is ignored; the call's value is what `finish()` gives. Without a
+  hook (the function was called from outside a run) it does the same work blocking.
+  `time_sleep` (`TimeDLC.h`) is the smallest example, and the network requests
+  (`NetworkDLC.h` over `net::Request`) one that waits on a socket.
+- A host program adds a function without touching the engine at all: `Engine::addFunction`
+  ([C++ API](../reference/cpp-api.md#host-functions)). Add it to the engine only when every
+  program should have it.
 
 ## 2. Adding a new value type
 
@@ -81,10 +92,10 @@ Extend the `Value` class in `engine/interpreter/Value.h`.
 
 1. `engine/parser/ASTNodes.h`: define the new struct and add it to `StmtKind`/
    `ExprKind` and the matching `variant`.
-2. Add the parsing logic to the appropriate parser file (`StatementParser.h`
-   dispatches on a statement's first token, and `LiteralParser::parsePrimary`
+2. Add the parsing logic to the appropriate parser class (`StatementParser` in `engine/parser/Parser.h`
+   dispatches on a statement's first token, and `LiteralParser::parsePrimary` in `engine/parser/ExpressionParser.h`
    dispatches on an expression's first token). If you need a new reserved word, add
-   it to `engine/common/TokenTypes.h` and `engine/lexer/KeywordClassifier.h`, and decide whether it may still be used as a
+   it to `engine/common/Token.h` and the keyword table in `engine/lexer/Lexer.h`, and decide whether it may still be used as a
    name (see section 9). A new reserved word breaks every program that used it as a name, so it needs an entry in the
    changelog.
 3. Add an output case to `engine/debug/ASTPrinter.h` (you can check it with `--ast`).
@@ -101,8 +112,8 @@ Extend the `Value` class in `engine/interpreter/Value.h`.
    check the route that looks names up at run time as well ([testing](testing.md)).
 
 If two parser classes have to call each other (for example, a new expression that
-must parse sub-expressions), follow the pattern `LiteralParser.h` uses: keep only
-a forward declaration plus the member function **declarations** in the header, and
+must parse sub-expressions), follow the pattern `LiteralParser` uses: keep only
+a forward declaration plus the member function **declarations** in the class, and
 write the actual definitions at the bottom of `ExpressionParser.h` (where
 `LiteralParser::parsePrimary` is defined), after both classes are complete types.
 
@@ -162,7 +173,7 @@ call", like `async` and `pure`.
 1. Add a boolean field to `FunctionDecl` and fill it in the parser (the modifier loop
    in `FunctionParser::parse`). The new keyword also has to be accepted by
    `FunctionParser::atFunctionStart`, so that `newkeyword func ...` is recognized as a
-   function declaration where `StatementParser.h` dispatches on the first token. A
+   function declaration where `StatementParser` dispatches on the first token. A
    modifier that is written twice is a syntax error.
 2. Copy the flag into the compiled function (`Proto::isPure`, set in `Compiler::compileFunction`) and from there into each
    call's frame (`Frame::isPure`, set in `Interpreter::enterCall`). A frame belongs to one call, so each call has its own
@@ -240,7 +251,7 @@ Adding a new reserved word is a breaking change for programs that used it as a n
 
 `CuffError::what()` renders only the message and the hint. The report a user sees,
 with the source line and the `^`, is built by `renderErrorWithSnippet()`
-(`engine/common/ErrorFormat.h`), which `Session::run()` and `CuffEngine::execute()` call
+(`engine/common/ErrorFormat.h`), which `Engine` calls
 for you, so a front end never builds one. Code that throws a new error only has to fill
 in an accurate `SourceLocation`: take it from the token that starts the construct. The
 caret is automatic and is placed by display width, so it stays aligned across tabs and
@@ -250,7 +261,7 @@ Which text a location points into is carried by the error (`CuffError::source`);
 parser stamps every function it declares, so an error inside a module or inside a
 function from an earlier shell entry is drawn from the right file. If you add something
 that runs code from another source (a new kind of import, say), run its body inside the
-same `attachSource` guard `execFunctionBody` uses. [Source locations and error
+same `attachSource` stamping that `handleError` does for a frame it leaves. [Source locations and error
 reports](../internals/source-locations.md) explains all of it. If you change this
 behaviour, `tests/unit/error_snippet_test.cpp` will tell you, including a check that
 the reported line and column always agree with the offset.
@@ -289,15 +300,15 @@ as `NetworkDLC.h` does with the HTTP client.
 The parameter list is parsed in one place, `FunctionParser::parseParam`
 (`type name [= default]`). A new built-in type is added in `TypeKind` and `builtinTypeFromName`
 (`ASTNodes.h`) and in `Interpreter::acceptsType`, which declarations, assignments, parameters, fields, loop variables and `or_else as`
-all use (`-Wswitch` catches a missing case in the switches). Type checking happens in
-`evalCall`/`invokeAwaited` **before** dispatch, so an async function also errors at the
-call site — do not defer it until after the job is queued. Default values are worked out
+all use (`-Wswitch` catches a missing case in the switches). Type checking happens when
+the call is made, before a task is started for an async function, so a wrong call errors at the
+call site — do not defer it until the task runs. Default values are worked out
 at each call, in the scope of the function, after the arguments that were passed.
 
 ## 13. When touching `use` statement syntax
 
 A DLC import is the `UseStmt::dlcs` list (name + each one's location), and a module
-import is `name`/`path` (three places: `ImportParser.h`, `Interpreter::execUse` and
+import is `name`/`path` (three places: `ImportParser` in `Parser.h`, `Interpreter::useStatement` and
 `ASTPrinter.h`). A `use` spanning several lines is deliberately unsupported, because
 the language defines a module-load command as one line (`language.md`, section 9).
 

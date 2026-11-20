@@ -1,0 +1,9 @@
+caught: first at line 6
+again: first
+true
+fine
+E7-001 second
+E4-006
+handled inside
+through two tasks: inner
+E4-019 'await' cannot wait for a number value: it needs a task, or a call of an async function

@@ -2,7 +2,6 @@
 
 #include <stdexcept>
 #include <string>
-#include "SourceLocation.h"
 #include "SourceText.h"
 #include "ErrorCodes.h"
 

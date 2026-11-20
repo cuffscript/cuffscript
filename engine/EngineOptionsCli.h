@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Session.h"
+#include "CuffEngine.h"
+#include "DesktopHardware.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
@@ -56,6 +57,8 @@ namespace cuff
             options.allowPrivateNetworkTargets = true;
         else if (arg == "--no-filesystem")
             options.filesystemEnabled = false;
+        else if (arg == "--hardware")
+            options.hardware = desktopHardware();
         else if (arg == "--root")
         {
             std::string v;
@@ -93,7 +96,9 @@ namespace cuff
                "  --no-network           switch DLC:network off (calls into it raise E5-005)\n"
                "  --allow-private-network\n"
                "                         let DLC:network reach loopback/private/link-local addresses\n"
-               "  --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)\n";
+               "  --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)\n"
+               "  --hardware             give DLC:hardware this computer's battery, temperature and beep\n"
+               "                         (off by default: every hw_ function then raises E4-044)\n";
     }
 
 }

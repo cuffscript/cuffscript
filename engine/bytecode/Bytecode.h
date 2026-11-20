@@ -65,7 +65,7 @@ namespace cuff::bc
     X(NewList, "rri") X(ListAdd, "rr-") X(NewMap, "r-i") X(MapSet, "rrr") X(ChkKey, "r--") X(Index, "rrr")             \
     X(Slice, "rrr") X(ToStr, "r--") X(Concat, "rr-") X(GetField, "rrc") X(SetField, "rrc") X(With, "rr-")              \
     X(Call, "rif") X(CallW, "rii") X(CallM, "ric") X(CallS, "ri-") X(AwaitF, "--i") X(AwaitM, "r--")                   \
-    X(AwaitS, "---") X(Ret, "r--") X(RetNil, "---") X(ArgJmp, "i-j") X(DefChk, "rim") X(ForPrep, "rr-")                \
+    X(AwaitS, "---") X(Await, "r--") X(Ret, "r--") X(RetNil, "---") X(ArgJmp, "i-j") X(DefChk, "rim") X(ForPrep, "rr-")                \
     X(ForNext, "rrj") X(EachPrep, "rr-") X(EachNext, "rrj") X(GlobalChk, "---") X(Bridge, "r--") X(DefFunc, "---")     \
     X(Use, "i--") X(Fail, "r--") X(PlaceChk, "--o") X(PlaceSet, "rro") X(CollOp, "rro") X(ListPush, "rr-")             \
     X(SetIndex, "rrr") X(ErrChk, "r--") X(RetChk, "---") X(Raise, "---") X(DynReset, "ii-")
@@ -99,6 +99,7 @@ namespace cuff::bc
 
     // `x` of the call instructions.
     constexpr uint16_t kCallAwaited = 1;
+    constexpr uint16_t kCallDiscard = 2; // the call is a statement of its own: nothing uses its value
 
     // What a statically known error is (Raise).
     enum class RaiseKind : uint16_t
@@ -264,10 +265,10 @@ namespace cuff::bc
             return it == index_.end() ? nullptr : at(it->second);
         }
 
-        bool isDeclared(uint32_t nameId)
+        bool isDeclared(uint32_t nameId) const
         {
-            const Reg *r = find(nameId);
-            return r && (r->meta & kMetaDeclared);
+            auto it = index_.find(nameId);
+            return it != index_.end() && (chunks_[it->second / kChunk][it->second % kChunk].meta & kMetaDeclared);
         }
 
         size_t size() const { return names_.size(); }

@@ -1,0 +1,2 @@
+use DLC:path
+print(path_with_extension("a.txt", "md"))

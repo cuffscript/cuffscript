@@ -1,0 +1,78 @@
+note: async methods, and waiting in the places where the engine itself runs code of a class
+use DLC:time
+
+async func later(any value) do:
+    time_sleep(0.002)
+    return value
+end
+
+class Account do:
+    str owner = ""
+    number balance = await later(100)
+
+    func init(str owner) do:
+        self.owner = owner
+    end
+
+    async func deposit(number amount) do:
+        time_sleep(0.001)
+        self.balance = self.balance + amount
+        return self.balance
+    end
+
+    func to_str() do:
+        Task label = later("account of " + self.owner)
+        return f"<{await label}: {self.balance}>"
+    end
+end
+
+Account a = Account("Ann")
+Task first = a.deposit(10)
+Task second = a.deposit(5)
+print(await first, await second)
+print(await a.deposit(1))
+print(a)
+print(f"shown in a string: {a}")
+
+note: a task started inside with
+with a do:
+    Task third = deposit(4)
+    print(await third)
+end
+
+note: a waiting to_str does not stop the other tasks
+async func ticker() do:
+    print("tick")
+    time_sleep(0.001)
+    print("tock")
+end
+ticker()
+print(a)
+
+note: an error of a task that to_str awaits can be caught there, or by the code that printed the object
+async func fails() do:
+    fail "no label"
+end
+class Careful do:
+    func to_str() do:
+        await fails() or_else as Error e do:
+            return "<careful: " + e.message + ">"
+        end
+        return "unreachable"
+    end
+end
+class Careless do:
+    func to_str() do:
+        Task label = fails()
+        return await label
+    end
+end
+print(Careful())
+print(Careless()) or_else as Error e do:
+    print("the print failed:", e.message)
+end
+
+note: a class cannot be made into a task value by hand
+Task() or_else as Error e do:
+    print(e.code)
+end

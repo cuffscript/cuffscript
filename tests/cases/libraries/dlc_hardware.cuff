@@ -1,0 +1,31 @@
+note: DLC:hardware where the host gives no hardware, as cuffc does without --hardware: a program asks first, or catches E4-044, and carries on
+use DLC:hardware
+
+list parts = ["battery", "button", "led", "beep", "screen_text", "serial", "sensor", "pin", "pwm", "analog"]
+loop each str part in parts do:
+    print(part, hw_supports(part))
+end
+
+func battery_text() do:
+    if !hw_supports("battery") do:
+        return "no battery"
+    end
+    map b = hw_battery()
+    return to_str(b["level"]) + "%"
+end
+print(battery_text())
+
+hw_led(0, true) or_else as Error e do:
+    print(e.code, e.message)
+end
+number reading = hw_sensor("temperature") or_else do:
+    reading = -1
+end
+print(reading)
+hw_pwm(3, 0.5) or_else as Error e2 do:
+    print(e2.code)
+end
+note: arguments are checked first, so a wrong one is reported as wrong even on a device without the part
+hw_pwm(3, 1.5) or_else as Error e3 do:
+    print(e3.code, e3.message)
+end

@@ -12,7 +12,7 @@
 #include <iostream>
 #include <string>
 
-using cuff::CuffEngine;
+using cuff::Engine;
 
 namespace
 {
@@ -38,14 +38,14 @@ namespace
         return out;
     }
 
-    CuffEngine::Result runSource(const std::string &src, const CuffEngine::Options &opts = CuffEngine::Options())
+    Engine::Outcome runSource(const std::string &src, const Engine::Options &opts = Engine::Options())
     {
-        return CuffEngine::execute(src, ".", opts);
+        return Engine::execute(src, ".", opts);
     }
 
     // The engine must fail with `code` (e.g. "E2-008") instead of crashing.
     void expectError(const std::string &name, const std::string &src, const std::string &code,
-                     const CuffEngine::Options &opts = CuffEngine::Options())
+                     const Engine::Options &opts = Engine::Options())
     {
         auto r = runSource(src, opts);
         check(!r.success && r.error.find("[" + code + "]") != std::string::npos,
@@ -205,13 +205,13 @@ int main()
 
     // ---- execution budget ----
     {
-        CuffEngine::Options o;
+        Engine::Options o;
         o.maxSteps = 1000;
         expectError("step limit", "loop while true do:\n    number x = 1\nend\n", "E6-001", o);
         expectOk("step limit not hit", "number t = 0\nloop repeat number i = 1 ~ 100 do:\n    t = t + i\nend\n");
     }
     {
-        CuffEngine::Options o;
+        Engine::Options o;
         o.timeoutMs = 150;
         auto start = std::chrono::steady_clock::now();
         expectError("timeout", "loop while true do:\n    number x = 1\nend\n", "E6-002", o);
@@ -220,7 +220,7 @@ int main()
     }
     {
         // A budget error is terminal: or_else must not be able to swallow it.
-        CuffEngine::Options o;
+        Engine::Options o;
         o.maxSteps = 500;
         expectError("or_else cannot catch step limit",
                     "loop while true do:\n    number x = 1\nend or_else do:\n    print(\"caught\")\nend\n", "E6-001", o);
@@ -239,21 +239,21 @@ int main()
         }
         const std::string dir = (base / "proj").string();
 
-        auto ok = CuffEngine::execute("use helper from ./lib\nnumber x = seven()\n", dir);
+        auto ok = Engine::execute("use helper from ./lib\nnumber x = seven()\n", dir);
         check(ok.success, "module inside the script directory loads: " + ok.error.substr(0, 120));
 
-        auto up = CuffEngine::execute("use outside from ../shared\n", dir);
+        auto up = Engine::execute("use outside from ../shared\n", dir);
         check(!up.success && up.error.find("[E5-006]") != std::string::npos, "module outside the root is rejected");
 
-        CuffEngine::Options wide;
+        Engine::Options wide;
         wide.rootDir = base.string();
-        auto widened = CuffEngine::execute("use outside from ../shared\nnumber y = eight()\n", dir, wide);
+        auto widened = Engine::execute("use outside from ../shared\nnumber y = eight()\n", dir, wide);
         check(widened.success, "rootDir widens the sandbox: " + widened.error.substr(0, 120));
 
         // Spelled as a plain root-relative path: on Windows (base / "shared").string() is "C:\...", which is not
         // valid CuffScript source and would stop in the lexer (E2-001) before the sandbox rule is reached. The rule
         // runs before the file system is touched, so the directory does not have to exist.
-        auto abs = CuffEngine::execute("use outside from /cuff_limits_test/shared\n", dir);
+        auto abs = Engine::execute("use outside from /cuff_limits_test/shared\n", dir);
         check(!abs.success && abs.error.find("[E5-006]") != std::string::npos &&
                   abs.error.find("absolute module paths are not allowed") != std::string::npos,
               "absolute module path is rejected: " + abs.error.substr(0, 120));
@@ -273,23 +273,23 @@ int main()
             chain += " + 1";
         chain += "\nif r is not " + std::to_string(terms) + " do:\n    number z = 1 / 0\nend\n";
 
-        CuffEngine::Options small;
+        Engine::Options small;
         small.stackBudgetBytes = 512 * 1024;
-        auto r = CuffEngine::execute(chain, ".", small);
+        auto r = Engine::execute(chain, ".", small);
         check(r.success, "a chain of " + std::to_string(terms) + " terms evaluates under a 512 KiB stack budget: " + r.error.substr(0, 200));
 
         std::string idx = "str t = \"a\"";
         for (int i = 2; i < terms; ++i)
             idx += "[1]";
         idx += "\nif t is not \"a\" do:\n    number z = 1 / 0\nend\n";
-        r = CuffEngine::execute(idx, ".", small);
+        r = Engine::execute(idx, ".", small);
         check(r.success, "an index chain of " + std::to_string(terms) + " steps evaluates under a 512 KiB budget: " + r.error.substr(0, 200));
 
         std::string sl = "str u = \"abcdef\"";
         for (int i = 0; i < 3000; ++i)
             sl += "[1~6]";
         sl += "\nif u is not \"abcdef\" do:\n    number z = 1 / 0\nend\n";
-        r = CuffEngine::execute(sl, ".", small);
+        r = Engine::execute(sl, ".", small);
         check(r.success, "a slice chain evaluates under a 512 KiB budget: " + r.error.substr(0, 200));
 
         // One element past the limit is refused by the parser, with the documented code.
@@ -297,7 +297,7 @@ int main()
         for (int i = 1; i <= static_cast<int>(cuff::limits::kMaxExprHeight) + 5; ++i)
             tooLong += " + 1";
         tooLong += "\n";
-        r = CuffEngine::execute(tooLong, ".", small);
+        r = Engine::execute(tooLong, ".", small);
         check(!r.success && r.error.find("[E2-008]") != std::string::npos, "a chain past kMaxExprHeight is E2-008: " + r.error.substr(0, 120));
     }
 
@@ -305,28 +305,28 @@ int main()
     // operands that would fail are never reached.
     {
         const int terms = static_cast<int>(cuff::limits::kMaxExprHeight) - 10;
-        CuffEngine::Options small;
+        Engine::Options small;
         small.stackBudgetBytes = 512 * 1024;
 
         std::string andChain = "boolean r = true";
         for (int i = 1; i < terms; ++i)
             andChain += " and true";
         andChain += "\nif !r do:\n    number z = 1 / 0\nend\n";
-        auto r = CuffEngine::execute(andChain, ".", small);
+        auto r = Engine::execute(andChain, ".", small);
         check(r.success, "an 'and' chain of " + std::to_string(terms) + " terms evaluates under a 512 KiB budget: " + r.error.substr(0, 200));
 
         std::string orChain = "boolean r = true";
         for (int i = 1; i < terms; ++i)
             orChain += " or 1 / 0 is 1";
         orChain += "\nif !r do:\n    number z = 1 / 0\nend\n";
-        r = CuffEngine::execute(orChain, ".", small);
+        r = Engine::execute(orChain, ".", small);
         check(r.success, "an 'or' chain stops at the first true operand: " + r.error.substr(0, 200));
 
         std::string andFalse = "boolean r = false";
         for (int i = 1; i < terms; ++i)
             andFalse += " and 1 / 0 is 1";
         andFalse += "\nif r do:\n    number z = 1 / 0\nend\n";
-        r = CuffEngine::execute(andFalse, ".", small);
+        r = Engine::execute(andFalse, ".", small);
         check(r.success, "an 'and' chain stops at the first false operand: " + r.error.substr(0, 200));
     }
 
@@ -337,13 +337,13 @@ int main()
         for (int i = 0; i < 200; ++i)
             chain += " - 1";
         chain += "\n";
-        auto r = CuffEngine::execute(chain + "number q = 1 / (r + 190)\n", ".", CuffEngine::Options());
+        auto r = Engine::execute(chain + "number q = 1 / (r + 190)\n", ".", Engine::Options());
         check(!r.success && r.error.find("[E4-006]") != std::string::npos, "a long chain computes the same value as a short one: " + r.error.substr(0, 120));
         std::string mixed = "list v = [1, 2, 3]\nnumber r = 0";
         for (int i = 0; i < 100; ++i)
             mixed += " + v[2]";
         mixed += "\nnumber q = 1 / (r - 200)\n";
-        r = CuffEngine::execute(mixed, ".", CuffEngine::Options());
+        r = Engine::execute(mixed, ".", Engine::Options());
         check(!r.success && r.error.find("[E4-006]") != std::string::npos, "operators and indexing mixed in one chain: " + r.error.substr(0, 120));
     }
 
@@ -424,7 +424,7 @@ int main()
             auto body = [](void *p) -> void *
             {
                 Job *j = static_cast<Job *>(p);
-                cuff::Session session(j->options);
+                cuff::Engine session(j->options);
                 auto out = session.run(j->source);
                 j->success = out.success;
                 j->error = out.error;
@@ -499,16 +499,16 @@ int main()
     // The call depth limit is what ends recursion, whatever the stack budget: here the smallest budget the engine can
     // end up with.
     {
-        CuffEngine::Options minimal;
+        Engine::Options minimal;
         minimal.stackBudgetBytes = cuff::limits::kDefaultStackBudget;
         const int depth = cuff::limits::kMaxCallDepth - 1;
-        auto r = CuffEngine::execute("func f(any n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + f(n - 1)\nend\n"
+        auto r = Engine::execute("func f(any n) do:\n    if n is 0 do:\n        return 0\n    end\n    return 1 + f(n - 1)\nend\n"
                                      "number d = f(" + std::to_string(depth) + ")\n",
                                      ".", minimal);
         check(r.success, "plain recursion reaches the call depth limit under the default stack budget: " + r.error.substr(0, 160));
-        r = CuffEngine::execute("func f(any n) do:\n    return f(n + 1)\nend\nnumber d = f(1)\n", ".", minimal);
+        r = Engine::execute("func f(any n) do:\n    return f(n + 1)\nend\nnumber d = f(1)\n", ".", minimal);
         check(!r.success && r.error.find("[E4-017]") != std::string::npos, "unbounded recursion ends in E4-017: " + r.error.substr(0, 120));
-        r = CuffEngine::execute("func f(any n) do:\n    return f(n + 1)\nend\nnumber d = f(1)\n", ".", minimal);
+        r = Engine::execute("func f(any n) do:\n    return f(n + 1)\nend\nnumber d = f(1)\n", ".", minimal);
         check(r.error.find("maximum call depth") != std::string::npos, "and names the call depth limit: " + r.error.substr(0, 120));
     }
 
@@ -526,9 +526,9 @@ int main()
             f << (i + 1 < depth + 4 ? "use m" + std::to_string(i + 1) + " from ./\n" : std::string("number last = 1\n"));
         }
         // m0 is imported at depth 0, m1 at depth 1, and so on: the module imported at depth `depth` is refused.
-        auto r = CuffEngine::execute("use m0 from ./\n", dir.string(), CuffEngine::Options());
+        auto r = Engine::execute("use m0 from ./\n", dir.string(), Engine::Options());
         check(!r.success && r.error.find("[E5-007]") != std::string::npos, "a chain of modules deeper than the limit is E5-007: " + r.error.substr(0, 120));
-        r = CuffEngine::execute("use m" + std::to_string(depth + 4 - 1 - (depth - 1)) + " from ./\n", dir.string(), CuffEngine::Options());
+        r = Engine::execute("use m" + std::to_string(depth + 4 - 1 - (depth - 1)) + " from ./\n", dir.string(), Engine::Options());
         check(r.success, "a chain exactly at the limit is accepted: " + r.error.substr(0, 120));
 
         {
@@ -536,7 +536,7 @@ int main()
             big << "note: ";
         }
         fs::resize_file(dir / "big.cuff", cuff::limits::kMaxSourceBytes + 1);
-        r = CuffEngine::execute("use big from ./\n", dir.string(), CuffEngine::Options());
+        r = Engine::execute("use big from ./\n", dir.string(), Engine::Options());
         check(!r.success && r.error.find("[E5-007]") != std::string::npos, "a module larger than the source limit is E5-007: " + r.error.substr(0, 120));
         fs::remove_all(dir, ec);
     }

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <time.h>
 
 #if defined(_WIN32)
 #ifndef _WIN32_WINNT
@@ -26,6 +27,10 @@
 #endif
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/stack.h>
+#endif
+#if !defined(_WIN32) && !defined(__unix__) && !defined(__APPLE__) && !defined(__EMSCRIPTEN__)
+#include <chrono>
+#include <thread>
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -113,6 +118,35 @@ namespace cuff
 #endif
     }
 #endif
+
+    // A socket that something is waiting on, and whether it became ready. A `SocketPoller` blocks until one of a
+    // set does or the time is up. The code that owns the sockets supplies it (net/HttpClient.h), so that the code
+    // that does the waiting needs no platform's socket headers.
+    struct SocketWait
+    {
+        long long socket;
+        bool write;
+        bool ready;
+    };
+    using SocketPoller = void (*)(SocketWait *items, size_t count, int milliseconds);
+
+    // Gives the processor up for about this long. The engine does this only when every task is waiting.
+    inline void sleepMilliseconds(int ms)
+    {
+        if (ms <= 0)
+            return;
+#if defined(_WIN32)
+        Sleep(static_cast<DWORD>(ms));
+#elif defined(__unix__) || defined(__APPLE__) || defined(__EMSCRIPTEN__)
+        struct timespec wait;
+        wait.tv_sec = ms / 1000;
+        wait.tv_nsec = static_cast<long>(ms % 1000) * 1000000L;
+        nanosleep(&wait, nullptr);
+#else
+        // A platform this file does not know: what the standard library has.
+        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+#endif
+    }
 
     // Bytes of stack left below the current frame; 0 when the platform can't tell.
     inline size_t availableStackBytes()

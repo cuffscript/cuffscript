@@ -21,29 +21,15 @@ listed because they change; the order is the order a program travels through the
 
 ## `engine/`: the front end
 
-The stages that turn source text into a syntax tree, in order. They are chained in one place, `ParseProgram.h`, which the engine entry points, the shell and the module loader all use.
+The stages that turn source text into a syntax tree, in order. They are chained in one place, `parseProgram` at the end of `parser/Parser.h`, which the engine entry points, the shell and the module loader all use.
 
 | File | What it does |
 | :--- | :--- |
-| `tokenizer/Tokenizer.h` | Turns source text into raw tokens: words, numbers, strings, operators, newlines, indentation. |
-| `tokenizer/ScanState.h` | The cursor over the text (offset, line, column, whether a space came before); skips a byte order mark. |
-| `tokenizer/StringScanner.h`, `Escapes.h` | String and f-string literals, and what each backslash escape stands for. |
-| `tokenizer/PatternScanner.h` | Pattern literals `p"..."`: the raw text between the quotes and the flags after them. |
-| `tokenizer/NumberScanner.h`, `IdentifierScanner.h`, `OperatorScanner.h`, `CommentScanner.h`, `CharUtils.h` | The scanners for the other token kinds, and character classes. |
-| `lexer/Lexer.h` | Classifies words as keywords or identifiers and runs the colon check. |
-| `lexer/KeywordClassifier.h` | The table of reserved words (44). |
-| `lexer/ColonValidator.h` | Rejects a space before a `:`. |
-| `parser/Parser.h`, `ParserCore.h` | The token cursor, error construction and helpers shared by the parsers. |
-| `parser/StatementParser.h` | Chooses the parser for a statement from its first token and attaches an `or_else`. |
-| `parser/DeclarationParser.h` | Declarations, assignments and `global`, and the two pieces they share: `TypeParser` (a type name) and `PlaceParser` (the target of an assignment, `add` and `remove`). |
-| `parser/FunctionParser.h` | `[async] [pure] func` declarations, their parameters and default values; also the methods of a class. |
-| `parser/ClassParser.h` | `class` declarations: the fields and methods in the body. |
-| `parser/ControlFlowParser.h`, `LoopParser.h` | `if` / `else` and `with`, and `loop repeat` / `loop while` / `loop each`. |
-| `parser/CollectionOpParser.h` | `add` and `remove`. |
-| `parser/ImportParser.h` | `use DLC:...` and `use name from path`. |
-| `parser/OrElseParser.h` | Wraps a statement in its `or_else` handler. |
-| `parser/ExpressionParser.h` | Expressions by precedence, indexing, slicing, member access, method calls and `super` calls, `matches` and `isa`. |
-| `parser/LiteralParser.h` | Literals, f-strings (with the true position of each embedded expression), pattern literals, list and map literals, `self` and `.name`. |
+| `lexer/Tokenizer.h` | Turns source text into raw tokens: words, numbers (with their exponent), strings and f-strings and what each escape stands for, pattern literals, operators, comments, newlines and indentation. The cursor over the text skips a byte order mark. |
+| `lexer/Lexer.h` | Classifies words as keywords or identifiers (the table of reserved words) and rejects a space before a `:`. |
+| `parser/ParserCore.h` | The token cursor, error construction and the helpers shared by the parsers, among them the hint for a reserved word used as a name. |
+| `parser/ExpressionParser.h` | Expressions by precedence, indexing, slicing, member access, method calls and `super` calls, `matches`, `isa` and `await`; literals, f-strings (with the true position of each embedded expression), pattern literals, list and map literals, `self` and `.name`. |
+| `parser/Parser.h` | Every statement: declarations, assignments and `global` (with the type and place parsers they share), `add` and `remove`, `if` and `with`, the loops, `[async] [pure] func` with its parameters and default values, `class`, `use`, `or_else`, and the bodies of blocks; then the program, which also refuses two functions of one name. |
 | `parser/ASTNodes.h` | The syntax tree node types, built so that a very deep tree can be destroyed without recursion. |
 | `debug/ASTPrinter.h` | Prints tokens and the tree for `--ast`. |
 | `debug/BytecodePrinter.h` | Prints compiled code for `--bytecode`, from the same table of instructions the machine is built from. |
@@ -53,16 +39,14 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | File | What it does |
 | :--- | :--- |
 | `bytecode/Bytecode.h` | The instruction set (`CUFF_OPCODES`), the instruction format, what a compiled piece of code is (`Proto`), a register and its meta, and the table of top-level variables (`VarTable`). |
-| `bytecode/Compiler.h` | Compiles a function, a top-level statement or a field's default value to bytecode: scopes and registers, what each name stands for, which type checks can be left out, loops, `with`, `or_else`, places. |
-| `interpreter/Interpreter.h` | The machine: frames and registers, the instruction loop, calls, classes and objects, the `async` queue, modules, error handling, budgets, the stack plan. By far the largest file. |
-| `interpreter/Value.h` | The value type (number, string, boolean, list, map, match, pattern, object, empty), equality, display form, and the read-only flag for constant lists. |
+| `bytecode/Compiler.h` | Compiles a function, a top-level statement or a field's default value to bytecode: scopes and registers, what each name stands for, which type checks can be left out, loops, `with`, `or_else`, places, `await`. |
+| `interpreter/Interpreter.h` | The machine: frames and registers, the instruction loop, calls, classes and objects, tasks and the scheduler that runs them, modules, error handling (with the error that `fail` raises), budgets, the stack plan, and the operations a host uses (`call`, `readGlobal`, `writeGlobal`, `addNative`). By far the largest file. |
+| `interpreter/Value.h` | The value type (number, string, boolean, list, map, match, pattern, object, empty), equality, display form, the read-only flag for constant lists, what a library function hands the machine to wait for (`Wait`), and the records that free cycles (`CycleHeap`). |
 | `interpreter/ClassModel.h` | What the interpreter knows about a class (`ClassInfo`: parent, fields in layout order, methods with inherited ones merged) and the data of an object. |
-| `interpreter/ProgramError.h` | The error that `fail` raises, carrying the `Error` object so that `or_else as` hands the same object to the handler. |
 | `interpreter/NativeFunctions.h` | Registers the built-ins and the table of libraries that `use DLC:` looks up. |
-| `common/StrData.h`, `Utf8.h`, `Width.h` | Shared immutable string storage with cached code point counts; UTF-8 helpers; terminal column widths. |
-| `common/NameInterner.h` | Turns identifier names into small numbers; the one locked process-wide table. |
+| `common/Text.h` | ASCII letter tests and case, UTF-8 helpers, the shared immutable string storage with cached code point counts (`StrData`), reading and writing a number, and terminal column widths; the same under every locale the host may have set. |
+| `common/NameInterner.h` | Turns identifier names into small numbers; a locked process-wide table. |
 | `common/Arithmetic.h` | The floored remainder shared by `%` and `math_mod`. |
-| `common/NumberText.h`, `Ascii.h` | Reading and writing a number, and ASCII letter tests and case, the same under every locale the host may have set. |
 | `common/PathSandbox.h` | The containment check used for modules and files. |
 
 ## `engine/`: errors, limits and options
@@ -71,27 +55,25 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | :--- | :--- |
 | `common/ErrorCodes.h` | Every error code, its one-line description, and which can be caught. The error catalogue is generated from it. |
 | `common/CuffError.h` | The error classes the engine throws. |
-| `common/ErrorFormat.h` | Turns an error into the report with the source line and caret. |
-| `common/SourceLocation.h`, `SourceText.h`, `Token.h`, `TokenTypes.h` | Positions, the program text a position points into, and the token types. |
+| `common/ErrorFormat.h` | Turns an error into the report with the source line and caret, also when memory has run out. |
+| `common/SourceText.h`, `Token.h` | Positions and the program text a position points into; the token types and the token. |
 | `common/Limits.h` | Every limit the engine enforces. The limits page is generated from it. |
-| `common/Attributes.h` | Compiler attributes (`CUFF_NOINLINE` and friends) and the Windows macro guards. |
-| `CuffEngine.h`, `Session.h`, `ParseProgram.h` | The public API: [C++ API](../reference/cpp-api.md). |
+| `common/Attributes.h` | Compiler attributes (`CUFF_NOINLINE` and friends), the Windows macro guards, and the little the engine needs from the platform: the stack it runs on, sleeping, waiting on sockets. |
+| `CuffEngine.h` | The public API, `Engine`: [C++ API](../reference/cpp-api.md). |
 | `EngineOptionsCli.h` | The command-line flags that fill the options, shared by `cuffc` and `cuffsh`. |
 
 ## `engine/`: patterns, libraries and the network
 
 | File | What it does |
 | :--- | :--- |
-| `regex/RegexParser.h` | Turns a pattern string into a pattern tree: tokens, sets, groups, quantifiers, escapes. |
-| `regex/RegexAst.h` | The pattern tree. |
+| `regex/RegexParser.h` | The pattern tree, and the parser that turns a pattern string into one: tokens, sets, groups, quantifiers, escapes. |
 | `regex/RegexMatcher.h` | Matches a tree against text, with the step, time and recursion budgets. |
-| `regex/RegexEngine.h` | Compiles patterns and exposes whole-text matching, `match`, `find`, `replace`, `split` and `count`. |
-| `regex/PatternData.h` | The value behind a `pattern`: the compiled pattern with its source text and flags. |
+| `regex/RegexEngine.h` | Compiles patterns and exposes whole-text matching, `match`, `find`, `replace`, `split` and `count`; the value behind a `pattern` (`PatternData`: the compiled pattern with its source text and flags). |
 | `dlc/DLCCommon.h` | Argument checking shared by every library, number parsing for `to_number`, case mapping. |
 | `dlc/MethodTable.h` | The one list of built-in methods: which function runs for `value.name(...)`, on which kinds of value, from which library. |
-| `dlc/MathDLC.h`, `StringDLC.h`, `ListDLC.h`, `MapDLC.h`, `ConvertDLC.h`, `TimeDLC.h`, `DatetimeDLC.h`, `RandomDLC.h`, `JsonDLC.h` | One library each: [`DLC:math`](../reference/dlc/math.md) and the others. |
+| `dlc/MathDLC.h`, `StringDLC.h`, `ListDLC.h`, `MapDLC.h`, `ConvertDLC.h`, `TimeDLC.h`, `DatetimeDLC.h`, `RandomDLC.h`, `JsonDLC.h`, `CsvDLC.h`, `HashDLC.h`, `PathDLC.h` | One library each: [`DLC:math`](../reference/dlc/math.md) and the others. `HashDLC.h` holds its own SHA-1, SHA-256, SHA-512, MD5 and CRC-32. |
 | `dlc/FilesystemDLC.h`, `NetworkDLC.h` | The two libraries that act on the outside world. |
-| `net/HttpClient.h` | The plain-HTTP client behind `DLC:network`, including the blocked-address check. |
+| `net/HttpClient.h` | The plain-HTTP client behind `DLC:network`: a request is a state machine that advances whenever its socket is ready, so that tasks' requests overlap; also the blocked-address check. |
 
 ## `main.cpp`, `cli/` and `wasm/`
 
@@ -99,11 +81,11 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | :--- | :--- |
 | `main.cpp` | `cuffc`: reads the script (at most the source limit), parses the command line, runs or dumps the program, sets the exit status. |
 | `cli/main.cpp` | `cuffsh`: parses the shell's options and starts the loop. |
-| `cli/Repl.h` | The read-evaluate-print loop and the `:` commands, over one long-lived `Session`. |
+| `cli/Repl.h` | The read-evaluate-print loop and the `:` commands, over one long-lived `Engine`. |
 | `cli/LineEditor.h` | The prompt editor: cursor movement, history, multi-line entries, paste. |
 | `cli/Terminal.h`, `Platform.h`, `Text.h`, `Width.h`, `Interrupt.h`, `Banner.h`, `Version.h` | Terminal setup and restore, platform differences, text sanitising, Ctrl+C handling, the banner and the version. |
 | `cli/build.sh`, `build.bat` | Builds `cuffsh` on Linux and macOS, and on Windows. |
-| `wasm/bindings.cpp` | `cuffRun` and `cuffDump` for the browser. |
+| `wasm/bindings.cpp` | `cuffRun`, `cuffDump` and `cuffBytecode` for the browser. |
 
 ## `tests/`, `tools/` and `docs/`
 

@@ -1,0 +1,2 @@
+use DLC:hash
+print(hash_md5(42))

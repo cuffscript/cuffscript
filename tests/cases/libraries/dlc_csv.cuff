@@ -1,0 +1,30 @@
+use DLC:csv
+use DLC:hash
+
+note: quotes around a field let it hold the separator, a quote (written twice) and line breaks
+str text = "name,city,note\nAnn,Seoul,\"likes \"\"tea\"\", and cake\"\r\nBob,Busan,\"two\nlines\"\n\n\"\",,\n"
+list rows = csv_parse(text)
+print(length(rows))
+loop each list row in rows do:
+    print(length(row), row)
+end
+
+note: every field is a str; to_number turns one into a number where it is wanted
+list scores = csv_parse_records("player;points\nAnn;12\nBob;7\n", ";")
+number total = 0
+loop each map record in scores do:
+    total = total + to_number(record["points"])
+end
+print(scores, total)
+
+note: writing quotes what needs it, and writes a number as print does
+print(csv_write([["id", "label"], [1, "plain"], [2.5, "with, comma"], [true, "say \"hi\""], [empty, " padded "]]))
+print(csv_write_records([{"x": 1, "y": "a"}, {"y": "b", "z": false}]))
+
+note: what is written reads back the same, with tabs as the separator too
+list table = [["a\tb", "c"], ["", "d\ne"]]
+print(csv_parse(csv_write(table, "\t"), "\t") is table)
+
+note: a byte order mark is skipped, a blank line is no row, and an empty text is no rows
+str marked = hash_hex_decode("efbbbf") + "a,b\r\n\r\nc,d"
+print(csv_parse(marked), csv_parse(""), csv_parse("x,"), csv_write([[""]]))

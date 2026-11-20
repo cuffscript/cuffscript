@@ -1,0 +1,2 @@
+use DLC:hash
+print(hash_hex_decode("abc"))

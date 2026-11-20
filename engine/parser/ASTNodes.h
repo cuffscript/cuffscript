@@ -1,13 +1,12 @@
 #pragma once
 
 #include "../common/SourceText.h"
-#include "../common/SourceLocation.h"
 #include "../common/NameInterner.h"
-#include "../common/TokenTypes.h"
+#include "../common/Token.h"
 #include "../common/CuffError.h"
 #include "../common/Limits.h"
-#include "../common/StrData.h"
-#include "../regex/PatternData.h"
+#include "../common/Text.h"
+#include "../regex/RegexEngine.h"
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -251,7 +250,8 @@ namespace cuff
             : target(std::move(t)), className(std::move(c)), classNameId(internName(className)), loc(l) {}
     };
 
-    // `await call`: the call is a FunctionCall, MethodCall or SuperCall expression.
+    // `await call` or `await task`. `call` is what follows the keyword: a FunctionCall, MethodCall or SuperCall, which
+    // runs in place, or any other expression, whose value must be a task to wait for.
     struct AwaitExpr
     {
         std::unique_ptr<Expr> call;
@@ -338,17 +338,25 @@ namespace cuff
         {
             if (height <= kShallowHeight)
                 return;
-            std::vector<std::unique_ptr<Expr>> pending;
-            std::visit(ChildTaker{pending}, data);
-            while (!pending.empty())
+            try
             {
-                std::unique_ptr<Expr> node = std::move(pending.back());
-                pending.pop_back();
-                if (node->height > kShallowHeight)
+                std::vector<std::unique_ptr<Expr>> pending;
+                std::visit(ChildTaker{pending}, data);
+                while (!pending.empty())
                 {
-                    std::visit(ChildTaker{pending}, node->data);
-                    node->height = 1;
+                    std::unique_ptr<Expr> node = std::move(pending.back());
+                    pending.pop_back();
+                    if (node->height > kShallowHeight)
+                    {
+                        std::visit(ChildTaker{pending}, node->data);
+                        node->height = 1;
+                    }
                 }
+            }
+            catch (...)
+            {
+                // No memory for the work list. What was not taken apart is destroyed the ordinary way, which nests
+                // as deep as the tree is tall; the parser bounds that height (limits::kMaxExprHeight).
             }
         }
 
@@ -476,8 +484,8 @@ namespace cuff
         Any, // any value
         Empty,
         Number,
-        Str,
         Boolean,
+        Str,
         List,
         Map,
         Match,
@@ -820,6 +828,7 @@ namespace cuff
     {
         std::vector<std::unique_ptr<Stmt>> statements;
         SourceRef source;
+        std::vector<uint32_t> declaredNames; // the variables its top level declares, outside any block
     };
 
 }

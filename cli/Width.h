@@ -3,7 +3,7 @@
 // The Unicode width tables live in the engine (engine/common/Width.h) so the line editor and the engine's
 // error messages agree on how wide a character is. This header only keeps the names the editor uses.
 
-#include "../engine/common/Width.h"
+#include "../engine/common/Text.h"
 
 namespace cuff::cli
 {

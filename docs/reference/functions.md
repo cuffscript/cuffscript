@@ -9,11 +9,13 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 
 | Function | Library | Method |
 | :--- | :--- | :--- |
-| [`contains`](dlc/list.md) | `DLC:list` | `contains` |
-| [`contains`](dlc/map.md) | `DLC:map` | `contains` |
-| [`contains`](dlc/string.md) | `DLC:string` | `contains` |
+| [`contains`](builtins.md) | always available | `contains` |
 | [`copy`](builtins.md) | always available | `copy` |
 | [`count`](builtins.md) | always available | `count` |
+| [`csv_parse`](dlc/csv.md) | `DLC:csv` |  |
+| [`csv_parse_records`](dlc/csv.md) | `DLC:csv` |  |
+| [`csv_write`](dlc/csv.md) | `DLC:csv` |  |
+| [`csv_write_records`](dlc/csv.md) | `DLC:csv` |  |
 | [`datetime_format`](dlc/datetime.md) | `DLC:datetime` |  |
 | [`datetime_make`](dlc/datetime.md) | `DLC:datetime` |  |
 | [`datetime_offset`](dlc/datetime.md) | `DLC:datetime` |  |
@@ -35,12 +37,37 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`find`](builtins.md) | always available | `find` |
 | [`find_all`](builtins.md) | always available | `find_all` |
 | [`from_json`](dlc/json.md) | `DLC:json` | `from_json` |
-| [`index_of`](dlc/list.md) | `DLC:list` | `index_of` |
-| [`index_of`](dlc/string.md) | `DLC:string` | `index_of` |
+| [`hash_base64_decode`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_base64_encode`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_base64url_decode`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_base64url_encode`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_crc32`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_equal`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_from_bytes`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_hex_decode`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_hex_encode`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_hmac_sha256`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_hmac_sha512`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_md5`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_pbkdf2_sha256`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_sha1`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_sha256`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_sha512`](dlc/hash.md) | `DLC:hash` |  |
+| [`hash_to_bytes`](dlc/hash.md) | `DLC:hash` |  |
+| [`hw_analog`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_battery`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_beep`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_button`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_led`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_pin`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_pwm`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_screen_text`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_sensor`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_serial`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`hw_supports`](dlc/hardware.md) | `DLC:hardware` |  |
+| [`index_of`](builtins.md) | always available | `index_of` |
 | [`input`](builtins.md) | always available |  |
-| [`length`](dlc/list.md) | `DLC:list` | `length` |
-| [`length`](dlc/map.md) | `DLC:map` | `length` |
-| [`length`](dlc/string.md) | `DLC:string` | `length` |
+| [`length`](builtins.md) | always available | `length` |
 | [`list_average`](dlc/list.md) | `DLC:list` | `average` |
 | [`list_flatten`](dlc/list.md) | `DLC:list` | `flatten` |
 | [`list_join`](dlc/list.md) | `DLC:list` | `join` |
@@ -82,6 +109,16 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`math_trunc`](dlc/math.md) | `DLC:math` | `trunc` |
 | [`network_get`](dlc/network.md) | `DLC:network` |  |
 | [`network_post`](dlc/network.md) | `DLC:network` |  |
+| [`path_basename`](dlc/path.md) | `DLC:path` |  |
+| [`path_dirname`](dlc/path.md) | `DLC:path` |  |
+| [`path_extension`](dlc/path.md) | `DLC:path` |  |
+| [`path_is_absolute`](dlc/path.md) | `DLC:path` |  |
+| [`path_join`](dlc/path.md) | `DLC:path` |  |
+| [`path_normalize`](dlc/path.md) | `DLC:path` |  |
+| [`path_relative`](dlc/path.md) | `DLC:path` |  |
+| [`path_split`](dlc/path.md) | `DLC:path` |  |
+| [`path_stem`](dlc/path.md) | `DLC:path` |  |
+| [`path_with_extension`](dlc/path.md) | `DLC:path` |  |
 | [`pattern`](builtins.md) | always available |  |
 | [`print`](builtins.md) | always available |  |
 | [`random_choice`](dlc/random.md) | `DLC:random` |  |
@@ -104,7 +141,9 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`str_trim_end`](dlc/string.md) | `DLC:string` | `trim_end` |
 | [`str_trim_start`](dlc/string.md) | `DLC:string` | `trim_start` |
 | [`str_upper`](dlc/string.md) | `DLC:string` | `upper` |
+| [`task_done`](builtins.md) | always available | `done` |
 | [`time_now`](dlc/time.md) | `DLC:time` |  |
+| [`time_sleep`](dlc/time.md) | `DLC:time` |  |
 | [`time_timestamp`](dlc/time.md) | `DLC:time` |  |
 | [`to_boolean`](dlc/convert.md) | `DLC:convert` |  |
 | [`to_boolean`](builtins.md) | always available | `to_boolean` |

@@ -14,11 +14,15 @@ they disagree with items 4, 6, 28, 36, 46 and 53 (the spellings `set`, `change` 
 declaration only, the removal of a number as a position, the optional parameter types) they win. Items 67 to 70 record 5.2.0,
 in which the engine became a bytecode machine. The items before them that describe how the engine runs a program (`execStatement`,
 `evalExpr`, `Environment`, `ExecOutcome`, the stack a call uses: items 13, 21, 22, 24, 29, 30 and 45 among them) describe the
-tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so.
+tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so. Items 71 to 78 record
+6.0.0: item 71 replaces item 1 (the queue of `async` calls became tasks), item 74 replaces the part of item 11 that says a
+cycle is never freed, and item 78 replaces the parts of items 59 and 64 that let a shell entry declare a name again.
 
 ## 1. The `async` / `await` execution model
 
-`language.md` (section 6.5) states the model; this item records how the engine implements it and why.
+*Up to 5.x. Since 6.0.0 a call that is not awaited is a task, which runs when the program waits: see item 71.*
+
+`language.md` (section 6.5) states the model; this item records how the engine implemented it and why.
 
 - When an `async` function is **called with `await`**, it runs to completion right there,
   synchronously, with no event loop or thread, and the value comes back immediately.
@@ -167,6 +171,8 @@ handle it with `or_else`).
 Lists and maps are implemented with `shared_ptr`, so when assigned to a variable or passed as
 a function argument the value is not copied and the same storage is shared (the same as
 Python/JS). Numbers, strings, booleans and `empty` are copied by value.
+
+*Since 6.0.0 cycles are freed (item 74); the rest of this item holds.*
 
 Because they are reference-counted, a list or map that contains itself (`add a to a`) is never
 freed: the reference cycle keeps it alive until the process exits. Printing and comparing such
@@ -1812,3 +1818,198 @@ found nothing. The rest found the following, all present in 5.1.0 as well.
 - **Smaller things.** `cuffc --ast` printed a number with six significant digits (`Number(1.23457e+06)`); a module was remembered by
   `path::string()`, which throws on Windows for a name outside the ANSI code page; a test added in this release assumed that a
   thread gets exactly the stack it asks for, which arm64 macOS does not do (it adds 12 KiB that the thread's own record shares).
+
+## 71. v6.0.0: tasks in place of the queue
+
+Up to 5.x a call of an `async` function that was not awaited went into a queue that ran after the last line of the program
+(item 1). That was asynchronous in name only: nothing could wait, so nothing could overlap, and the value of such a call was lost.
+6.0.0 makes such a call a **task**.
+
+- **Cooperative, on one thread.** A task runs until it waits or ends. Threads were not considered: every structure of the
+  interpreter would need a lock, a program's behaviour would depend on timing, and the language is meant for beginners. What a
+  program waits for is where the time goes (a network answer, a sleep), and cooperative tasks overlap exactly that.
+- **A stack of its own.** A task has frames and registers like the program's, kept in the same structure (`Stack`). Switching is
+  saving the loaded stack's few pointers and loading another's: the loop returns, leaving the frames in place, and is entered again
+  on the other stack. Nothing is copied, so a task that waits deep in a call chain costs only its own frames. A task's first stack
+  is small (four frames, 32 registers; about 1.4 KiB), because a program may have thousands of tasks and most are a call or two deep;
+  a finished task leaves its stack for the next one.
+- **A `Task` value.** The call gives an object of a built-in class `Task`, whose record (`ObjectData::origin`) is the task. A class
+  rather than a new type of value: it prints, compares with `is`, fits in a list and an `any` variable, and is checked by `isa`,
+  with no new rule. It cannot be made with `Task()` (its `init` is private) or extended (`E4-032`), because a `Task` that no call
+  stands behind would be one that never finishes. `done()` is a method of the built-in method table (receiver kind `task`), so a
+  user function named `task_done` cannot change what `t.done()` means.
+- **`await` of any value.** `await f()` keeps its meaning, a call run in place, so 5.x programs that awaited calls are unchanged.
+  `await t` of a task is the new form; which of the two a written `await` is cannot be known before the program runs (`f` may be a
+  task-returning function or a variable), so the parser accepts any operand and the machine decides (`Op::Await`).
+- **Errors.** A task's error is kept and raised again at each `await` of it, so it is caught where the result is wanted. A task that
+  nothing can await (a call written as a statement of its own: the compiler marks it `kCallDiscard`) would lose its error, so that
+  error ends the program; so does the error of a task whose `Task` is never awaited, at the end, for the same reason. Errors that end a
+  program (a budget) end it from any task. Losing errors silently was the alternative, and is the one thing a beginner cannot debug.
+- **What waits.** `await` of an unfinished task, and library functions that hand the machine a `Wait` (`time_sleep`, the network
+  requests) through a hook the machine installs for the run. A `Wait` says when it may be over and which socket it waits on, and
+  can be advanced; the machine polls every open socket together and sleeps until the earliest moment, so a hundred requests of 50 ms
+  each take 0.22 s. Without the hook (a library function called from elsewhere) the same functions block, as they did.
+- **The order.** Ready tasks run first in, first out, so a program that never waits prints as it did in 5.x: the tasks run after its
+  last line, in the order they were started (`tests/cases/phenomena/async_waits`). One change is deliberate: a module's top level
+  no longer runs its tasks at its end; they belong to the program and run when it waits.
+- **Waiting inside C++.** A default value, a `to_str` method, a module's top level and a host's `call` run the loop from C++; such a
+  task cannot be set aside, because C++ is on the native stack above it. It is *pinned*: the machine runs the other tasks from that
+  point until its wait is over. An error that belongs to the pinned task (a deadlock found while it waits) is delivered into the loop
+  at the waiting instruction, so an `or_else` around it works, and not thrown past the frames that should see it.
+- **Deadlock.** When nothing is ready, nothing sleeps and no socket is open, every task waits for another and none can go on:
+  `E4-043`, at the place the program waits. A task that awaits itself is reported at once.
+- **Limits.** At most a million tasks that have not finished, ten thousand of them waiting (a waiting task keeps its stack), 32
+  requests open at once (the rest wait their turn, so Windows' `select` set is never exceeded). The time limit interrupts a wait.
+- **The HTTP client** was rewritten for this as a state machine (`net::Request`: resolve, connect, send, receive) over non-blocking
+  sockets with an incremental response reader, so that a request can be advanced a little whenever its socket is ready. The blocking
+  `performRequest` is a loop over the same machine, so there is one implementation. The name lookup (`getaddrinfo`) still blocks:
+  the portable non-blocking forms differ on every platform, and a lookup is usually answered from a cache.
+
+## 72. v6.0.0: one class for hosts, and what crosses between C++ and a script
+
+5.x had `CuffEngine` (static functions), `Session` (a program in pieces) and `parseProgram`, and a host could only hand text over and
+read a report back. 6.0.0 has one class, `Engine`, and four ways across: `run` (text in), `call` (a function of the program, with
+values), `get` and `set` (its top-level variables), and `addFunction` (a function of the host, called by name). Values cross as
+`cuff::Value`, the engine's own, so there is no conversion layer and a list a host takes is the program's list.
+
+A stack-based API like Lua's was considered and rejected: it suits C, where a value cannot be held, and it makes a host count stack
+slots. In C++ a value can be held and copied safely, so the host gets the value. A host function receives `Args`, whose readers raise
+the errors a library function raises, so a wrong call to a host function reads like a wrong call to a built-in; `Args::fail` and a
+`std::exception` become `E4-042`, which a script can catch, because a device that is not connected is the kind of thing a program
+should be able to handle. The engine refuses to be re-entered from a host function (`E4-016`): the interpreter's state is that of
+the run in progress. Embedding from other languages was left out on purpose; a C++ host can offer that itself.
+
+`Session`, `CuffEngine` and their result types remain as names for `Engine` and `Engine::Outcome`, so 5.x hosts compile.
+
+## 73. v6.0.0: the grammar review
+
+The grammar was read production by production against the parser and the tests. What was changed:
+
+- **Exponents in number literals** (`1e6`, `2.5E-3`). A number of 10<sup>15</sup> or more already printed in exponent form, which
+  could not be written back as source.
+- **A letter touching a number** is `E1-003` with the reason: `2x`, `1e`, `0x10`, `1_000`. Before, `2x` was a number and a name, and
+  the parser's message did not say why; `0x10` was `0` and `x10`.
+- **Empty bodies on one line** for every block (`func later() do: end`). Only a class allowed it, so the rule had an exception that
+  nothing explained.
+- **Two functions of one name in one file** are `E2-010`. The second one silently replaced the first, also above it, which is never
+  what was meant (item 64 made the same choice for variables). A later text may still declare a function again: that is how a shell
+  entry corrects a function.
+- **`length`, `contains` and `index_of` are built in.** They needed `use DLC:string`, `list` or `map`, and the error for forgetting
+  that was the most common one beginners met; the three are about values of the core language.
+- **The hint for a reserved word used as a name** covers every keyword in a declaration (`number if = 1`), not only a few.
+
+What was considered and left as it is, as proposals: a word form `not x` of `!` (`not` is reserved already); a trailing comma in the
+arguments of a call and the parameters of a function, which list and map literals allow; reporting mistakes the compiler can see
+(`stop` outside a loop, a nested `func`, a constant named in small letters, `return value` at the top level) before the program runs
+instead of when their line is reached; single-quoted f-strings; and the built-ins `list_insert`, an `exit`, and fixed-decimal number
+formatting.
+
+## 74. v6.0.0: memory
+
+- **Cycles are freed.** Values are counted, which frees most memory at once and in order, and cannot free a cycle. A tracing
+  collector would need to know every place a value can be held from: the program's variables, the registers of every stack, every
+  task, the module tables, and the host, which may hold values the engine cannot see. Instead each engine keeps a record of the
+  lists, maps and objects made while it runs (six bytes in each, which fit in the padding a list and an object already had, and a
+  slot in a table), and looks for cycles by counting: for each recorded container, the references to it that come from other
+  recorded containers. One whose reference count is higher than that is held from outside, by something the engine need not know
+  about. Those, and all that can be reached from them, are kept; the rest are held only by each other, and are emptied, after which
+  the counts fall to zero as usual. A reference the engine cannot see counts as one from outside, so the search can only fail to
+  free, never free too much; that is what lets it run in the middle of a program, at any step. It runs when the step counter says
+  so: when enough containers have been made (ten thousand at first, then up to four times as many as are alive while it finds
+  little), the counter is lent a value of one, and the next step, which checks the counter anyway, collects; the loop itself has no
+  new instruction. A build with `CUFF_CYCLE_STRESS` collects at nearly every step, and the whole suite runs on it under
+  AddressSanitizer with leak detection on. A program that makes 200,000 pairs of objects that hold each other ran in 98.7 MB in
+  5.2.0 and runs in 9.0 MB; the bookkeeping costs 2.4% on a benchmark that makes a list in every call, and nothing measurable
+  elsewhere. A task's result is looked through as a field of its `Task` (only of the object made with the task, never of a copy,
+  which would count one reference twice), so a cycle through a task is freed too: an object that keeps the `Task` whose result is
+  that object.
+- **Smaller values.** A map kept its keys twice (an ordered list and a hash table of strings); it keeps them once, beside a table of
+  four-byte positions, and a map of eight keys or fewer has no table at all. 200,000 entries take 23.5 MB instead of 34.5. A
+  string's record shrank from 64 to 48 bytes by keeping its cached positions in 32 bits (every string the language can make fits),
+  so 300,000 short strings take 38.6 MB instead of 43.1. The kinds of value that need no counting come first in `ValueType`, so the
+  test that a value needs none is one comparison, which most instructions make.
+- **Running out of memory.** A deeply nested value is taken apart without recursion, as before, but now without a work list either:
+  the way back up is kept in the slot the child was taken from, as in a pointer-reversing tree walk, so destroying a value can never
+  need memory. The report of `E6-003` is written from 32 KiB the engine set aside for it, and the engine can be used again; a
+  failure to find an `or_else` (no memory for the `Error` value it hands over) now unwinds the frames it leaves, which it did not
+  (a later use of them read a stack that had gone). Every allocation of each test program was made to fail in turn, 30,000 runs in
+  all: none ends the process, except where GCC's library for reading folders does it itself (`std::filesystem::directory_iterator`
+  calls `std::terminate` from a function declared `noexcept` when it cannot allocate), which `file_list` cannot avoid.
+
+## 75. v6.0.0: the source in fewer files
+
+The engine was 77 headers, many of a few dozen lines that were only ever included together (eight tokenizer scanners, a header per
+statement parser, `ProgramError.h`, `Session.h`, `ParseProgram.h`). It is 44: one per stage where a stage is one idea (`Tokenizer.h`,
+`Lexer.h`, `Parser.h`), and the text helpers in `Text.h`. The libraries stay one header each, because a library is what someone
+adding one copies. The merge changed no instruction: the binary and the instruction counts of every benchmark were the same as
+before it.
+
+## 76. v6.0.0: what the performance checks found
+
+After the tasks were added, a call cost about 4% more instructions than in 5.2.0. The instruction loop had lost a register: the
+function that starts a task took seven arguments, the seventh went on the stack, and GCC then kept a frame pointer for the whole
+loop, the largest function of the engine. With six arguments (the location is read where it is needed), and the code that runs
+only when a task waits kept out of line, the loop has its registers back.
+
+The libraries of item 77 and the changes of item 78 changed nothing that the loop runs, and still cost calls 3% more instructions:
+with more code around it, GCC inlined `make_shared<ValueMap>` into the loop, where it had called it, and the register allocator then
+kept `fr` on the stack, so `fr->ip = ++ip` loaded it at every instruction. Making a map is now a function of its own, out of the
+loop. Which arrangement was best was measured (a map made out of the loop, a list too, both, neither), not reasoned out; the rules
+for changing the machine now say to count instructions after any change to what the loop inlines. The benchmarks now run in 0.3%
+(making objects) to 9.2% (lists, maps and f-strings) fewer instructions than in 5.2.0, calls 2.4% fewer, apart from a 2.0% longer
+start (the larger prelude and the record of values) and the 5.6% of a function that makes a list in every call (item 74). A build
+from before the libraries counted calls 5.1% fewer; that arrangement of the loop was not found again.
+
+## 77. v6.0.0: more libraries
+
+- **`DLC:csv`** follows RFC 4180 and reads what spreadsheets write: quotes, quotes written twice, line breaks inside quotes, CRLF,
+  LF or CR, a byte order mark. Every field is a `str`, because a reader that guesses types turns `007` into `7` and `1e3` into a
+  thousand, and the program cannot tell; `to_number` is one call away. A row of records with too many or too few fields is an error
+  with its number rather than a map with missing or extra keys, since a ragged file is almost always a broken one. A blank line is
+  no row, so a file that ends in one line feed or two reads the same.
+- **`DLC:hash`** is written without a dependency, as the engine is: SHA-1, SHA-256, SHA-512 and MD5 straight from FIPS 180-4 and
+  RFC 1321, HMAC from RFC 2104, PBKDF2 from RFC 8018, CRC-32 from a table. They are checked against the published vectors in
+  `tests/cases/libraries/dlc_hash`, and were compared with Python's `hashlib`, `hmac`, `base64` and `zlib` on every length from 0
+  to 139 bytes (all the block boundaries) and a few larger ones, 592 results in all, with no difference. Every function takes bytes,
+  as a `str` or a list of numbers, because that is what a hash is defined on and what `file_read` gives; a hash is returned as
+  hexadecimal text, which prints, compares and stores as an ordinary string. A random source for salts was left out: `DLC:random`
+  is not one, and the operating systems' sources differ (and `std::random_device` is not one everywhere). `hash_equal` exists
+  because `is` stops at the first difference.
+- **`DLC:path`** is text only and knows one separator, `/`, so that a program gets the same answer on every machine; that is also
+  what `use` and `DLC:filesystem` take. It was compared with Python's `posixpath` (`normpath`, `basename`, `dirname`, `splitext`)
+  on 255 paths, including the edge cases of dots and slashes, and agrees on every one.
+- **`DLC:bytecode`** was written too, to show what the compiler made of a function as `cuffc --bytecode` does, and taken out
+  before the release: it was for learning the machine rather than for programs, it needed a door from a library into the
+  interpreter that nothing else needs, and `cuffc --bytecode` already shows the same thing.
+
+## 78. v6.0.0: the texts of one engine are one program, and `DLC:hardware`
+
+- **A later text cannot declare again what an earlier one declared.** An engine runs its texts (the entries of `cuffsh`, the pieces a
+  host gives `run`) against one interpreter, so they are one program written a piece at a time. Up to now the engine let a later
+  text declare a function, a class or a top-level variable again and replaced the earlier one: that was there for the shell, so
+  that typing a function again would correct it (items 59 and 64). The shell is a tool on top of the engine, and the engine should
+  not carry a rule for it; and in a program, two declarations of one name are never both meant, which is why one file already
+  rejects them. So the rule is the file's rule everywhere: the parser of a later text is given the names that the earlier texts
+  declared at their top level and that the program still has (a variable counts only once its declaration has run, so a text that
+  failed before that line does not take the name), and declaring one of them again is `E2-010`; a class is `E4-038`, as in one
+  file. The shell has no rule of its own and runs what it is given; to change a function, a session starts again with `:reset`.
+  This replaces the part of item 59 that lets a class be declared again in a session, and the part of item 64 that lets a shell
+  entry declare a name again. With nothing replaced, the registry no longer needs to know which run declared a class.
+- **A text's declarations are made all together or not at all.** A text's functions are registered before its classes, and a class
+  can still fail (a parent that does not exist, an inheritance cycle). Before, the functions stayed; under the new rule that would
+  leave a name taken by a text that never ran, so correcting the class and running the text again would fail on the functions.
+  Now a failure takes back what that text registered.
+- **`DLC:hardware`** gives a program the parts of its device: battery, buttons, lights, a buzzer, a screen, a serial line, sensors,
+  digital and analog pins and PWM. They were chosen for being on many devices (a laptop's battery, a washing machine's buttons,
+  buzzer and display), or for being on fewer but being of real use (pins, PWM, an analog input). The engine reaches none of them
+  itself: the host gives each part as a function in `Options::hardware`, the same way it gives functions with `addFunction`, so
+  the engine stays without a dependency and the part means what that device makes it mean. A part the host does not give is
+  `E4-044`, a new code, so that a script can tell "this device has no battery" from a failure of the battery (`E4-042`); there is
+  no separate switch, because a part that is not given is off. `hw_supports` exists so that one program can run on a device with
+  the part and on one without, without catching errors for it. Arguments are checked before the host is called, and what comes
+  back is checked too, so a host's function sees only values in range and a script never sees a battery at 120%. Every number
+  that names a part is the host's own, from 0 to 65535: the engine cannot know what pin 13 is wired to, and does not try. A pin and
+  a serial line take one name each, read with fewer arguments and written with more, as the list of parts was agreed with one
+  name for each; a part that works one way only says so in its `E4-044`. `cuffc --hardware` gives what a desktop computer has without
+  a library (the battery and the temperature on Linux from `/sys`, the battery on Windows, a beep), and nothing else: a computer's
+  pins and serial ports are not for a script to pick by number.

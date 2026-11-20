@@ -6,15 +6,15 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **AST (abstract syntax tree).** The tree the parser builds from the tokens of a program, and that the interpreter walks to run it. `cuffc --ast` prints it. See [Architecture](../internals/architecture.md).
 
-**async function.** A function declared `async func`. Calling it does not run it at once: the call is queued and runs after the main program, in order, unless it is run on the spot with `await`. Nothing runs in parallel. See [the language tour](../guide/language-tour.md#functions-that-run-later).
+**async function.** A function declared `async func`. Calling it without `await` starts a task (see **task**) and gives a `Task` at once; `await f()` runs it on the spot. See [tasks](language.md#65-asynchronous-functions-and-tasks).
 
-**await.** Runs an `async` call right where it is written instead of queueing it. Using it on a function that is not `async` is `E4-019`.
+**await.** Before a call of an `async` function, runs it right where it is written. Before a `Task`, waits until that task has finished and gives its result, or raises its error. Using it on a function that is not `async`, or on a value that is not a task, is `E4-019`.
 
 **bridge.** `global name` inside a function: it makes the global variable `name` visible there. Without it a function sees only its own variables. A constant needs the same bridge to be read. See [scope](language.md#7-scope).
 
 **budget.** A limit a host puts on a run: `--max-steps` and `--timeout`. A run that exhausts it stops with `E6-001` or `E6-002`, which cannot be caught. Budgets are off unless set. See [`cuffc`](cuffc.md#options).
 
-**builtin.** A function that is always available without `use`: `print`, `input`, `type_of`, `to_number`, `to_str`, `to_boolean`, `copy`, `pattern` and the text functions `find`, `find_all`, `match`, `replace`, `replace_all`, `split` and `count`. See [built-in functions](builtins.md).
+**builtin.** A function that is always available without `use`: `print`, `input`, `type_of`, `to_number`, `to_str`, `to_boolean`, `copy`, `pattern`, `length`, `contains`, `index_of`, `task_done` and the text functions `find`, `find_all`, `match`, `replace`, `replace_all`, `split` and `count`. See [built-in functions](builtins.md).
 
 **capture.** The part of a text that a group in a pattern matched, kept by `match`. Numbered captures come from `( )` and are counted from 1; named captures come from `<name:...>`. See [pattern syntax](patterns.md#22-extracting-1-based-indexed-captures-match).
 
@@ -25,6 +25,8 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 **class.** A description of a kind of thing: the fields its objects hold and the methods they have. Declared with `class Name do: ... end` at the top level of a file; its name starts with a capital letter. It is also a type name. See [classes](classes.md).
 
 **constant.** A variable declared `constant`, whose name is written in capitals and which cannot be changed. A field can be a constant too. A constant list is also read-only through every name. See [the language reference](language.md#33-constants).
+
+**cycle.** Lists, maps or objects that refer to each other in a ring, such as a list that contains itself. Counting alone cannot free one, so the engine looks for them from time to time and frees those nothing else refers to. See [memory](../internals/how-it-works.md#memory).
 
 **display form.** How a value is turned into text by `print`, `to_str` and f-strings. See [types and values](language.md#2-types-and-values).
 
@@ -52,7 +54,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **handler.** The block after `or_else`, which runs when the statement before it fails.
 
-**hoisting.** Functions and classes are known to the whole program before it starts, so one can be used above the place where it is declared. If a function name is declared twice, the last declaration wins.
+**hoisting.** Functions and classes are known to the whole program before it starts, so one can be used above the place where it is declared. Two functions of one name in one file are `E2-010`.
 
 **init.** The method of a class that runs when an object is made and receives the arguments of the call: `Player("Ann")` runs `Player`'s `init` with `"Ann"`. See [making an object](classes.md#making-an-object).
 
@@ -96,13 +98,15 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **self.** Inside a method, the object the method was called on. A field is always reached as `self.name`.
 
-**session.** A running interpreter that keeps its variables and functions between pieces of a program. `cuff::Session` in C++; `cuffsh` uses one. See [C++ API](cpp-api.md#cuffsession).
+**session.** A running interpreter that keeps its variables and functions between pieces of a program: a `cuff::Engine` that lives on (`Session` is its 5.x name); `cuffsh` uses one. See [C++ API](cpp-api.md#cuffengine).
 
 **slice.** A part of a list or string taken with `x[start~end]`, both ends included.
 
 **step.** What `--max-steps` counts: loop iterations plus calls of the program's own functions. Library functions are not counted.
 
 **super.** Inside a method of a child class, `super.name(...)` calls the parent's version of the method on the same object. See [inheritance](classes.md#inheritance).
+
+**task.** A call of an `async` function that goes on by itself: it runs when the code that is running waits or ends, waits in turn without holding the others up, and gives its result to an `await` of its `Task`. One task runs at a time. See [tasks](language.md#65-asynchronous-functions-and-tasks).
 
 **token.** The smallest piece of a program the tokenizer produces: a word, a number, a string, an operator. In a pattern, a *token* is a word in brackets such as `[num]`.
 

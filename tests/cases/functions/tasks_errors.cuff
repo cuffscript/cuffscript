@@ -1,0 +1,60 @@
+note: an error in a task is raised where the task is awaited, and can be caught there
+use DLC:time
+
+async func broken(str why) do:
+    time_sleep(0.001)
+    fail why
+end
+
+Task t = broken("first")
+await t or_else as Error e do:
+    print("caught:", e.message, "at line", e.line)
+end
+note: awaiting it again raises the same error again
+await t or_else as Error e do:
+    print("again:", e.message)
+end
+print(t.done())
+
+note: the tasks around it are not disturbed
+async func fine() do:
+    time_sleep(0.002)
+    return "fine"
+end
+Task good = fine()
+Task bad = broken("second")
+print(await good)
+await bad or_else as Error e do:
+    print(e.code, e.message)
+end
+
+note: an error of the engine travels the same way
+async func divide(number a, number b) do:
+    return a / b
+end
+Task d = divide(1, 0)
+await d or_else as Error e do:
+    print(e.code)
+end
+
+note: an error that a task catches itself never reaches anyone
+async func careful() do:
+    fail "inside" or_else as Error e do:
+        return "handled " + e.message
+    end
+end
+print(await careful())
+
+note: a task that fails while another task waits for it fails that one too, unless it catches the error
+async func outer() do:
+    Task inner = broken("inner")
+    return await inner
+end
+await outer() or_else as Error e do:
+    print("through two tasks:", e.message)
+end
+
+note: await needs a task
+await 5 or_else as Error e do:
+    print(e.code, e.message)
+end

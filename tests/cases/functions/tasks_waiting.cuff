@@ -1,0 +1,54 @@
+note: a task that waits lets the others run; nothing here depends on how fast the machine is
+use DLC:time
+
+async func worker(str name, number seconds) do:
+    print(f"{name} starts")
+    time_sleep(seconds)
+    return name
+end
+
+number began = time_now()
+Task slow = worker("slow", 0.3)
+Task quick = worker("quick", 0.2)
+print("main waits for the slow one")
+str first = await slow
+print(first, "is back; the quick one finished meanwhile:", quick.done())
+print(await quick)
+number took = time_now() - began
+note: one after the other would take 0.5 s
+print(took >= 0.29, took < 0.45)
+
+note: time_sleep at the top level lets tasks run too
+async func note_it(str text) do:
+    print(text)
+end
+note_it("ran while the top level slept")
+time_sleep(0.01)
+print("the top level goes on")
+
+note: await in front of a library function is allowed and changes nothing
+await time_sleep(0)
+print(await time_now() > 0)
+
+note: a task can start tasks and wait for them
+async func parent() do:
+    Task a = worker("child a", 0.02)
+    Task b = worker("child b", 0.01)
+    return await a + " and " + await b
+end
+print(await parent())
+
+note: many tasks waiting at once
+async func nap(number i) do:
+    time_sleep(0.001 * (i % 7))
+    return i
+end
+list naps = []
+loop repeat number i = 1 ~ 500 do:
+    add nap(i) to naps
+end
+number total = 0
+loop each Task n in naps do:
+    total = total + await n
+end
+print(total)

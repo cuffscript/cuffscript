@@ -6,7 +6,7 @@
 //    whole token the error is about;
 //  - an incomplete statement is reported on its own line, and an unclosed block at the end of the code;
 //  - a byte order mark at the start of the file changes nothing;
-//  - an error that comes from an imported module, or from a function an earlier piece of a Session declared,
+//  - an error that comes from an imported module, or from a function an earlier piece of an Engine declared,
 //    is drawn against that text and not against whatever happened to be running;
 //  - for any error, the reported line and column agree with the offset the snippet is drawn from.
 #include "engine/CuffEngine.h"
@@ -16,7 +16,7 @@
 #include <iostream>
 #include <string>
 
-using cuff::CuffEngine;
+using cuff::Engine;
 
 namespace
 {
@@ -35,9 +35,9 @@ namespace
 
     bool contains(const std::string &hay, const std::string &needle) { return hay.find(needle) != std::string::npos; }
 
-    CuffEngine::Result runSource(const std::string &src)
+    Engine::Outcome runSource(const std::string &src)
     {
-        return CuffEngine::execute(src, ".", CuffEngine::Options());
+        return Engine::execute(src, ".", Engine::Options());
     }
 
     // Whether the report draws this source line, numbered, with these marks (the padding and the "^"s) under it:
@@ -328,29 +328,29 @@ int main()
         TempDir dir;
         dir.write("lib/boom.cuff", "func boom(any n) do:\n    number pad = 1\n    return n / 0\nend\n");
         const std::string main = "number a = 1\nnumber b = 2\nuse boom from ./lib\nprint(boom(5))\n";
-        auto r = CuffEngine::execute(main, dir.path.string());
+        auto r = Engine::execute(main, dir.path.string());
         check(!r.success && contains(r.error, "Runtime Error in './lib/boom.cuff' at line 3, column 14") &&
                   contains(r.error, " |     return n / 0\n"),
               "an error inside a module's function is drawn from the module:\n" + r.error);
         check(!contains(r.error, "print(boom(5))"), "...and not from the importing file:\n" + r.error);
 
         dir.write("lib/top.cuff", "note: one\nnote: two\nnumber t = 1 / 0\n");
-        r = CuffEngine::execute("use top from ./lib\n", dir.path.string());
+        r = Engine::execute("use top from ./lib\n", dir.path.string());
         check(!r.success && contains(r.error, "in './lib/top.cuff' at line 3") && contains(r.error, " | number t = 1 / 0\n"),
               "an error in a module's top-level code is drawn from the module:\n" + r.error);
 
         dir.write("lib/bad.cuff", "number z = 1 +\nprint(1)\n");
-        r = CuffEngine::execute("use bad from ./lib\n", dir.path.string());
+        r = Engine::execute("use bad from ./lib\n", dir.path.string());
         check(!r.success && contains(r.error, "[E5-002]") && hasSnippet(r.error, "use bad from ./lib", "^^^") &&
                   contains(r.error, "in './lib/bad.cuff' [E2-001] at line 1, column 15:") &&
                   contains(r.error, " | number z = 1 +\n"),
               "a module that does not parse shows the use statement and the module's own line:\n" + r.error);
     }
 
-    // A function declared by an earlier piece of a Session fails while a later piece runs: it is drawn from the
+    // A function declared by an earlier piece of an Engine fails while a later piece runs: it is drawn from the
     // piece that declared it, which is what the interactive shell relies on.
     {
-        cuff::Session session;
+        cuff::Engine session;
         auto first = session.run("func half(any n) do:\n    number pad = 1\n    return n / 0\nend\n");
         check(first.success, "declaring the function works:\n" + first.error);
         auto second = session.run("print(half(2))\n");
@@ -365,7 +365,7 @@ int main()
     // parameter's default value, a loop control word with no loop around it, the default value of a class's field,
     // a to_str that print runs, a call that was queued. None of them shows the line that made the call.
     {
-        cuff::Session session;
+        cuff::Engine session;
         auto first = session.run("note: declarations only\n"
                                  "func scaled(number n, number by = 1 / 0) do:\n    return n * by\nend\n"
                                  "func escape() do:\n    stop\nend\n"
@@ -410,11 +410,11 @@ int main()
         TempDir dir;
         dir.write("lib/tools.cuff", "note: a module\nfunc padded(str text, number width = 10 / 0) do:\n    return text\nend\n"
                                     "func leave() do:\n    skip\nend\n");
-        auto r = CuffEngine::execute("use tools from ./lib\nprint(padded(\"x\"))\n", dir.path.string());
+        auto r = Engine::execute("use tools from ./lib\nprint(padded(\"x\"))\n", dir.path.string());
         check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 2") &&
                   contains(r.error, " | func padded(str text, number width = 10 / 0) do:\n") && !contains(r.error, "print(padded"),
               "a default value's error in a module's function is drawn from the module:\n" + r.error);
-        r = CuffEngine::execute("use tools from ./lib\nnote: pad\nnote: pad\nnote: pad\nnote: pad\nleave()\n", dir.path.string());
+        r = Engine::execute("use tools from ./lib\nnote: pad\nnote: pad\nnote: pad\nnote: pad\nleave()\n", dir.path.string());
         check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 6") && contains(r.error, " |     skip\n") && !contains(r.error, "leave()"),
               "'skip' outside a loop in a module's function is drawn from the module:\n" + r.error);
     }
@@ -422,7 +422,7 @@ int main()
     // ---- a failed async job drops the rest of the queue ------------------------------------------------------
 
     {
-        cuff::Session session;
+        cuff::Engine session;
         auto first = session.run("async func a() do:\n    print(\"A\")\nend\n"
                                  "async func b() do:\n    number z = 1 / 0\nend\n"
                                  "async func c() do:\n    print(\"C ran\")\nend\n"

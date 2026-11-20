@@ -108,34 +108,45 @@ class CuffScriptIDE:
         "object",
         "empty",
     }
+    # Kept equal to the engine's by `python3 tools/docs.py check`.
     BUILTINS = {
-        "print",
-        "input",
-        "type_of",
-        "to_number",
-        "to_str",
-        "to_boolean",
+        "contains",
         "copy",
-        "pattern",
+        "count",
         "find",
         "find_all",
+        "index_of",
+        "input",
+        "length",
         "match",
+        "pattern",
+        "print",
         "replace",
         "replace_all",
         "split",
-        "count",
+        "task_done",
+        "to_boolean",
+        "to_number",
+        "to_str",
+        "type_of",
     }
     LIBRARY_FUNCTIONS = set(
         (
-            "contains datetime_format datetime_make datetime_offset datetime_parse datetime_parts file_add file_copy "
-            "file_exist file_isdir file_list file_makedir file_move file_read file_readlines file_remove file_removedir "
-            "file_size file_write from_json index_of length list_average list_flatten list_join list_range list_reverse "
-            "list_sort list_sum list_unique map_entries map_has_key map_keys map_merge map_values math_abs math_acos "
-            "math_asin math_atan math_atan2 math_ceil math_clamp math_cos math_e math_exp math_floor math_log math_log10 "
-            "math_log2 math_max math_min math_mod math_pi math_pow math_round math_sign math_sin math_sqrt math_tan "
-            "math_trunc network_get network_post random_choice random_float random_int random_seed random_shuffle "
-            "str_char_code str_ends_with str_from_char_code str_lower str_pad_left str_pad_right str_repeat "
-            "str_starts_with str_trim str_trim_end str_trim_start str_upper time_now time_timestamp to_json"
+            "csv_parse csv_parse_records csv_write csv_write_records datetime_format datetime_make datetime_offset "
+            "datetime_parse datetime_parts file_add file_copy file_exist file_isdir file_list file_makedir file_move "
+            "file_read file_readlines file_remove file_removedir file_size file_write from_json hash_base64_decode "
+            "hash_base64_encode hash_base64url_decode hash_base64url_encode hash_crc32 hash_equal hash_from_bytes "
+            "hash_hex_decode hash_hex_encode hash_hmac_sha256 hash_hmac_sha512 hash_md5 hash_pbkdf2_sha256 hash_sha1 "
+            "hash_sha256 hash_sha512 hash_to_bytes hw_analog hw_battery hw_beep hw_button hw_led hw_pin hw_pwm hw_screen_text "
+            "hw_sensor hw_serial hw_supports list_average list_flatten list_join list_range list_reverse list_sort list_sum "
+            "list_unique map_entries map_has_key map_keys map_merge map_values math_abs math_acos math_asin math_atan "
+            "math_atan2 math_ceil math_clamp math_cos math_e math_exp math_floor math_log math_log10 math_log2 math_max "
+            "math_min math_mod math_pi math_pow math_round math_sign math_sin math_sqrt math_tan math_trunc network_get "
+            "network_post path_basename path_dirname path_extension path_is_absolute path_join path_normalize path_relative "
+            "path_split path_stem path_with_extension random_choice random_float random_int random_seed random_shuffle "
+            "str_char_code str_ends_with str_from_char_code str_lower str_pad_left str_pad_right str_repeat str_starts_with "
+            "str_trim str_trim_end str_trim_start str_upper time_now time_sleep time_timestamp to_boolean to_json to_number "
+            "to_str"
         ).split()
     )
     BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}"}
@@ -196,6 +207,7 @@ class CuffScriptIDE:
         "--no-network": False,
         "--allow-private-network": False,
         "--no-filesystem": False,
+        "--hardware": False,
         "--help": False,
     }
 
@@ -1816,6 +1828,15 @@ class CuffScriptIDE:
                     cursor += 1
                     while cursor < length and source[cursor] in "0123456789":
                         cursor += 1
+                # An exponent: 1e6, 2.5E-3, 4e+2.
+                if cursor < length and source[cursor] in "eE":
+                    exp = cursor + 1
+                    if exp < length and source[exp] in "+-":
+                        exp += 1
+                    if exp < length and source[exp] in "0123456789":
+                        cursor = exp
+                        while cursor < length and source[cursor] in "0123456789":
+                            cursor += 1
                 add(start, cursor, "number")
                 i = cursor
                 continue

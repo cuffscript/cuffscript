@@ -107,7 +107,7 @@ Hello, Ann! 0
 ## The sandbox
 
 By default a module may be loaded only from the folder of the script, or from below it. An absolute path, or a path that climbs out of that folder, is refused with
-[`E5-006`](../reference/errors.md#e5-006) before any file is touched. `--root <dir>` (or `CuffEngine::Options::rootDir`) widens the allowed area to everything under `<dir>`:
+[`E5-006`](../reference/errors.md#e5-006) before any file is touched. `--root <dir>` (or `Engine::Options::rootDir`) widens the allowed area to everything under `<dir>`:
 
 ```sh
 cuffc --root /srv/shared app/main.cuff

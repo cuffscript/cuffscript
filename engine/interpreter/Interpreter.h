@@ -4,19 +4,16 @@
 #include "../bytecode/Bytecode.h"
 #include "../bytecode/Compiler.h"
 #include "../common/Arithmetic.h"
-#include "../common/Ascii.h"
+#include "../common/Text.h"
 #include "../common/Attributes.h"
 #include "../common/Limits.h"
-#include "../common/Utf8.h"
 #include "NativeFunctions.h"
-#include "ProgramError.h"
 #include "../common/CuffError.h"
 #include "../common/ErrorFormat.h"
 #include "../common/SourceText.h"
-#include "../common/SourceLocation.h"
 #include "../common/PathSandbox.h"
 #include "../parser/ASTNodes.h"
-#include "../ParseProgram.h"
+#include "../parser/Parser.h"
 #include "../regex/RegexEngine.h"
 
 #include <memory>
@@ -25,6 +22,8 @@
 #include <unordered_set>
 #include <vector>
 #include <deque>
+#include <exception>
+#include <map>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -44,11 +43,29 @@
 namespace cuff
 {
 
+    // An error the program raised with `fail`. It carries the Error object that was raised, so a handler
+    // (`or_else as e`) receives that very object, whatever class it is an instance of.
+    class ProgramError : public CuffError
+    {
+    public:
+        Value payload;
+
+        ProgramError(const std::string &msg, const SourceLocation &loc, Value object, const std::string &hintText = "")
+            : CuffError(ErrorCode::ProgramError, msg, loc, hintText), payload(std::move(object))
+        {
+        }
+    };
+
     // Runs a program: compiles each function, and each statement of the top level, to bytecode (bytecode/Compiler.h)
     // the first time it is needed, and executes that in one loop (runLoop). A call from the program to one of its own
     // functions is a new frame in the same loop, so it uses none of the thread's stack.
-    class Interpreter final : private ObjectDisplayHook
+    class Interpreter final : private ObjectDisplayHook, private WaitHook
     {
+        // The books of the lists, maps and objects made while this engine runs, for freeing those that only refer
+        // to each other. It is the first member so that it is the last to go: by then everything the engine itself
+        // referred to has been let go, and what is left in the books is a cycle or is held by the host.
+        CycleHeap cycles_;
+
     public:
         struct Config
         {
@@ -59,6 +76,12 @@ namespace cuff
             bool networkEnabled = true;
             bool allowPrivateNetworkTargets = false; // let DLC:network reach loopback/private/link-local addresses (see SECURITY.md)
             bool filesystemEnabled = true;
+            // Free lists, maps and objects that only refer to each other (see CycleHeap). Off, such a cycle stays
+            // until the engine goes.
+            bool collectCycles = true;
+            // The parts of the device that DLC:hardware reaches, each a function of the host (dlc/HardwareDLC.h). None
+            // is given unless the host gives it, and a part that is not given is E4-044.
+            Hardware hardware;
             // Called with each piece of code the compiler makes, as it is made (`cuffc --bytecode` prints them).
             std::function<void(const bc::Proto &)> onCompiled;
         };
@@ -68,6 +91,13 @@ namespace cuff
 
         Interpreter(const Interpreter &) = delete;
         Interpreter &operator=(const Interpreter &) = delete;
+
+        // Frees the lists, maps and objects that only refer to each other, now; how many that was. The engine does
+        // this by itself as a program runs (unless Config::collectCycles is off); a host calls it to have the memory
+        // back at a moment of its choosing. Not while a program is running.
+        size_t collectCycles() { return running_ ? 0 : cycles_.collect(); }
+        // How many lists, maps and objects made by this engine are alive.
+        size_t trackedValues() const { return cycles_.tracked(); }
 
         // How much native stack the engine may use. A program's own calls use none; what does is work that nests
         // inside the machine: the compiler following nested expressions, an object's `to_str` run from inside
@@ -104,34 +134,87 @@ namespace cuff
             return plan;
         }
 
+        // Runs a program against what earlier runs declared. Throws what the program raised.
         void run(const Program &program, const std::string &scriptDir)
         {
             scriptDir_ = scriptDir.empty() ? std::string(".") : scriptDir;
             initModuleRoot();
-            const uintptr_t sp = stackPointer();
-            const StackPlan plan = planStack(config_.stackBudgetBytes, availableStackBytes());
-            stackLimit_ = sp > plan.soft ? sp - plan.soft : 0;
-            compiler_.setStackLimit(stackLimit_);
-            StackFloorScope floorScope(sp > plan.hard ? sp - plan.hard : 0);
-            DisplayHookScope displayScope(this);
-            ++runEpoch_;
-            stepsLeft_ = config_.maxSteps ? config_.maxSteps : UINT64_MAX;
-            timed_ = config_.timeoutMs != 0;
-            if (timed_)
-                deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.timeoutMs);
-            try
+            entered([&]
+                    {
+                        execProgram(program, globals_, false, false, nullptr);
+                        finishTasks();
+                    });
+        }
+
+        // ---- what a host program reaches besides running text (the Engine class is the public face of these) ------
+
+        // Calls a function of the program by name and gives what it returned. The arguments are checked as a call
+        // written in a script is.
+        Value call(const std::string &name, std::vector<Value> args)
+        {
+            static const SourceLocation nowhere = noLocation();
+            Value out;
+            entered([&]
+                    {
+                        const uint32_t id = internName(name);
+                        const FunctionDecl *decl = findUser(id);
+                        if (!decl)
+                        {
+                            if (classHandle(id))
+                                throw UndefinedFunctionError("'" + name + "' is a class, not a function", nowhere,
+                                                             "a host makes an object by calling a function of the program that makes it");
+                            throwUndefinedFunction(name, nowhere);
+                        }
+                        const size_t n = std::min(args.size(), decl->params.size());
+                        for (size_t k = 0; k < n; ++k)
+                            if (!typeAccepts(decl->paramTypes[k], args[k], nowhere))
+                                throwParamTypeMismatch(name, *decl, k, args[k], nowhere);
+                        callFunction(*decl, &args, nullptr, nullptr, nowhere, out);
+                        finishTasks();
+                    });
+            return out;
+        }
+
+        // A variable of the program's top level, or nothing when no such variable is declared.
+        bool readGlobal(const std::string &name, Value &out)
+        {
+            const Reg *slot = globals_.find(internName(name));
+            if (!slot || !(slot->meta & bc::kMetaDeclared))
+                return false;
+            out = slot->v;
+            return true;
+        }
+
+        // Assigns to a variable of the top level, under the rules of an assignment in a script (its type, a
+        // constant). A name that is not declared yet is declared as `any`.
+        void writeGlobal(const std::string &name, Value v)
+        {
+            static const SourceLocation nowhere = noLocation();
+            if (running_)
+                throw CuffRuntimeError(ErrorCode::UnsupportedOperation, "a variable cannot be set from outside while the program is running",
+                                       nowhere);
+            if (!isIdentifier(name) || keywordMap().count(name))
+                throw CuffRuntimeError(ErrorCode::InvalidArgumentValue, "'" + name + "' cannot be the name of a variable", nowhere,
+                                       "a name is letters, digits and '_', does not start with a digit, and is not a reserved word");
+            Reg *slot = globals_.slotFor(internName(name));
+            if (!(slot->meta & bc::kMetaDeclared))
             {
-                execProgram(program, globals_, false, false, nullptr);
+                slot->v = std::move(v);
+                setSlotMeta(*slot, bc::makeMeta(0, false));
+                return;
             }
-            catch (...)
-            {
-                // An error ends the run: queued async jobs that have not started must not run later, and whatever
-                // an error that is not the program's own (out of memory) left on the machine is cleared. A one-shot
-                // interpreter is simply discarded, but cuffsh keeps one alive across entries.
-                taskQueue_.clear();
-                unwindTo(0);
-                throw;
-            }
+            if (slot->meta & bc::kMetaConst)
+                throw ConstantError(ErrorCode::ConstantReassignment, "cannot change constant '" + name + "'", nowhere);
+            checkAssigned(slot->meta >> bc::kMetaTypeShift, v, name, nowhere);
+            slot->v = std::move(v);
+        }
+
+        // Adds a function that scripts call by name, as they call a library function. A function of the program with
+        // the same name is found first, as with any built-in; a library loaded later does not replace it.
+        void addNative(const std::string &name, NativeFn fn)
+        {
+            hostNatives_[name] = fn;
+            natives_[name] = std::move(fn);
         }
 
     private:
@@ -180,6 +263,69 @@ namespace cuff
             size_t size = 0;
         };
 
+        // One line of execution: the frames of the calls that are under way and the registers they use. The machine
+        // works on the stack that is loaded into its own members (frameBlocks_ and what follows it); the stack of a
+        // task that is set aside is kept here.
+        struct Stack
+        {
+            std::vector<std::unique_ptr<Frame[]>> frameBlocks;
+            size_t frameCount = 0;
+            Frame *top = nullptr;
+            std::vector<Segment> segments;
+            uint32_t curSeg = 0;
+            Reg *segEnd = nullptr;
+            std::vector<DynVar> dynVars;
+            size_t uncatchable = static_cast<size_t>(-1);
+            int callDepth = 0;
+            uint32_t firstCells = kTaskSegmentCells;
+            uint32_t frameShift = kTaskFrameShift;
+        };
+
+        // An async call that was started without `await`. It runs on a stack of its own, so it can be set aside while
+        // it waits and taken up again. The main program is a task too (mainTask_): the one that is never started and
+        // never finishes, and that runs on the machine's first stack.
+        struct Task
+        {
+            enum class State : uint8_t
+            {
+                Queued,  // started by the program, not yet run
+                Ready,   // can run as soon as the running task waits or ends
+                Running,
+                Waiting, // for another task, or for what a library function waits for
+                Done,
+                Failed
+            };
+            State state = State::Queued;
+            bool detached = false; // the call was a statement of its own, so no Task value exists: its error ends the program
+            bool pinned = false;   // waits inside a run of the loop that C++ started; only that run can take it up again
+            bool woken = false;    // a pinned task: what it waited for has happened
+            bool observed = false; // its error was handed to a task that awaited it
+            bool socketOpen = false;
+
+            const FunctionDecl *decl = nullptr;
+            std::vector<Value> args;
+            Value self; // the receiver of an async method
+            const ClassInfo *owner = nullptr;
+            Stack stack;
+
+            Value result;
+            std::exception_ptr error;
+
+            // While it waits: where the value it waits for goes, the error to raise in it instead, and where it waits.
+            Value *resumeSlot = nullptr;
+            std::exception_ptr resumeError;
+            const SourceLocation *waitLoc = nullptr;
+            SourceRef waitSource;
+            Task *awaiting = nullptr;
+            std::unique_ptr<Wait> wait;
+            std::multimap<Wait::Clock::time_point, Task *>::iterator timer;
+            bool timed = false;
+
+            std::vector<Task *> waiters; // the tasks that await this one
+            std::shared_ptr<Task> keep;  // holds the task until it has finished, whether or not a Task value exists
+            Task *prev = nullptr, *next = nullptr;
+        };
+
         // How a field gets its value when an object is made. Most defaults are a literal, which needs no code run.
         struct FieldInit
         {
@@ -205,10 +351,13 @@ namespace cuff
         };
 
         Config config_;
+        bool running_ = false;
+        std::unordered_map<std::string, NativeFn> hostNatives_;
         bc::VarTable globals_;
         bc::Compiler compiler_{globals_};
         std::unordered_map<std::string, NativeFn> natives_;
         std::vector<UserFn> userById_;
+        std::vector<uint32_t> programFunctions_; // see programFunctions()
         std::unordered_map<const void *, std::unique_ptr<Proto>> protos_; // by FunctionDecl, or FieldDecl for a default
         std::vector<std::unique_ptr<Proto>> retired_;
         std::vector<Proto *> snapshotProtos_;
@@ -218,18 +367,26 @@ namespace cuff
         // The machine's stack. Frames and registers are kept in blocks that never move, so a pointer to either stays
         // good while something else (a native function that prints an object, a module being loaded) runs the loop
         // again on top of them.
-        static constexpr size_t kFrameBlock = 128;
-        static constexpr size_t kFirstSegmentCells = 1024;
+        // A stack's frames come in blocks of 2^shift and its registers in segments that double. The program's own
+        // stack starts with room for ordinary nesting. A task's starts small, because there can be thousands of
+        // them and most are a call or two deep: four frames and 32 registers, about 1.4 KiB.
+        static constexpr uint32_t kMainFrameShift = 5;
+        static constexpr uint32_t kTaskFrameShift = 2;
+        static constexpr uint32_t kFirstSegmentCells = 1024;
+        static constexpr uint32_t kTaskSegmentCells = 32;
         static constexpr size_t kMaxSegmentCells = 64 * 1024;
         static constexpr size_t kNoFrame = static_cast<size_t>(-1);
         std::vector<std::unique_ptr<Frame[]>> frameBlocks_;
         size_t frameCount_ = 0;
         Frame *top_ = nullptr; // the running frame: frameAt(frameCount_ - 1)
+        size_t frameMask_ = (size_t(1) << kMainFrameShift) - 1; // frames in a block of the loaded stack, less one
+        uint32_t frameShift_ = kMainFrameShift;
         std::vector<Segment> segments_;
         uint32_t curSeg_ = 0;
         Reg *segEnd_ = nullptr;
         std::vector<DynVar> dynVars_;
         size_t uncatchable_ = kNoFrame; // the frame whose own `or_else` must not catch the error in flight
+        uint32_t firstCells_ = kFirstSegmentCells;
 
         std::vector<const NativeFn *> nativeById_;
         std::vector<std::unique_ptr<Program>> loadedModules_;
@@ -240,11 +397,8 @@ namespace cuff
 
         // ---- classes -------------------------------------------------------------------------------------------
         // The registry belongs to this interpreter (there is no process-wide class table), indexed by name id like
-        // userById_. A class declared again by a later run (a shell entry) replaces the earlier one; objects that
-        // already exist keep the class they were made from.
+        // userById_. A class is declared once in a program, whichever run or module declares it.
         std::vector<std::shared_ptr<ClassInfo>> classById_;
-        std::vector<uint64_t> classEpoch_;
-        uint64_t runEpoch_ = 0;
         size_t classCount_ = 0;
         uint32_t classSerial_ = 0;
         std::shared_ptr<ClassInfo> errorClass_;
@@ -259,14 +413,23 @@ namespace cuff
         std::unordered_map<uint32_t, std::vector<BoundMethod>> builtinMethods_;
         size_t errMessageIdx_ = 0, errCodeIdx_ = 0, errLineIdx_ = 0, errColumnIdx_ = 0, errHintIdx_ = 0;
 
-        struct QueuedTask
-        {
-            const FunctionDecl *decl;
-            std::vector<Value> args;
-            Value self;                  // the receiver of an async method
-            const ClassInfo *owner = nullptr;
-        };
-        std::deque<QueuedTask> taskQueue_;
+        // ---- tasks -----------------------------------------------------------------------------------------------
+        Task mainTask_;
+        Task *current_ = &mainTask_;      // the task whose stack is loaded
+        std::deque<Task *> ready_;        // in the order they became able to run
+        std::multimap<Wait::Clock::time_point, Task *> timers_; // every task with a Wait, by the time it must be looked at
+        std::vector<Task *> socketWaits_; // the tasks whose Wait has a socket open
+        std::deque<Task *> socketQueue_;  // the tasks whose Wait has not been given room for its socket yet
+        std::vector<SocketWait> pollItems_;
+        Task *liveHead_ = nullptr;        // every task that has not finished
+        size_t liveTasks_ = 0;
+        size_t waitingTasks_ = 0;         // those of them that have started and are set aside
+        std::vector<std::shared_ptr<Task>> unobserved_; // failed tasks whose error no one has received yet
+        std::vector<Stack> spareStacks_;
+        std::unique_ptr<Wait> pendingWait_; // what the native function that just ran asked to wait for
+        std::exception_ptr resumeError_;    // the error to raise in the task that is being taken up again
+        bool suspend_ = false;              // the running task has to be set aside
+        std::shared_ptr<ClassInfo> taskClass_;
 
         int callDepth_ = 0;
         static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
@@ -289,7 +452,8 @@ namespace cuff
 
         CUFF_ALWAYS_INLINE void returnArgsBuffer(std::vector<Value> &&v)
         {
-            if (argsPool_.size() < kCallPoolCap)
+            // Called from a destructor, so it must not allocate: the pool's own storage was reserved at the start.
+            if (argsPool_.size() < argsPool_.capacity())
             {
                 v.clear();
                 argsPool_.push_back(std::move(v));
@@ -316,11 +480,74 @@ namespace cuff
             ~DisplayHookScope() { activeObjectDisplay() = previous; }
         };
 
+        struct WaitHookScope
+        {
+            WaitHook *previous;
+            explicit WaitHookScope(WaitHook *hook) : previous(activeWaitHook()) { activeWaitHook() = hook; }
+            ~WaitHookScope() { activeWaitHook() = previous; }
+        };
+
         struct StackFloorScope
         {
             explicit StackFloorScope(uintptr_t floor) { stackFloor() = floor; }
             ~StackFloorScope() { stackFloor() = 0; }
         };
+
+        struct RunningScope
+        {
+            bool &flag;
+            explicit RunningScope(bool &f) : flag(f) { flag = true; }
+            ~RunningScope() { flag = false; }
+        };
+
+        // Sets up what running code needs around it (how much stack it may use, the budgets, the way natives reach
+        // this machine) and runs `body`. An error ends the run: tasks that have not finished must not run later, and
+        // what an error that is not the program's own (out of memory) left on the machine is cleared.
+        // A one-shot interpreter is simply discarded, but a shell keeps one alive across entries.
+        template <typename Body>
+        void entered(Body &&body)
+        {
+            if (running_)
+                throw CuffRuntimeError(ErrorCode::UnsupportedOperation, "the engine is already running a program", noLocation(),
+                                       "a function of the host that a script calls cannot run or call the same engine again");
+            RunningScope runningScope(running_);
+            const uintptr_t sp = stackPointer();
+            const StackPlan plan = planStack(config_.stackBudgetBytes, availableStackBytes());
+            stackLimit_ = sp > plan.soft ? sp - plan.soft : 0;
+            compiler_.setStackLimit(stackLimit_);
+            StackFloorScope floorScope(sp > plan.hard ? sp - plan.hard : 0);
+            DisplayHookScope displayScope(this);
+            WaitHookScope waitScope(this);
+            CycleHeap::Scope cycleScope(&cycles_);
+            cycles_.silence();
+            stepsLeft_ = config_.maxSteps ? config_.maxSteps : UINT64_MAX;
+            timed_ = config_.timeoutMs != 0;
+            if (timed_)
+                deadline_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(config_.timeoutMs);
+            cycles_.ringIfDue();
+            try
+            {
+                body();
+            }
+            catch (...)
+            {
+                abandonTasks();
+                unwindTo(0);
+                throw;
+            }
+            if (cycles_.due())
+                cycles_.collect();
+        }
+
+        static bool isIdentifier(const std::string &name)
+        {
+            if (name.empty() || !isAlpha(static_cast<unsigned char>(name[0])))
+                return false;
+            for (char c : name)
+                if (!isAlphaNum(static_cast<unsigned char>(c)))
+                    return false;
+            return true;
+        }
 
         // ---- budgets ---------------------------------------------------------------------------------------------
 
@@ -356,8 +583,19 @@ namespace cuff
                 checkDeadline(loc);
         }
 
-        [[noreturn]] CUFF_COLD void stepsExhausted(const SourceLocation &loc) const
+        // The count of steps came to its end: the program reached its limit, or the count had been borrowed to say
+        // that it is time to look for cycles (CycleHeap::ringAt), and then the program goes on.
+        CUFF_COLD void stepsExhausted(const SourceLocation &loc)
         {
+            if (cycles_.rang())
+            {
+                stepsLeft_ = cycles_.silence() - 1;
+                if (stepsLeft_ != 0)
+                {
+                    cycles_.collect();
+                    return;
+                }
+            }
             budgetExceeded(ErrorCode::ExecutionStepLimit, "execution step limit (" + std::to_string(config_.maxSteps) + ") exceeded", loc);
         }
 
@@ -394,6 +632,10 @@ namespace cuff
         void initialize()
         {
             registerBuiltins(natives_);
+            argsPool_.reserve(kCallPoolCap);
+            cycles_.setEnabled(config_.collectCycles);
+            cycles_.ringAt(&stepsLeft_);
+            mainTask_.state = Task::State::Running;
             segmentFor(0, kFirstSegmentCells);
             segEnd_ = segments_[0].cells.get() + segments_[0].size;
             initialIdsAndPrelude();
@@ -404,7 +646,12 @@ namespace cuff
         // extend and raise it with nothing special in the evaluator but `fail` and `or_else as`.
         static const char *preludeSource()
         {
-            return "class Error do:\n"
+            return "class Task do:\n"
+                   "    private func init() do:\n"
+                   "    end\n"
+                   "end\n"
+                   "\n"
+                   "class Error do:\n"
                    "    str message = \"\"\n"
                    "    str code = \"E7-001\"\n"
                    "    number line = 0\n"
@@ -432,6 +679,16 @@ namespace cuff
             registerClasses(*preludeProgram_);
             errorClass_ = classById_[internName("Error")];
             errorClass_->isBuiltin = true;
+            taskClass_ = classById_[internName("Task")];
+            taskClass_->isBuiltin = true;
+            natives_["task_done"] = [this](std::vector<Value> &args, const SourceLocation &loc) -> Value
+            {
+                expectArgCount("task_done", args, 1, loc);
+                const Task *task = taskOf(args[0]);
+                if (!task)
+                    throw TypeError("task_done() expects a task, got " + typeNameOf(args[0]), loc);
+                return Value::makeBool(task->state == Task::State::Done || task->state == Task::State::Failed);
+            };
             classCount_ = 0; // the limit is on the classes a program declares
             errMessageIdx_ = errorClass_->fieldIndex.at(internName("message"));
             errCodeIdx_ = errorClass_->fieldIndex.at(internName("code"));
@@ -519,11 +776,11 @@ namespace cuff
             if (const ClassInfo *existing = findClass(d.nameId))
             {
                 if (existing->isBuiltin)
-                    throwClassError(ErrorCode::ClassNameConflict, "'" + d.name + "' is a built-in class and cannot be declared again",
-                                    d.loc, "choose another name, or extend it: class My" + d.name + " extends " + d.name + " do: ... end");
-                if (classEpoch_[d.nameId] == runEpoch_)
-                    throwClassError(ErrorCode::ClassNameConflict, "class '" + d.name + "' is declared more than once", d.loc,
-                                    "give each class its own name");
+                    throwClassError(ErrorCode::ClassNameConflict, "'" + d.name + "' is a built-in class and cannot be declared again", d.loc,
+                                    existing == taskClass_.get() ? std::string("choose another name")
+                                                           : "choose another name, or extend it: class My" + d.name + " extends " + d.name + " do: ... end");
+                throwClassError(ErrorCode::ClassNameConflict, "class '" + d.name + "' is already declared", d.loc,
+                                "give each class its own name");
             }
             if (findUser(d.nameId) || natives_.count(d.name))
                 throwClassError(ErrorCode::ClassNameConflict,
@@ -556,6 +813,10 @@ namespace cuff
                 }
                 else if (const auto *known = classHandle(d.parentNameId))
                 {
+                    // An object of a child of Task would be a Task that no call stands behind.
+                    if (*known == taskClass_)
+                        throwClassError(ErrorCode::InvalidInheritance, "'Task' cannot be extended", d.parentLoc,
+                                        "a Task is what a call of an async function gives; keep one in a field instead");
                     parent = *known;
                 }
                 else if (findUser(d.parentNameId) || natives_.count(d.parentName))
@@ -634,15 +895,52 @@ namespace cuff
             info->toStr = info->findMethod(toStrId_);
 
             if (d.nameId >= classById_.size())
-            {
                 classById_.resize(d.nameId + 1);
-                classEpoch_.resize(d.nameId + 1, 0);
-            }
-            if (!classById_[d.nameId])
-                ++classCount_;
+            ++classCount_;
             classById_[d.nameId] = std::move(info);
-            classEpoch_[d.nameId] = runEpoch_;
             state[index] = 2;
+        }
+
+        // The functions and classes of a text, before any of its statements runs. When one of them cannot be
+        // declared, none is: the program is as it was, and the corrected text can be run.
+        void declare(const Program &program)
+        {
+            std::vector<std::pair<uint32_t, UserFn>> before;
+            const size_t classesBefore = classCount_;
+            try
+            {
+                for (const auto &s : program.statements)
+                    if (s->kind == StmtKind::FunctionDecl)
+                    {
+                        const FunctionDecl &decl = *std::get_if<FunctionDecl>(&s->data);
+                        before.emplace_back(decl.nameId, decl.nameId < userById_.size() ? userById_[decl.nameId] : UserFn{});
+                        registerFunction(decl);
+                    }
+                registerClasses(program);
+            }
+            catch (...)
+            {
+                for (auto it = before.rbegin(); it != before.rend(); ++it)
+                    if (it->first < userById_.size())
+                        userById_[it->first] = it->second;
+                // Classes are built only once all of them were found free to declare, so a class of this text that
+                // is there now was built by it.
+                if (classCount_ != classesBefore)
+                    for (const auto &s : program.statements)
+                        if (s->kind == StmtKind::ClassDecl)
+                        {
+                            const uint32_t id = std::get_if<ClassDecl>(&s->data)->nameId;
+                            if (id < classById_.size() && classById_[id])
+                            {
+                                classById_[id].reset();
+                                --classCount_;
+                            }
+                        }
+                throw;
+            }
+            if (moduleDepth_ == 0)
+                for (const auto &entry : before)
+                    programFunctions_.push_back(entry.first);
         }
 
         // ---- functions -------------------------------------------------------------------------------------------
@@ -661,6 +959,14 @@ namespace cuff
         {
             return id < userById_.size() ? userById_[id].decl : nullptr;
         }
+
+    public:
+        // The functions that the texts run so far declared at their top level (a module's are not among them), and
+        // whether the program has a declared variable of its top level by a name.
+        const std::vector<uint32_t> &programFunctions() const { return programFunctions_; }
+        bool declaresVariable(uint32_t id) const { return globals_.isDeclared(id); }
+
+    private:
 
         // The compiled form of a function or method, made the first time it is called.
         CUFF_NOINLINE Proto *protoOf(const FunctionDecl &decl)
@@ -687,27 +993,37 @@ namespace cuff
             for (Proto *p : snapshotProtos_)
             {
                 p->ready = false;
-                if (callDepth_ != 0)
+                if (callDepth_ != 0 || liveTasks_ != 0)
                     retireIfRunning(p);
             }
             snapshotProtos_.clear();
         }
 
-        // Only the top level declares the program's variables, and it does so while no function is running, so this
-        // finds nothing. It is here so that code which is running is never compiled over.
+        static bool runsOn(const std::vector<std::unique_ptr<Frame[]>> &blocks, size_t count, uint32_t shift, const Proto *p)
+        {
+            const size_t mask = (size_t(1) << shift) - 1;
+            for (size_t k = 0; k < count; ++k)
+                if (blocks[k >> shift][k & mask].proto == p)
+                    return true;
+            return false;
+        }
+
+        // Code that is running is never compiled over: it is kept until the calls that run it have returned. Those
+        // calls are on the loaded stack (a module that a running function loads) or on the stack of a task that is
+        // set aside.
         void retireIfRunning(Proto *p)
         {
-            for (size_t k = 0; k < frameCount_; ++k)
-            {
-                if (frameAt(k)->proto != p)
-                    continue;
-                auto it = protos_.find(p->decl);
-                if (it != protos_.end() && it->second.get() == p)
-                {
-                    retired_.push_back(std::move(it->second));
-                    protos_.erase(it);
-                }
+            bool running = runsOn(frameBlocks_, frameCount_, frameShift_, p) ||
+                           (current_ != &mainTask_ && runsOn(mainTask_.stack.frameBlocks, mainTask_.stack.frameCount, mainTask_.stack.frameShift, p));
+            for (const Task *task = liveHead_; task && !running; task = task->next)
+                running = task != current_ && runsOn(task->stack.frameBlocks, task->stack.frameCount, task->stack.frameShift, p);
+            if (!running)
                 return;
+            auto it = protos_.find(p->decl);
+            if (it != protos_.end() && it->second.get() == p)
+            {
+                retired_.push_back(std::move(it->second));
+                protos_.erase(it);
             }
         }
 
@@ -2029,19 +2345,19 @@ namespace cuff
 
         Frame *frameAt(size_t index) const
         {
-            return &frameBlocks_[index / kFrameBlock][index % kFrameBlock];
+            return &frameBlocks_[index >> frameShift_][index & frameMask_];
         }
 
         CUFF_NOINLINE Frame *frameBlock(size_t index)
         {
             if (index == frameBlocks_.size())
-                frameBlocks_.push_back(std::make_unique<Frame[]>(kFrameBlock));
+                frameBlocks_.push_back(std::make_unique<Frame[]>(frameMask_ + 1));
             return frameBlocks_[index].get();
         }
 
         CUFF_ALWAYS_INLINE Frame *pushFrame()
         {
-            Frame *f = CUFF_LIKELY((frameCount_ & (kFrameBlock - 1)) != 0) ? top_ + 1 : frameBlock(frameCount_ / kFrameBlock);
+            Frame *f = CUFF_LIKELY((frameCount_ & frameMask_) != 0) ? top_ + 1 : frameBlock(frameCount_ >> frameShift_);
             ++frameCount_;
             top_ = f;
             return f;
@@ -2050,21 +2366,21 @@ namespace cuff
         CUFF_ALWAYS_INLINE void popFrame()
         {
             --frameCount_;
-            if (CUFF_LIKELY((frameCount_ & (kFrameBlock - 1)) != 0))
+            if (CUFF_LIKELY((frameCount_ & frameMask_) != 0))
                 --top_;
             else
                 top_ = frameCount_ ? frameAt(frameCount_ - 1) : nullptr;
         }
 
-        Reg *segmentFor(uint32_t index, size_t cells)
+        Reg *segmentFor(uint32_t index, uint32_t cells)
         {
             if (index == segments_.size())
                 segments_.emplace_back();
             Segment &s = segments_[index];
             if (s.size < cells)
             {
-                const size_t usual = std::min<size_t>(kMaxSegmentCells, kFirstSegmentCells << std::min<uint32_t>(index, 6));
-                s.size = std::max(cells, usual);
+                const size_t usual = std::min<size_t>(kMaxSegmentCells, static_cast<size_t>(firstCells_) << std::min<uint32_t>(index, 6));
+                s.size = std::max<size_t>(cells, usual);
                 s.cells = std::make_unique<Reg[]>(s.size);
             }
             return s.cells.get();
@@ -2175,6 +2491,7 @@ namespace cuff
         // something nearer the error already has.
         bool handleError(CuffError &e, size_t stopCount)
         {
+            pendingWait_.reset(); // a native function that asked to wait and then failed is not waited for
             while (frameCount_ > stopCount)
             {
                 Frame &f = *top_;
@@ -2271,21 +2588,33 @@ namespace cuff
             }
         }
 
-        // An async function called without `await`: its receiver and arguments, from `base` on, wait in the queue.
-        CUFF_NOINLINE void queueTask(const Proto &p, Reg *base, uint32_t argc, const SourceLocation &loc, const ClassInfo *owner)
+        // An async function called without `await` becomes a task: its receiver and arguments, from `base` on, are
+        // kept until it first runs. The call's value, a Task, goes to `ret`; with no `ret` nothing would use it, and
+        // the task is one that nothing can wait for. (No more than six arguments: one more would be passed on the
+        // stack, and the loop this is called from would then give up a machine register to find its frame.)
+        CUFF_NOINLINE void startAsync(const Proto &p, Reg *base, uint32_t argc, const ClassInfo *owner, Value *ret)
         {
-            if (taskQueue_.size() >= limits::kMaxQueuedTasks)
-                throwSizeLimit("async task queue", loc);
-            QueuedTask task;
-            task.decl = p.decl;
+            auto task = std::make_shared<Task>();
+            task->decl = p.decl;
             Reg *args = base + p.paramBase;
-            task.args.reserve(argc);
+            task->args.reserve(argc);
             for (uint32_t k = 0; k < argc; ++k)
-                task.args.push_back(std::move(args[k].v));
+                task->args.push_back(std::move(args[k].v));
             if (p.isMethod)
-                task.self = base->v;
-            task.owner = owner;
-            taskQueue_.push_back(std::move(task));
+                task->self = base->v;
+            task->owner = owner;
+            task->detached = ret == nullptr;
+            if (ret)
+            {
+                auto handle = std::make_shared<ObjectData>();
+                handle->cls = taskClass_;
+                handle->origin = task;
+                handle->held = &task->result;
+                *ret = Value::makeObject(std::move(handle));
+            }
+            link(task.get());
+            ready_.push_back(task.get());
+            task->keep = std::move(task);
         }
 
         // Enters a function whose receiver (for a method) and arguments are in consecutive registers from `base`:
@@ -2317,23 +2646,28 @@ namespace cuff
             return f;
         }
 
-        // A call to a user function or method: checked, then entered. False when it was queued instead (an async
-        // function that is not awaited); its result, `empty`, is then already in place.
+        // A call to a user function or method: checked, then entered. False when it became a task instead (an async
+        // function that is not awaited); its result, the Task, is then already in place. `flags` is the `x` of the
+        // call instruction.
         template <typename LocFn>
         CUFF_ALWAYS_INLINE bool invoke(Frame &fr, Proto *p, Reg *base, uint32_t argc, Value *ret, const ClassInfo *owner,
-                                       const std::string &name, bool awaited, LocFn &&loc)
+                                       const std::string &name, uint16_t flags, LocFn &&loc)
         {
             if (CUFF_UNLIKELY(fr.isPure && !p->isPure))
                 throwPureImpureCall(name, loc());
             Reg *args = base + p->paramBase;
             if (p->typedParams)
                 checkParamTypes(*p, args, argc, name, loc);
-            if (CUFF_UNLIKELY(p->isAsync && !awaited))
+            if (CUFF_UNLIKELY(p->isAsync && !(flags & bc::kCallAwaited)))
             {
                 if (argc < p->required || argc > p->nparams)
                     throwArgumentCount(name, *p->decl, argc, loc());
-                queueTask(*p, base, argc, loc(), owner);
-                ret->clear();
+                if (liveTasks_ >= limits::kMaxTasks)
+                    throwSizeLimit("the number of tasks", loc());
+                const bool discard = (flags & bc::kCallDiscard) != 0;
+                startAsync(*p, base, argc, owner, discard ? nullptr : ret);
+                if (discard)
+                    ret->clear();
                 return false;
             }
             enterCall(p, base, argc, ret, owner, p->decl->name, loc);
@@ -2378,6 +2712,8 @@ namespace cuff
             {
                 Value out = callNative(*native, args, argc, loc);
                 *ret = std::move(out);
+                if (CUFF_UNLIKELY(pendingWait_ != nullptr))
+                    beginWait(ret, loc);
                 return false;
             }
             if (const Reg *var = variableNamed(fr, ins, nameId))
@@ -2418,7 +2754,6 @@ namespace cuff
         CUFF_NOINLINE bool callWith(Frame &fr, const Instr &ins, Reg *slot, uint32_t argc)
         {
             const CallSite site = siteOf(*fr.proto, ins);
-            const bool awaited = (ins.x & bc::kCallAwaited) != 0;
             auto at = [&]() -> const SourceLocation & { return *site.loc; };
             for (int32_t holderCell : fr.proto->withLists[static_cast<size_t>(ins.c)])
             {
@@ -2429,10 +2764,10 @@ namespace cuff
                 slot->v = holder;
                 if (m->decl->isPrivate && m->owner != fr.owner)
                     throwPrivate(*m->owner, *site.name, "method", *site.loc);
-                return invoke(fr, protoOf(*m->decl), slot, argc, &slot->v, m->owner, m->decl->name, awaited, at);
+                return invoke(fr, protoOf(*m->decl), slot, argc, &slot->v, m->owner, m->decl->name, ins.x, at);
             }
             if (const FunctionDecl *user = findUser(site.nameId))
-                return invoke(fr, protoOf(*user), slot + 1, argc, &slot->v, nullptr, user->name, awaited, at);
+                return invoke(fr, protoOf(*user), slot + 1, argc, &slot->v, nullptr, user->name, ins.x, at);
             return callOther(fr, ins, site.nameId, slot + 1, &slot->v);
         }
 
@@ -2447,7 +2782,7 @@ namespace cuff
             if (m->decl->isPrivate && m->owner != fr.owner)
                 throwPrivate(*m->owner, *site.name, "method", *site.loc);
             auto at = [&]() -> const SourceLocation & { return *site.loc; };
-            return invoke(fr, protoOf(*m->decl), base, argc, &base->v, m->owner, m->decl->name, (ins.x & bc::kCallAwaited) != 0, at);
+            return invoke(fr, protoOf(*m->decl), base, argc, &base->v, m->owner, m->decl->name, ins.x, at);
         }
 
         Proto *protoEntry(const FunctionDecl &decl)
@@ -2480,7 +2815,7 @@ namespace cuff
             auto it = builtinMethods_.find(site.nameId);
             if (it != builtinMethods_.end())
             {
-                const unsigned bit = receiverBit(receiver.type());
+                const unsigned bit = receiverBit(receiver.type()) | (taskOf(receiver) ? unsigned(RecvTask) : 0u);
                 for (const BoundMethod &b : it->second)
                 {
                     if (!(b.entry->receivers & bit))
@@ -2490,6 +2825,8 @@ namespace cuff
                         throwMethodNeedsLibrary(receiver, *site.name, *b.entry, *site.loc);
                     Value out = callNative(*fn, base, argc + 1, *site.loc);
                     base->v = std::move(out);
+                    if (CUFF_UNLIKELY(pendingWait_ != nullptr))
+                        beginWait(&base->v, *site.loc);
                     return nullptr;
                 }
             }
@@ -2587,7 +2924,7 @@ namespace cuff
             Value out;
             Frame *f = enterPlain(&thunk, &out);
             f->isPure = fr.isPure;
-            runLoop(frameCount_ - 1);
+            runToEnd(frameCount_ - 1);
             return out;
         }
 
@@ -2697,7 +3034,7 @@ namespace cuff
             return true;
         }
 
-        // Calls a function from the engine itself (a queued async call, an object's `to_str`) and runs it to its end.
+        // Calls a function from the engine itself (an object's `to_str`, a call a host asked for) and runs it to its end.
         void callFunction(const FunctionDecl &decl, std::vector<Value> *args, const Value *self, const ClassInfo *owner,
                           const SourceLocation &loc, Value &out)
         {
@@ -2726,7 +3063,7 @@ namespace cuff
             if (p->usesMeta)
                 initMeta(*f);
             ++callDepth_;
-            runLoop(frameCount_ - 1);
+            runToEnd(frameCount_ - 1);
         }
 
         // Printing an object (print, an f-string, to_str) uses its `to_str` method when the class has one.
@@ -2757,24 +3094,680 @@ namespace cuff
             }
         }
 
-        // Un-awaited async calls run in the order they were made, after the top level has finished.
-        void drainTaskQueue()
+        // ---- tasks -------------------------------------------------------------------------------------------------
+        //
+        // One task runs at a time, and it runs until it waits: for another task (`await`), or inside a library
+        // function that hands the machine a Wait (time_sleep, a network request). It is then set aside with its
+        // stack, the next task that can run is taken up, and when none can the machine waits for the earliest thing
+        // a waiting task waits for. Nothing here uses a thread.
+        //
+        // Setting a task aside means returning from runLoop with its frames left in place. That works when the
+        // scheduler itself made the call (resume). When the loop was entered from C++ for something else (a
+        // statement of the top level, a module, a default value, a `to_str` run by a native function), that C++ is
+        // still on the native stack and has to get its answer, so the wait happens right there (waitHere): the
+        // other tasks run from inside it until the task can go on. Such a task is `pinned`.
+
+        void saveStack(Stack &s)
         {
-            while (!taskQueue_.empty())
+            s.frameBlocks = std::move(frameBlocks_);
+            s.frameCount = frameCount_;
+            s.top = top_;
+            s.segments = std::move(segments_);
+            s.curSeg = curSeg_;
+            s.segEnd = segEnd_;
+            s.dynVars = std::move(dynVars_);
+            s.uncatchable = uncatchable_;
+            s.callDepth = callDepth_;
+            s.firstCells = firstCells_;
+            s.frameShift = frameShift_;
+        }
+
+        void loadStack(Stack &s)
+        {
+            frameBlocks_ = std::move(s.frameBlocks);
+            frameCount_ = s.frameCount;
+            top_ = s.top;
+            segments_ = std::move(s.segments);
+            curSeg_ = s.curSeg;
+            segEnd_ = s.segEnd;
+            dynVars_ = std::move(s.dynVars);
+            uncatchable_ = s.uncatchable;
+            callDepth_ = s.callDepth;
+            firstCells_ = s.firstCells;
+            frameShift_ = s.frameShift;
+            frameMask_ = (size_t(1) << frameShift_) - 1;
+        }
+
+        void switchTo(Task *task)
+        {
+            if (task == current_)
+                return;
+            saveStack(current_->stack);
+            loadStack(task->stack);
+            current_ = task;
+        }
+
+        void link(Task *task)
+        {
+            task->next = liveHead_;
+            task->prev = nullptr;
+            if (liveHead_)
+                liveHead_->prev = task;
+            liveHead_ = task;
+            ++liveTasks_;
+        }
+
+        void unlink(Task *task)
+        {
+            if (task->prev)
+                task->prev->next = task->next;
+            else
+                liveHead_ = task->next;
+            if (task->next)
+                task->next->prev = task->prev;
+            task->prev = task->next = nullptr;
+            --liveTasks_;
+        }
+
+        // The task behind a Task value, or null when the value is not one.
+        Task *taskOf(const Value &v) const
+        {
+            if (!v.isObject())
+                return nullptr;
+            const ObjectData &o = *v.asObject();
+            if (!o.origin || !o.cls->isSubclassOf(taskClass_.get()))
+                return nullptr;
+            return static_cast<Task *>(o.origin.get());
+        }
+
+        // The text the frame that is running on the loaded stack was written in.
+        SourceRef runningSource() const
+        {
+            return frameCount_ ? top_->proto->source : SourceRef();
+        }
+
+        // The running task is about to wait. A task of its own is set aside; there may only be so many of those.
+        // What can fail comes first (the limit here, then the caller's entries in the lists that waiting goes by),
+        // and noteWaiting, which cannot, last: a failure halfway leaves no task that waits for nothing.
+        void checkMayWait(const SourceLocation &loc) const
+        {
+            if (current_ != &mainTask_ && waitingTasks_ >= limits::kMaxWaitingTasks)
+                throwSizeLimit("the number of tasks that are waiting", loc);
+        }
+
+        void noteWaiting(const SourceLocation &loc) noexcept
+        {
+            Task *me = current_;
+            me->waitLoc = &loc;
+            me->waitSource = runningSource();
+            me->state = Task::State::Waiting;
+            if (me != &mainTask_)
+                ++waitingTasks_;
+            suspend_ = true;
+        }
+
+        // `await value`: the value must be a task. False when the task has finished and its result is in `slot`;
+        // true when the running task has to wait for it.
+        CUFF_NOINLINE bool awaitTask(Value &slot, const AwaitExpr &aw)
+        {
+            Task *task = taskOf(slot);
+            if (!task)
+                throw CuffRuntimeError(ErrorCode::AwaitOnNonAsync,
+                                       "'await' cannot wait for a " + typeNameOf(slot) + " value: it needs a task, or a call of an async function",
+                                       aw.loc, "a task is what a call of an async function gives when it is written without 'await'");
+            switch (task->state)
             {
-                QueuedTask task = std::move(taskQueue_.front());
-                taskQueue_.pop_front();
+            case Task::State::Done:
+            {
+                Value result = task->result; // the slot may hold the last Task value, which keeps the task
+                slot = std::move(result);
+                return false;
+            }
+            case Task::State::Failed:
+                task->observed = true;
+                std::rethrow_exception(task->error);
+            default:
+                break;
+            }
+            if (task == current_)
+                throw CuffRuntimeError(ErrorCode::TaskDeadlock, "a task cannot wait for itself", aw.loc);
+            checkMayWait(aw.loc);
+            task->waiters.push_back(current_);
+            noteWaiting(aw.loc);
+            current_->resumeSlot = &slot;
+            current_->awaiting = task;
+            return true;
+        }
+
+        // A native function handed over something to wait for. When it is over already the call simply has its
+        // value; otherwise the running task waits, and the value goes to `ret` when it is taken up again.
+        CUFF_NOINLINE void beginWait(Value *ret, const SourceLocation &loc)
+        {
+            std::unique_ptr<Wait> wait = std::move(pendingWait_);
+            const bool admitted = !wait->usesSocket() || socketWaits_.size() < limits::kMaxOpenRequests;
+            if (admitted && wait->advance())
+            {
+                *ret = wait->finish(loc);
+                return;
+            }
+            checkMayWait(loc);
+            Task *me = current_;
+            me->wait = std::move(wait);
+            try
+            {
+                if (admitted)
+                    watch(me);
+                else
+                    socketQueue_.push_back(me);
+            }
+            catch (...)
+            {
+                me->wait.reset();
+                throw;
+            }
+            me->resumeSlot = ret;
+            noteWaiting(loc);
+        }
+
+        // Enters a waiting task's Wait in the lists the machine waits by.
+        void watch(Task *task)
+        {
+            // Both lists or neither: a task that is in one of them only would be looked for in the other.
+            const Wait &wait = *task->wait;
+            const bool socket = wait.usesSocket() && !task->socketOpen;
+            if (socket)
+                socketWaits_.push_back(task);
+            try
+            {
+                task->timer = timers_.emplace(wait.wakeAt(), task);
+            }
+            catch (...)
+            {
+                if (socket)
+                    socketWaits_.pop_back();
+                throw;
+            }
+            task->timed = true;
+            if (socket)
+                task->socketOpen = true;
+        }
+
+        void unwatch(Task *task)
+        {
+            if (task->timed)
+            {
+                timers_.erase(task->timer);
+                task->timed = false;
+            }
+            if (task->socketOpen)
+            {
+                task->socketOpen = false;
+                auto open = std::find(socketWaits_.begin(), socketWaits_.end(), task);
+                if (open != socketWaits_.end())
+                    socketWaits_.erase(open);
+            }
+            else
+            {
+                auto queued = std::find(socketQueue_.begin(), socketQueue_.end(), task);
+                if (queued != socketQueue_.end())
+                    socketQueue_.erase(queued);
+            }
+        }
+
+        // What `task` waited for has happened (its value or its error is in place): it can go on.
+        void wake(Task *task)
+        {
+            task->awaiting = nullptr;
+            if (task != &mainTask_)
+                --waitingTasks_;
+            if (task->pinned)
+            {
+                task->woken = true;
+                task->state = Task::State::Running; // it goes on as soon as the run that waits for it gets its turn
+                return;
+            }
+            task->state = Task::State::Ready;
+            ready_.push_back(task);
+        }
+
+        // Tries a waiting task's Wait again. When it is over, its value or its error is handed to the task.
+        void advanceWait(Task *task)
+        {
+            bool over = true;
+            try
+            {
+                over = task->wait->advance();
+                if (over)
+                    *task->resumeSlot = task->wait->finish(*task->waitLoc);
+            }
+            catch (CuffError &e)
+            {
+                e.attachSource(task->waitSource);
+                task->resumeError = std::current_exception();
+            }
+            if (!over)
+            {
+                // What it waits on may have changed: another socket, a later time.
+                if (task->timed)
+                {
+                    timers_.erase(task->timer);
+                    task->timed = false;
+                }
+                task->timer = timers_.emplace(task->wait->wakeAt(), task);
+                task->timed = true;
+                return;
+            }
+            const bool hadSocket = task->socketOpen;
+            unwatch(task);
+            task->wait.reset();
+            wake(task);
+            if (hadSocket && !socketQueue_.empty())
+            {
+                Task *next = socketQueue_.front();
+                socketQueue_.pop_front();
+                watch(next);
+                advanceWait(next);
+            }
+        }
+
+        // The stack a task starts on. Finished tasks leave theirs for the next, so a program whose tasks run one
+        // after another allocates one.
+        void giveStack(Task &task)
+        {
+            if (spareStacks_.empty())
+                return;
+            task.stack = std::move(spareStacks_.back());
+            spareStacks_.pop_back();
+        }
+
+        void takeStackBack(Task &task)
+        {
+            if (spareStacks_.size() < 8 && task.stack.frameCount == 0 && !task.stack.segments.empty())
+            {
+                task.stack.dynVars.clear();
+                task.stack.uncatchable = kNoFrame;
+                task.stack.callDepth = 0;
+                task.stack.curSeg = 0;
+                task.stack.segEnd = task.stack.segments[0].cells.get() + task.stack.segments[0].size;
+                spareStacks_.push_back(std::move(task.stack));
+            }
+            task.stack = Stack();
+        }
+
+        // Enters the function of a task that runs for the first time. Its stack is the loaded one.
+        void enterTask(Task &task)
+        {
+            const FunctionDecl &decl = *task.decl;
+            try
+            {
+                if (segments_.empty())
+                {
+                    segmentFor(0, firstCells_);
+                    segEnd_ = segments_[0].cells.get() + segments_[0].size;
+                }
+                Proto *p = protoOf(decl);
+                tick(decl.loc);
+                Reg *regs = segments_[0].cells.get();
+                if (regs + p->numCells > segEnd_)
+                {
+                    segments_[0] = Segment();
+                    regs = segmentFor(0, p->numCells);
+                    segEnd_ = regs + segments_[0].size;
+                }
+                const uint32_t argc = static_cast<uint32_t>(task.args.size());
+                if (decl.isMethod)
+                    regs[0].v = std::move(task.self);
+                for (uint32_t k = 0; k < argc; ++k)
+                    regs[p->paramBase + k].v = std::move(task.args[k]);
+                task.args = std::vector<Value>();
+                Frame *f = openFrame(p, regs, &task.result);
+                f->owner = task.owner;
+                f->callLoc = &decl.loc;
+                f->argc = argc;
+                f->isPure = p->isPure;
+                f->inFunction = true;
+                f->counted = true;
+                if (p->usesMeta)
+                    initMeta(*f);
+                ++callDepth_;
+            }
+            catch (CuffError &e)
+            {
+                e.attachSource(decl.source);
+                throw;
+            }
+        }
+
+        // Runs `task` until it finishes or waits again. An error that ends the whole program is thrown on.
+        void resume(Task *task)
+        {
+            Task *const previous = current_;
+            const bool first = task->state == Task::State::Queued;
+            if (first)
+                giveStack(*task);
+            switchTo(task);
+            task->state = Task::State::Running;
+            bool finished = false;
+            try
+            {
+                if (first)
+                    enterTask(*task);
+                resumeError_ = std::exchange(task->resumeError, nullptr);
+                finished = runLoop(0);
+            }
+            catch (CuffError &e)
+            {
+                resumeError_ = nullptr;
+                unwindTo(0);
+                switchTo(previous);
+                if (taskFailed(task, e))
+                    throw;
+                return;
+            }
+            catch (...)
+            {
+                resumeError_ = nullptr;
+                unwindTo(0);
+                switchTo(previous);
+                throw;
+            }
+            switchTo(previous);
+            if (finished)
+                taskFinished(task);
+        }
+
+        void taskFinished(Task *task)
+        {
+            task->state = Task::State::Done;
+            for (Task *waiter : task->waiters)
+            {
+                *waiter->resumeSlot = task->result;
+                wake(waiter);
+            }
+            task->waiters = std::vector<Task *>();
+            retire(task);
+        }
+
+        // True when the error must end the program: it is one no `or_else` may catch (a budget), or it happened in
+        // a task that has no Task value, so that nothing could ever receive it.
+        bool taskFailed(Task *task, CuffError &e)
+        {
+            task->state = Task::State::Failed;
+            task->error = std::current_exception();
+            bool fatal = !e.recoverable;
+            if (!fatal && task->waiters.empty())
+            {
+                if (task->detached)
+                {
+                    e.recoverable = false;
+                    fatal = true;
+                }
+                else
+                {
+                    unobserved_.push_back(task->keep);
+                }
+            }
+            if (!fatal)
+            {
+                for (Task *waiter : task->waiters)
+                {
+                    task->observed = true;
+                    waiter->resumeError = task->error;
+                    wake(waiter);
+                }
+            }
+            task->waiters = std::vector<Task *>();
+            retire(task);
+            return fatal;
+        }
+
+        // A task that has finished gives up its stack and its place among the live ones. This may be the end of it,
+        // when no Task value refers to it.
+        void retire(Task *task)
+        {
+            takeStackBack(*task);
+            unlink(task);
+            std::shared_ptr<Task> last = std::move(task->keep);
+        }
+
+        // Does one thing: runs the next task that can run, or waits for the earliest thing a waiting task waits
+        // for. False when there is neither, so nothing more can happen until the caller itself goes on.
+        bool runOnce()
+        {
+            if (!ready_.empty())
+            {
+                Task *task = ready_.front();
+                ready_.pop_front();
+                resume(task);
+                return true;
+            }
+            if (timers_.empty())
+                return false;
+
+            using Clock = Wait::Clock;
+            Clock::time_point until = timers_.begin()->first;
+            if (timed_ && deadline_ < until)
+                until = deadline_;
+            const Clock::time_point now = Clock::now();
+            int ms = 0;
+            if (until > now)
+            {
+                const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(until - now).count() + 1;
+                ms = static_cast<int>(std::min<long long>(left, 60000));
+            }
+
+            pollItems_.clear();
+            SocketPoller poller = nullptr;
+            for (Task *task : socketWaits_)
+            {
+                const Wait &wait = *task->wait;
+                if (wait.socket() < 0)
+                    continue;
+                pollItems_.push_back(SocketWait{wait.socket(), wait.wantsWrite(), false});
+                poller = wait.poller();
+            }
+            if (poller)
+                poller(pollItems_.data(), pollItems_.size(), ms);
+            else if (ms > 0)
+                sleepMilliseconds(ms);
+
+            const Clock::time_point after = Clock::now();
+            if (timed_ && after > deadline_)
+            {
+                // Reported where the program is waiting: in the task that waits here, else in the one that waits longest.
+                const Task *at = current_->state == Task::State::Waiting ? current_ : timers_.begin()->second;
                 try
                 {
-                    Value ignored;
-                    callFunction(*task.decl, &task.args, task.decl->isMethod ? &task.self : nullptr, task.owner, task.decl->loc, ignored);
+                    checkDeadline(*at->waitLoc);
                 }
                 catch (CuffError &e)
                 {
-                    e.attachSource(task.decl->source);
+                    e.attachSource(at->waitSource);
                     throw;
                 }
             }
+
+            // The tasks to look at: those whose socket is ready, and those whose time has come. They are gathered
+            // first, because looking at one changes the lists.
+            std::vector<Task *> due;
+            size_t item = 0;
+            for (Task *task : socketWaits_)
+            {
+                if (task->wait->socket() < 0)
+                    continue;
+                if (item < pollItems_.size() && pollItems_[item].ready)
+                    due.push_back(task);
+                ++item;
+            }
+            for (auto it = timers_.begin(); it != timers_.end() && it->first <= after; ++it)
+                if (std::find(due.begin(), due.end(), it->second) == due.end())
+                    due.push_back(it->second);
+            for (Task *task : due)
+                if (task->wait)
+                    advanceWait(task);
+            return true;
+        }
+
+        // The running task has to wait, and it is pinned: the other tasks run from here until it can go on. An error
+        // that is the task's own (nothing it waits for can happen any more) is left for the loop to raise at the
+        // instruction that waits, where an `or_else` around it can catch it; what is thrown from here ends the program.
+        CUFF_NOINLINE void waitHere()
+        {
+            Task *const me = current_;
+            me->pinned = true;
+            try
+            {
+                if (stackPointer() < stackLimit_)
+                {
+                    cancelWait(me);
+                    resumeError_ = std::make_exception_ptr(
+                        StackOverflowError("native stack budget exhausted — calls and blocks are nested too deeply", *me->waitLoc));
+                }
+                else
+                {
+                    while (!me->woken)
+                    {
+                        if (runOnce())
+                            continue;
+                        cancelWait(me);
+                        resumeError_ = std::make_exception_ptr(
+                            CuffRuntimeError(ErrorCode::TaskDeadlock, "this waits for something that cannot happen: every task is waiting",
+                                             *me->waitLoc, "a task that waits for another, which waits for it in turn, never finishes"));
+                        break;
+                    }
+                    if (me->woken)
+                        resumeError_ = std::exchange(me->resumeError, nullptr);
+                }
+            }
+            catch (CuffError &e)
+            {
+                e.attachSource(me->waitSource);
+                me->pinned = me->woken = false;
+                cancelWait(me);
+                throw;
+            }
+            catch (...)
+            {
+                me->pinned = me->woken = false;
+                cancelWait(me);
+                throw;
+            }
+            me->pinned = me->woken = false;
+            me->state = Task::State::Running;
+            me->waitLoc = nullptr;
+            me->waitSource.reset();
+        }
+
+        // Takes a task that will not go on waiting out of what it waited for.
+        void cancelWait(Task *task)
+        {
+            if (task->state != Task::State::Waiting)
+                return;
+            if (task->awaiting)
+            {
+                std::vector<Task *> &waiters = task->awaiting->waiters;
+                waiters.erase(std::remove(waiters.begin(), waiters.end(), task), waiters.end());
+                task->awaiting = nullptr;
+            }
+            if (task->wait)
+            {
+                unwatch(task);
+                task->wait.reset();
+            }
+            task->resumeError = nullptr;
+            task->state = Task::State::Running;
+            if (task != &mainTask_)
+                --waitingTasks_;
+        }
+
+        // Runs the loop for the top frame until that frame has finished, however often the task has to wait on
+        // the way. For a run of the loop that C++ needs the result of.
+        void runToEnd(size_t stopCount)
+        {
+            while (!runLoop(stopCount))
+            {
+                try
+                {
+                    waitHere();
+                }
+                catch (...)
+                {
+                    unwindTo(stopCount);
+                    throw;
+                }
+            }
+        }
+
+        // The end of a program: every task that is still alive runs to its end. Then an error that a task ended
+        // with and that no `await` received is the program's error.
+        void finishTasks()
+        {
+            while (liveTasks_ != 0)
+            {
+                if (runOnce())
+                    continue;
+                // Nothing can run and nothing is being waited for, yet tasks remain: each waits for another.
+                const Task *stuck = liveHead_;
+                while (stuck->next)
+                    stuck = stuck->next; // the oldest
+                CuffRuntimeError e(ErrorCode::TaskDeadlock, "the program ended while a task was still waiting for a task that cannot finish",
+                                   stuck->waitLoc ? *stuck->waitLoc : stuck->decl->loc,
+                                   "a task that waits for another, which waits for it in turn, never finishes");
+                e.attachSource(stuck->waitLoc ? stuck->waitSource : stuck->decl->source);
+                throw e;
+            }
+            for (const std::shared_ptr<Task> &task : unobserved_)
+                if (!task->observed)
+                {
+                    const std::exception_ptr error = task->error;
+                    unobserved_.clear();
+                    std::rethrow_exception(error);
+                }
+            unobserved_.clear();
+        }
+
+        // After an error has ended the run: what is left of the tasks is cleared away. Nothing of them runs again.
+        void abandonTasks()
+        {
+            switchTo(&mainTask_);
+            pendingWait_.reset();
+            resumeError_ = nullptr;
+            suspend_ = false;
+            ready_.clear();
+            timers_.clear();
+            socketWaits_.clear();
+            socketQueue_.clear();
+            unobserved_.clear();
+            while (liveHead_)
+            {
+                Task *task = liveHead_;
+                // Its frames are left the way an error leaves them, so that an object whose `init` was running is
+                // not kept marked as being made.
+                if (task->stack.frameCount != 0)
+                {
+                    switchTo(task);
+                    unwindTo(0);
+                    switchTo(&mainTask_);
+                }
+                task->waiters.clear();
+                task->wait.reset();
+                task->stack = Stack();
+                unlink(task);
+                std::shared_ptr<Task> last = std::move(task->keep);
+            }
+            waitingTasks_ = 0;
+            mainTask_.pinned = mainTask_.woken = false;
+            mainTask_.state = Task::State::Running;
+            mainTask_.awaiting = nullptr;
+            mainTask_.wait.reset();
+            mainTask_.waiters.clear();
+            mainTask_.resumeError = nullptr;
+            mainTask_.timed = mainTask_.socketOpen = false;
+        }
+
+        void waitFor(std::unique_ptr<Wait> wait) override
+        {
+            pendingWait_ = std::move(wait);
         }
 
         // ---- statements that are not worth an instruction of their own ----------------------------------------------
@@ -2896,6 +3889,8 @@ namespace cuff
             v = Value::makeStr(std::move(text));
         }
 
+        [[noreturn]] CUFF_COLD void raiseResumeError() { std::rethrow_exception(std::exchange(resumeError_, nullptr)); }
+
         // Runs the top frame, and every frame it calls, until it returns: `stopCount` is the number of frames below
         // it. An error is offered to the `or_else` handlers of those frames (handleError); with none to take it, the
         // frames are left and the error goes to the caller.
@@ -2904,7 +3899,20 @@ namespace cuff
         // frame at every dispatch, and the running frame is `top_`. A local that a catch block read would have to live
         // in memory across every call that can throw, which is nearly every instruction; this way the instruction
         // pointer and the register base stay in machine registers.
-        void runLoop(const size_t stopCount)
+        // Runs the frames above `stopCount` on the loaded stack. True when the frame it was started for has
+        // finished; false when the task has to be set aside, with its frames left as they are: the same call,
+        // made again once what the task waits for has happened, carries on from there.
+        // A new map with room for `count` entries, made out of the loop. Inlined, making it (an allocation, a table of
+        // positions, an entry in the books of the cycle search) took registers that the loop keeps for every
+        // instruction: GCC then kept `fr` on the stack, and every instruction paid for that (3% more on calls).
+        static CUFF_NOINLINE Value emptyMap(int32_t count)
+        {
+            auto map = std::make_shared<ValueMap>();
+            map->reserve(static_cast<size_t>(count));
+            return Value::makeMap(std::move(map));
+        }
+
+        bool runLoop(const size_t stopCount)
         {
             Frame *fr;
             const Instr *ip;
@@ -3061,6 +4069,9 @@ namespace cuff
             {
                 try
                 {
+                    // What a task waited for ended in an error: it is raised here, at the instruction that waited.
+                    if (CUFF_UNLIKELY(resumeError_ != nullptr))
+                        raiseResumeError();
 #if CUFF_VM_LABELS
                     CUFF_VM_NEXT();
 #else
@@ -3377,11 +4388,7 @@ namespace cuff
                     }
                     CUFF_VM_CASE(NewMap)
                     {
-                        {
-                            auto map = std::make_shared<ValueMap>();
-                            map->reserve(static_cast<size_t>(i->c));
-                            CUFF_RA.v = Value::makeMap(std::move(map));
-                        }
+                        CUFF_RA.v = emptyMap(i->c);
                         CUFF_VM_NEXT();
                     }
                     CUFF_VM_CASE(MapSet)
@@ -3514,19 +4521,22 @@ namespace cuff
                             Proto *p = fn.proto;
                             if (CUFF_UNLIKELY(!p || !p->ready))
                                 p = fn.proto = protoOf(*fn.decl);
-                            if (invoke(*fr, p, base, static_cast<uint32_t>(i->b), &base->v, nullptr, fn.decl->name,
-                                       (i->x & bc::kCallAwaited) != 0, CUFF_SITE_LOC))
+                            if (invoke(*fr, p, base, static_cast<uint32_t>(i->b), &base->v, nullptr, fn.decl->name, i->x, CUFF_SITE_LOC))
                                 CUFF_LOAD_FRAME();
                             CUFF_VM_NEXT();
                         }
                         if (callOther(*fr, *i, id, base, &base->v))
                             CUFF_LOAD_FRAME();
+                        else if (CUFF_UNLIKELY(suspend_))
+                            goto suspend;
                         CUFF_VM_NEXT();
                     }
                     CUFF_VM_CASE(CallW)
                     {
                         if (callWith(*fr, *i, &CUFF_RA, static_cast<uint32_t>(i->b)))
                             CUFF_LOAD_FRAME();
+                        else if (CUFF_UNLIKELY(suspend_))
+                            goto suspend;
                         CUFF_VM_NEXT();
                     }
                     CUFF_VM_CASE(CallM)
@@ -3543,14 +4553,18 @@ namespace cuff
                         {
                             m = findMethodFor(*fr, *i, base, argc, cache);
                             if (!m)
+                            {
+                                if (CUFF_UNLIKELY(suspend_))
+                                    goto suspend;
                                 CUFF_VM_NEXT();
+                            }
                         }
                         if (CUFF_UNLIKELY(m->decl->isPrivate && m->owner != fr->owner))
                             throwPrivateMethod(*fr, *i, *m);
                         Proto *p = cache.proto;
                         if (CUFF_UNLIKELY(!p->ready))
                             p = cache.proto = protoOf(*m->decl);
-                        if (invoke(*fr, p, base, argc, &base->v, m->owner, m->decl->name, (i->x & bc::kCallAwaited) != 0, CUFF_SITE_LOC))
+                        if (invoke(*fr, p, base, argc, &base->v, m->owner, m->decl->name, i->x, CUFF_SITE_LOC))
                             CUFF_LOAD_FRAME();
                         CUFF_VM_NEXT();
                     }
@@ -3580,6 +4594,12 @@ namespace cuff
                         const ClassInfo::Method *m = parentOf(*fr, sc.loc).findMethod(sc.nameId);
                         if (m && !m->decl->isAsync)
                             throwAwaitOnNonAsync(sc.name, sc.loc);
+                        CUFF_VM_NEXT();
+                    }
+                    CUFF_VM_CASE(Await)
+                    {
+                        if (awaitTask(CUFF_RA.v, *CUFF_NODE(AwaitExpr)))
+                            goto suspend;
                         CUFF_VM_NEXT();
                     }
                     // A frame's result is left in its first register, which is released last. What an `init` returns
@@ -3784,14 +4804,29 @@ namespace cuff
                     if (ret != &regs[0].v)
                         ret->take(regs[0].v);
                     if (frameCount_ == stopCount)
-                        return;
+                        return true;
                     CUFF_LOAD_FRAME();
                     CUFF_VM_NEXT();
                 }
+                suspend:
+                    suspend_ = false;
+                    return false;
                 }
                 catch (CuffError &e)
                 {
-                    if (!handleError(e, stopCount))
+                    // Finding the handler can fail in turn (no memory for the Error value it hands over). That
+                    // failure leaves this handler, not the try above, so the `catch (...)` below would not see it.
+                    bool handled;
+                    try
+                    {
+                        handled = handleError(e, stopCount);
+                    }
+                    catch (...)
+                    {
+                        unwindTo(stopCount);
+                        throw;
+                    }
+                    if (!handled)
                         throw;
                     CUFF_LOAD_FRAME();
                 }
@@ -3861,10 +4896,7 @@ namespace cuff
         // program, the function that wrote `use` for a module.
         void execProgram(const Program &program, bc::VarTable &vars, bool inFunction, bool pure, const ClassInfo *owner)
         {
-            for (const auto &s : program.statements)
-                if (s->kind == StmtKind::FunctionDecl)
-                    registerFunction(*std::get_if<FunctionDecl>(&s->data));
-            registerClasses(program);
+            declare(program);
 
             Proto proto;
             for (const auto &s : program.statements)
@@ -3880,10 +4912,8 @@ namespace cuff
                 f->inFunction = inFunction;
                 f->isPure = pure;
                 f->owner = owner;
-                runLoop(frameCount_ - 1);
+                runToEnd(frameCount_ - 1);
             }
-
-            drainTaskQueue();
         }
 
         // `use DLC:name` adds a library's functions; `use name from "path"` runs a module once and brings what its top
@@ -3896,9 +4926,12 @@ namespace cuff
                 dlcOpts.network.enabled = config_.networkEnabled;
                 dlcOpts.network.allowPrivateTargets = config_.allowPrivateNetworkTargets;
                 dlcOpts.filesystem.enabled = config_.filesystemEnabled;
+                dlcOpts.hardware.hardware = &config_.hardware;
                 dlcOpts.filesystem.root = moduleRoot_;
                 for (const auto &lib : use.dlcs)
                     registerDLC(lib.name, natives_, lib.loc, dlcOpts);
+                for (const auto &host : hostNatives_)
+                    natives_[host.first] = host.second;
                 return;
             }
             loadCustomModule(fr, use.name, use.path, use.loc, scope);

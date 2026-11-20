@@ -10,13 +10,13 @@ A program goes through the same four steps every time (`Interpreter::run` and `e
  1. Read     the whole text becomes a tree; nothing has run yet
  2. Collect  every top-level function, then every class, is put in its table
  3. Run      the other top-level statements, one after another, in the order written
- 4. Drain    the async calls that nobody awaited run, first come first served
+ 4. Finish  the tasks that are still alive run to their end
 ```
 
 - **Step 1** is why a syntax error anywhere, even in a function nobody calls, stops the program before its first line.
-- **Step 2** is why a function or a class can be used above the place it is written. It is a pass over the top level of the tree, not a feature of calls. Functions are recorded under their name, one entry per name, so a later function of the same name replaces an earlier one. Classes are built after their parents, whatever the order in the file. A statement such as `number total = 5` is not a declaration in this sense: it is run in step 3, when its line is reached.
+- **Step 2** is why a function or a class can be used above the place it is written. It is a pass over the top level of the tree, not a feature of calls. Functions are recorded under their name, one entry per name; two of one name in the same text are refused while it is read (`E2-010`), and a later text (a shell entry, a module) may replace one. Classes are built after their parents, whatever the order in the file. A statement such as `number total = 5` is not a declaration in this sense: it is run in step 3, when its line is reached.
 - **Step 3** runs `use` as the statement it is, so a module's functions are collected when execution reaches its line, not before. A module is itself a program, run through the same steps, once.
-- **Step 4** is the end of the program text, not the end of the process. If an error ends the run at any step, the queue is emptied without running anything in it.
+- **Step 4** is the end of the program text, not the end of the process. Tasks may have run long before it, whenever the program waited ([tasks](#tasks)); here the ones still alive run until each has finished. If an error ends the run at any step, the tasks that are left are dropped without running any further.
 
 In step 3 each statement is compiled to bytecode just before it runs, and a function is compiled the first time it is called. Compiling happens piece by piece and only for what is reached, so it changes nothing about when things happen: a statement still runs when its line is reached, with everything above it done, and a mistake that can only be found by running (an undefined name, a value of the wrong type) is still reported when the line that makes it runs, even in a function that was compiled long before.
 
@@ -29,7 +29,7 @@ There are five tables. A call looks for a user function first, then for a built-
 | User functions | the program's `func`s, and those of the modules it has loaded | step 2, and at each `use` |
 | Library functions | what `use DLC:name` makes available | when the `use` line runs |
 | Built-in functions | the always-available ones, such as `print` | before the run |
-| Classes | every `class`, the built-in `Error` among them | step 2 |
+| Classes | every `class`, the built-in `Error` and `Task` among them | step 2 |
 | Methods of built-in values | `"text".upper()` and its kin, each naming the library function it runs | fixed |
 
 A function and a class share one namespace, so one cannot have the name of the other. A user function is looked up before a library function, so a program can replace a library function by writing one of the same name, in the whole program at once. A name is turned into a small number once, when it is read, and the tables are indexed by that number.
@@ -63,7 +63,13 @@ A value is a small tagged union: a number (a double), a boolean, `empty`, or a p
 
 `copy()` makes one new outer list, map or object and copies the pointers inside it, so anything nested is still shared; `init` is not run again. `is` compares numbers, booleans and texts by value, lists and maps item by item, and objects by whether they are the same one.
 
-The count is how memory is given back. A list that holds itself keeps its own count above zero, so such a structure is never freed while the program runs (see [known limitations](../reference/known-limitations.md)).
+## Memory
+
+The count is how memory is given back: a list, map or object is freed when the last holder lets go of it. A list that holds itself, or two objects that hold each other, keep each other's counts above zero, so counting alone never frees them. The engine keeps a record of the lists, maps and objects a run makes, and every so often (after ten thousand new ones at first, then less often while it finds none to free) it looks for groups that are held only from inside the group: for each, it counts the references that come from the others in the record, and one that has more references than that is held from somewhere else, by a variable, a task, the host. What is held from somewhere else, and all it leads to, stays. The rest is emptied, and the counts then fall to zero in the ordinary way.
+
+A reference the engine cannot see counts as one from somewhere else, so the search can only ever leave a cycle in place, never free something in use; that is also why it can run in the middle of a program. A host can ask for it at a moment of its choosing (`Engine::collectCycles`) or switch it off (`collectCycles` in the options), and an engine looks once more when it is destroyed. A cycle that the host still holds when its engine is destroyed is no longer looked after by anything, and is not freed.
+
+Destroying a deeply nested value does not nest in C++: a container takes apart what it holds before it goes, keeping the way back in the slots it emptied, so it needs neither stack nor memory. And when memory does run out, the report of that is written from memory set aside for it: [`E6-003`](../reference/errors.md#e6-003) ends the run, and the engine can be used again.
 
 ## Loops
 
@@ -79,15 +85,23 @@ An error is a C++ exception, a `CuffError`, thrown at the place it is found and 
 
 While it runs, the engine also counts: a step budget and a time budget, if configured, how many calls are active, and how much native stack is left for the work that nests inside the engine itself. They end a run the same way an error does ([resource limits](resource-limits.md)).
 
-## The async queue
+## Tasks
 
-CuffScript runs one thing at a time, and `async` does not change that. Calling an `async` function that is not awaited puts the call, with its arguments already evaluated, at the back of a queue and returns at once. `await` on a call runs it at that point and gives its value. The queue is emptied in step 4, from the front, and a call that queues more calls puts them at the back. So the order of the output is the order of the calls that were awaited or run directly, then the order of the calls that were queued.
+CuffScript runs one thing at a time, and tasks do not change that. A call of an `async` function that is not awaited makes a task: the call, with its arguments already worked out, and a stack of its own that it gets when it first runs. The call gives a `Task` value at once, and the code that made it goes on. `await` of a call runs it at that point, on the caller's stack, as an ordinary call.
+
+A task runs only when the one that is running stops: when it waits, or when it ends. Waiting is `await` of a task that has not finished, or a library function that has something to wait for (`time_sleep`, a network request), which hands the machine a description of the wait instead of blocking. The machine sets the waiting task aside with its stack, as it is, and takes the next one that can go on: those that are ready, in the order in which they became ready. When none is ready, it waits for the earliest of what the waiting tasks wait for, a moment or a socket, and wakes those whose time has come. When nothing at all can happen, every task waits for another: that is [`E4-043`](../reference/errors.md#e4-043).
+
+A task's error is kept with it. An `await` of the task raises it again, where an `or_else` can catch it; a task that nothing can await (a call written as a statement of its own) ends the program with it, and so does a task whose `Task` nobody awaited, at the end. Errors that end a program (a budget) end it from any task. The step and time budgets are one for the whole program, whichever task spends them, and the time limit interrupts a wait.
+
+Some waits happen where C++ is in the middle of something: a default value that awaits, a `to_str` method that sleeps, the top level of a module, a host's call into the program. There the machine cannot set the stack aside, because the C++ that called it is still on the native stack, so it runs the other tasks from that point until the wait is over, and only then returns. To the program it looks the same.
 
 ## Where to look in the code
 
 | Mechanism | Where |
 | :--- | :--- |
-| The four steps | `Interpreter::run`, `execProgram`, `drainTaskQueue` |
+| The four steps | `Interpreter::run`, `execProgram`, `finishTasks` |
+| Tasks | `startAsync`, `awaitTask`, `beginWait`, `resume`, `runOnce`, `waitHere`, `runToEnd` |
+| Freeing cycles | `CycleHeap` in `engine/interpreter/Value.h` |
 | Collecting functions and classes | `registerFunction`, `registerClasses` |
 | Compiling a function, a statement, a default value | `engine/bytecode/Compiler.h`; `protoOf`, `execProgram`, `buildRuntime` |
 | Scopes and what a name stands for | `Compiler::resolve`; at run time `Interpreter::locate` |

@@ -37,8 +37,7 @@ undocumented, a limit's value is written outside its generated page, the version
 
 ## Sanitizers
 
-Builds `cuffc` with AddressSanitizer and UndefinedBehaviorSanitizer and runs the whole engine suite, unit tests included, under them. Leak detection is off on purpose (a list or map that contains itself is never freed; see the
-[design notes](../internals/design-notes.md)). The command to run it by hand is in [Testing](testing.md#sanitizers). The workflow only runs when something it could affect changed.
+Builds `cuffc` with AddressSanitizer and UndefinedBehaviorSanitizer and runs the whole engine suite, unit tests included, under them, with leak detection on. It runs the suite once more on a build that looks for cycles at nearly every step (`-DCUFF_CYCLE_STRESS`), and the tasks test under ThreadSanitizer. The command to run it by hand is in [Testing](testing.md#sanitizers). The workflow only runs when something it could affect changed.
 
 A second job, `other-routes`, builds `cuffc` twice more: with `-DCUFF_DYNAMIC_NAMES`, which looks every name up at run time, and with `-DCUFF_VM_SWITCH`, which jumps between instructions through a `switch`. It runs the whole suite on each, then runs random programs
 through all three builds with `tests/fuzz.py` and fails if any two disagree; the programs that differed are kept as an artifact of the run. [Testing](testing.md#the-machines-other-routes) says what the two builds are for.

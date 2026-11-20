@@ -18,7 +18,7 @@ namespace
 int main()
 {
     // 1. A whole program, run once, with a budget and the outside world switched off.
-    cuff::CuffEngine::Options options;
+    cuff::Engine::Options options;
     options.timeoutMs = 2000;
     options.maxSteps = 1000000;
     options.networkEnabled = false;
@@ -27,7 +27,7 @@ int main()
     std::string captured;
     {
         CaptureCout capture;
-        auto result = cuff::CuffEngine::execute("print(6 * 7)\n", ".", options);
+        auto result = cuff::Engine::execute("print(6 * 7)\n", ".", options);
         captured = capture.buffer.str();
         if (!result.success)
             std::cerr << result.error << "\n";
@@ -35,20 +35,41 @@ int main()
     std::cout << "captured: " << captured;
 
     // 2. A failing program: the report is ready to print and nothing is thrown.
-    auto failed = cuff::CuffEngine::execute("print(1 / 0)\n", ".", options);
+    auto failed = cuff::Engine::execute("print(1 / 0)\n", ".", options);
     std::cout << "success: " << std::boolalpha << failed.success << "\n" << failed.error << "\n";
 
     // 3. A program that arrives in pieces: later pieces see what earlier ones declared.
-    cuff::Session session(options);
-    session.run("number n = 5\n");
-    auto piece = session.run("print(n * 2)\n");
+    cuff::Engine engine(options);
+    engine.run("number n = 5\n");
+    auto piece = engine.run("print(n * 2)\n");
     std::cout << "piece ok: " << piece.success << "\n";
-    session.reset();
-    auto after = session.run("print(n)\n");
+
+    // 4. A function of the host that the script calls. The checked readers report a wrong call as a library
+    //    function does, and fail() gives the script an error it can catch.
+    engine.addFunction("host_scale", [](cuff::Args &args) -> cuff::Value
+                       {
+                           args.expectCount(2);
+                           if (args.number(1) == 0)
+                               args.fail("the factor cannot be 0");
+                           return cuff::Value::makeNumber(args.number(0) * args.number(1));
+                       });
+    engine.run("print(host_scale(n, 3))\n"
+               "host_scale(n, 0) or_else as Error e do:\n    print(e.message)\nend\n");
+
+    // 5. The other direction: the host reads and sets the script's variables and calls its functions.
+    engine.run("func describe(str who) do:\n    global n\n    return f\"{who} has {n}\"\nend\n");
+    engine.set("n", cuff::Value::makeNumber(8));
+    auto described = engine.call("describe", {cuff::Value::makeStr("Ann")});
+    std::cout << "call: " << described.value.asStr() << ", n: " << engine.get("n")->asNumber() << "\n";
+    auto wrong = engine.call("describe", {cuff::Value::makeNumber(1)});
+    std::cout << wrong.error << "\n";
+
+    engine.reset();
+    auto after = engine.run("print(n)\n");
     std::cout << "after reset ok: " << after.success << "\n";
 
-    // 4. Parse only, for tools that want the syntax tree.
-    auto parsed = cuff::CuffEngine::run("number x = 1\n", false);
+    // 6. Parse only, for tools that want the syntax tree.
+    auto parsed = cuff::Engine::parse("number x = 1\n", false);
     std::cout << "parsed ok: " << parsed.success << ", has tree: " << (parsed.ast != nullptr) << "\n";
     return 0;
 }

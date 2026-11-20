@@ -1,0 +1,41 @@
+note: the published test vectors: FIPS 180-4 examples, RFC 1321, RFC 4231, RFC 7914, RFC 4648
+use DLC:hash
+use DLC:string
+
+print(hash_sha256(""))
+print(hash_sha256("abc"))
+print(hash_sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
+print(hash_sha256(str_repeat("a", 1000000)))
+print(hash_sha512("abc"))
+print(hash_sha1("abc"))
+print(hash_md5(""), hash_md5("message digest"))
+print(hash_crc32("123456789"), hash_crc32(""))
+
+note: a str gives its UTF-8 bytes, and a list of bytes gives those bytes
+print(hash_sha256("한") is hash_sha256([237, 149, 156]))
+
+note: RFC 4231, test case 2
+print(hash_hmac_sha256("Jefe", "what do ya want for nothing?"))
+print(hash_hmac_sha512("Jefe", "what do ya want for nothing?"))
+
+note: RFC 7914, section 11 (the PBKDF2-HMAC-SHA256 vectors), and the default length of 32 bytes
+print(hash_pbkdf2_sha256("passwd", "salt", 1, 64))
+print(length(hash_pbkdf2_sha256("password", "salt", 2)))
+
+note: RFC 4648, section 10
+loop each str text in ["", "f", "fo", "foo", "foob", "fooba", "foobar"] do:
+    str coded = hash_base64_encode(text)
+    print(f"[{coded}]", hash_base64_decode(coded) is text, hash_hex_encode(text))
+end
+print(hash_base64url_encode([251, 255, 191, 62]), hash_base64_encode([251, 255, 191, 62]))
+print(hash_to_bytes(hash_base64url_decode("-_-_Pg")), hash_to_bytes(hash_base64_decode("+/+/Pg==")))
+print(hash_hex_decode("48454C4c4f"), hash_from_bytes([104, 105]))
+
+note: bytes that are not text survive a round trip
+list noise = [0, 255, 128, 10, 13, 34]
+print(hash_to_bytes(hash_from_bytes(noise)) is noise, hash_to_bytes(hash_base64_decode(hash_base64_encode(noise))) is noise)
+
+note: a signature is checked with hash_equal, which does not stop at the first difference
+str mac = hash_hmac_sha256("secret", "payload")
+print(hash_equal(mac, hash_hmac_sha256("secret", "payload")), hash_equal(mac, hash_hmac_sha256("secret", "payload!")), hash_equal("a", "ab"))
+print(hash_base64_encode(hash_hex_decode(hash_sha256("abc"))))

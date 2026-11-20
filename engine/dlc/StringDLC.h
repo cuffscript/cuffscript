@@ -41,10 +41,6 @@ namespace cuff
         trimmer("str_trim_start", true, false);
         trimmer("str_trim_end", false, true);
 
-        reg["length"] = nativeLength;
-        reg["contains"] = nativeContains;
-        reg["index_of"] = nativeIndexOf;
-
         reg["str_starts_with"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
         {
             expectArgCount("str_starts_with", args, 2, loc);

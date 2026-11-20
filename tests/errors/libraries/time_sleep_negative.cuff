@@ -1,0 +1,3 @@
+note: E4-025 -- time_sleep() takes a number of seconds that is not negative
+use DLC:time
+time_sleep(-1)

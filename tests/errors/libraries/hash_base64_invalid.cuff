@@ -1,0 +1,2 @@
+use DLC:hash
+print(hash_base64_decode("Zm9v!"))

@@ -1,0 +1,9 @@
+the plain module ends
+after the plain module
+program task: started before the first module
+module task: started by the module
+the waiting module ends
+after the waiting module 42
+module task: called by the program
+called by the program
+the program's own lines end

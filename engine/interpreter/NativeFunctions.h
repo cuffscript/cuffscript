@@ -13,6 +13,10 @@
 #include "../dlc/NetworkDLC.h"
 #include "../dlc/FilesystemDLC.h"
 #include "../dlc/JsonDLC.h"
+#include "../dlc/CsvDLC.h"
+#include "../dlc/HashDLC.h"
+#include "../dlc/PathDLC.h"
+#include "../dlc/HardwareDLC.h"
 #include "../dlc/MethodTable.h"
 #include <iostream>
 #include <string>
@@ -161,6 +165,17 @@ namespace cuff
 
     inline void registerBuiltins(std::unordered_map<std::string, NativeFn> &reg)
     {
+        // What every program asks of a str, a list or a map, whichever libraries it loads.
+        reg["length"] = nativeLength;
+        reg["contains"] = nativeContains;
+        reg["index_of"] = nativeIndexOf;
+        // Only the interpreter can see a task, and it puts the working task_done in place of this one, which keeps
+        // the name among the built-ins for whatever lists them.
+        reg["task_done"] = [](std::vector<Value> &, const SourceLocation &loc) -> Value
+        {
+            throw CuffRuntimeError(ErrorCode::UnsupportedOperation, "task_done() needs the interpreter", loc);
+        };
+
         reg["print"] = [](std::vector<Value> &args, const SourceLocation &) -> Value
         {
             for (size_t i = 0; i < args.size(); ++i)
@@ -243,6 +258,7 @@ namespace cuff
     {
         NetworkDLCOptions network;
         FilesystemDLCOptions filesystem;
+        HardwareDLCOptions hardware;
     };
 
     struct DLCEntry
@@ -267,6 +283,10 @@ namespace cuff
             {"json", [](NativeTable &reg, const DLCOptions &) { registerJsonDLC(reg); }},
             {"network", [](NativeTable &reg, const DLCOptions &opts) { registerNetworkDLC(reg, opts.network); }},
             {"filesystem", [](NativeTable &reg, const DLCOptions &opts) { registerFilesystemDLC(reg, opts.filesystem); }},
+            {"csv", [](NativeTable &reg, const DLCOptions &) { registerCsvDLC(reg); }},
+            {"hash", [](NativeTable &reg, const DLCOptions &) { registerHashDLC(reg); }},
+            {"path", [](NativeTable &reg, const DLCOptions &) { registerPathDLC(reg); }},
+            {"hardware", [](NativeTable &reg, const DLCOptions &opts) { registerHardwareDLC(reg, opts.hardware); }},
         };
         return table;
     }

@@ -1,12 +1,12 @@
 #pragma once
 
-// The shell is a front end over cuff::Session (engine/Session.h): every entry is handed to one long-lived
-// Session, which parses it, runs it against the same interpreter as the entries before it, and returns any
+// The shell is a front end over cuff::Engine (engine/CuffEngine.h): every entry is handed to one long-lived
+// Engine, which parses it, runs it against the same interpreter as the entries before it, and returns any
 // failure already rendered in the engine's own report format. Nothing in this file parses code, runs it or
 // builds an error message, so when the engine changes (a new error format, a new option, a new limit) the
-// shell follows without being touched. The same Session is what `cuffc` runs a script through.
+// shell follows without being touched. The same Engine is what `cuffc` runs a script through.
 
-#include "../engine/Session.h"
+#include "../engine/CuffEngine.h"
 #include "../engine/common/Limits.h"
 #include "Banner.h"
 #include "LineEditor.h"
@@ -122,7 +122,7 @@ namespace cuff::cli
     private:
         Terminal &term_;
         Options opts_;
-        cuff::Session session_;
+        cuff::Engine session_;
         std::string scriptDir_ = ".";
 
         // stdin isn't a terminal (piped or redirected): there is no prompt and
@@ -148,7 +148,7 @@ namespace cuff::cli
 
         bool executeSource(const std::string &source, const std::string &dir)
         {
-            cuff::Session::Outcome outcome;
+            cuff::Engine::Outcome outcome;
             {
                 RunningGuard running;
                 outcome = session_.run(source, dir);

@@ -59,14 +59,17 @@ checker before sending a change. `--list` also prints the first tests that cover
 | :--- | :--- |
 | `regex_test.cpp` | The pattern engine on its own, without the language around it. |
 | `syntax_test.cpp` | The grammar, production by production: what the parser accepts, what it rejects, and the hint it gives for a spelling it recognises but does not accept. The programs are parsed, never run. |
-| `classes_test.cpp` | The object model: that each interpreter owns its classes, what a `Session` keeps between entries, the order in which an object is made, how `with` looks a name up, private access, and how errors become objects. |
+| `classes_test.cpp` | The object model: that each interpreter owns its classes, what an `Engine` keeps between entries, the order in which an object is made, how `with` looks a name up, private access, and how errors become objects. |
 | `builtins_test.cpp` | The built-in functions that touch the process's streams or shared state: `input()` and `DLC:random`. |
-| `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which text it is drawn from (a module, an earlier entry of a `Session`, for every way a function can fail), and that a reported line and column always agree with the offset. |
-| `phenomena_test.cpp` | What has been printed when an error ends a run: a syntax error stops everything, a runtime error keeps the earlier lines, a waiting `async` call is dropped. The rest of [Phenomena](../guide/phenomena.md) is in `tests/cases/phenomena/`. |
+| `error_snippet_test.cpp` | The error report: caret placement, which line an error is on, which text it is drawn from (a module, an earlier entry of an `Engine`, for every way a function can fail), and that a reported line and column always agree with the offset. |
+| `phenomena_test.cpp` | What has been printed when an error ends a run: a syntax error stops everything, a runtime error keeps the earlier lines, a task that has not run is dropped. The rest of [Phenomena](../guide/phenomena.md) is in `tests/cases/phenomena/`. |
 | `limits_test.cpp` | The limits and how they relate: long chains, the call depth, what does and does not use native stack, the stack plan, how the stack that is left is measured and kept (per thread, and anew when the stack limit changes), a small real thread stack, and the limits on classes, members and inheritance depth. |
 | `dlc_guards_test.cpp` | The network and filesystem guards: which addresses a request may reach, how a URL is read and where a redirect leads, a request made while the process has more than 1024 files open, and what the filesystem functions may touch. |
 | `locale_test.cpp` | That a script means the same whatever locale the host process has set: numbers read and written with `.` under a locale that writes `,`, and letter case under one in which the upper case of `i` is not `I`. Each half runs where the machine has such a locale and says when it was skipped. |
-| `threads_test.cpp` | Several threads, each with its own `Session`, parsing and running at the same time, including programs that declare classes and make objects. It exercises the two locked structures the sessions share: the identifier table and the generator behind `DLC:random`. Built with `-fsanitize=thread` it reports a data race in either. |
+| `threads_test.cpp` | Several threads, each with its own `Engine`, parsing and running at the same time, including programs that declare classes and make objects. It exercises the locked structures the engines share: the identifier table, the generator behind `DLC:random` and the table that numbers the engines' records of their values. Built with `-fsanitize=thread` it reports a data race in any of them. |
+| `embedding_test.cpp` | What a host does with an `Engine` besides handing it text: `call`, `get` and `set`, host functions and their errors, `reset`, re-entry refused, the 5.x names, and freeing cycles (what the program and the host still hold stays). |
+| `tasks_test.cpp` | Tasks from the host's side: the step and time budgets while tasks wait, an engine used again after tasks failed in every way, host calls that start and await tasks, and 40 network requests that overlap against a server in the test. |
+| `hardware_test.cpp` | `DLC:hardware` from the host's side: what each function passes to the host and gives back, what reaches the script when the host throws or gives a value out of range, a host that gives nothing or one direction of a part, and what `--hardware` reads from a `/sys` of the test's own. |
 
 ## The shell suite
 
@@ -115,22 +118,31 @@ produces the output shown. See [Documentation](documentation.md).
 
 ## Sanitizers
 
-Leak detection is off on purpose: a list, map or object that refers to itself is reference counted and never freed (see
-[design notes](../internals/design-notes.md)), and some tests build exactly that.
+Leak detection is on: the engine frees cycles too ([memory](../internals/how-it-works.md#memory)), so a leak is a bug.
 
 ```sh
 SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
 g++ -std=c++17 -O1 -g $SAN -o cuffc-asan main.cpp
-ASAN_OPTIONS=detect_leaks=0 CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g $SAN" bash tests/run.sh
+CUFFC=./cuffc-asan UNIT_FLAGS="-O1 -g $SAN" bash tests/run.sh
 ```
 
-ThreadSanitizer is for the threads test:
+The search for cycles normally runs after thousands of new values, so most tests never reach it. `-DCUFF_CYCLE_STRESS` makes it
+run at nearly every step (in a program with many values alive, after one new value for every 32 alive, so that a test of
+large collections still ends); with AddressSanitizer, a value it frees while something still uses it is reported at once:
+
+```sh
+g++ -std=c++17 -O1 -g $SAN -DCUFF_CYCLE_STRESS -o cuffc-stress main.cpp
+CUFFC=./cuffc-stress UNIT_FLAGS="-O1 -g $SAN -DCUFF_CYCLE_STRESS" bash tests/run.sh
+```
+
+ThreadSanitizer is for the threads test, and for the tasks test, whose network part serves requests from threads of its own:
 
 ```sh
 g++ -std=c++17 -O1 -g -fsanitize=thread -pthread -I. tests/unit/threads_test.cpp -o /tmp/threads && /tmp/threads
+g++ -std=c++17 -O1 -g -fsanitize=thread -pthread -I. tests/unit/tasks_test.cpp -o /tmp/tasks && /tmp/tasks
 ```
 
-The `Sanitizers` workflow runs the first of these on every change to the engine or the tests. MinGW has no sanitizers, so neither is
+The `Sanitizers` workflow runs the first two of these on every change to the engine or the tests. MinGW has no sanitizers, so neither is
 available through `run.ps1`.
 
 ## The machine's other routes

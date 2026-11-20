@@ -1,0 +1,2 @@
+use DLC:hash
+print(hash_sha256([1, 2, 256]))

@@ -1,0 +1,15 @@
+note: loading a module does not run the tasks that are waiting to start; a module that waits lets them run
+async func mine(str text) do:
+    print("program task: " + text)
+end
+
+mine("started before the first module")
+use plain_tasks from ./fixtures
+print("after the plain module")
+
+use waiting_tasks from ./fixtures
+print("after the waiting module", ANSWER)
+
+Task t = from_module("called by the program")
+print(await t)
+print("the program's own lines end")

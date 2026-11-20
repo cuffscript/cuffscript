@@ -1,6 +1,6 @@
-// Several threads, each with its own Session, parsing and running different programs at the same time.
+// Several threads, each with its own Engine, parsing and running different programs at the same time.
 //
-// The engine's contract for an embedder is "one Session per thread, no sharing". Two things are shared by every
+// The engine's contract for an embedder is "one Engine per thread, no sharing". Two things are shared by every
 // thread and have to be synchronised: the table that turns identifier names into numbers (common/NameInterner.h) and
 // the generator behind DLC:random (dlc/RandomDLC.h). Every thread here introduces names of its own, declares classes
 // and makes objects (every session has its own class table, including the built-in Error), uses patterns and draws
@@ -36,7 +36,7 @@ int main()
             cuff::EngineOptions options;
             options.networkEnabled = false;
             options.filesystemEnabled = false;
-            cuff::Session session(options);
+            cuff::Engine session(options);
             for (int round = 0; round < kRounds; ++round)
             {
                 // Fresh names every round, so every round adds to the shared table.
@@ -44,25 +44,27 @@ int main()
                 const std::string f = "t" + std::to_string(t) + "_f" + std::to_string(round);
                 const std::string base = "T" + std::to_string(t) + "Base" + std::to_string(round);
                 const std::string child = "T" + std::to_string(t) + "Child" + std::to_string(round);
+                const std::string r = std::to_string(round); // the other names, too, are declared once in a program
                 const std::string classes =
                     "class " + base + " do:\n    number v = " + std::to_string(round) + "\n    list log = []\n"
                     "    func init(number extra = 0) do:\n        self.v = self.v + extra\n    end\n"
                     "    func get() do:\n        return self.v\n    end\nend\n"
                     "class " + child + " extends " + base + " do:\n    func get() do:\n        return super.get() * 2\n    end\nend\n"
-                    + child + " obj = " + child + "(" + std::to_string(t) + ")\n"
-                    "number got = 0\n"
-                    "with obj do:\n    got = get()\nend\n"
-                    "if got is not " + std::to_string((round + t) * 2) + " or !(\"x" + std::to_string(round) + "\" matches p\"x[num]+\") do:\n    number z = 1 / 0\nend\n"
+                    + child + " obj" + r + " = " + child + "(" + std::to_string(t) + ")\n"
+                    "number got" + r + " = 0\n"
+                    "with obj" + r + " do:\n    got" + r + " = get()\nend\n"
+                    "if got" + r + " is not " + std::to_string((round + t) * 2) + " or !(\"x" + std::to_string(round) + "\" matches p\"x[num]+\") do:\n    number z = 1 / 0\nend\n"
                     "fail \"t" + std::to_string(t) + "\" or_else as Error err do:\n    if err.message is not \"t" + std::to_string(t) + "\" do:\n        number z = 1 / 0\n    end\nend\n";
                 const std::string source = classes + "number " + a + " = " + std::to_string(round) + "\n"
                                            "func " + f + "(any n) do:\n    return n + " + std::to_string(t) + "\nend\n"
                                            "if " + f + "(" + a + ") is not " + std::to_string(round + t) + " do:\n    number z = 1 / 0\nend\n"
                                            "use DLC:random\n"
-                                           "number d = random_int(1, 6)\n"
-                                           "number u = random_float()\n"
-                                           "list deck = random_shuffle([1, 2, 3, 4])\n"
-                                           "number picked = random_choice([1, 2, 3])\n"
-                                           "if d < 1 or d > 6 or u < 0 or u >= 1 or picked < 1 or picked > 3 do:\n    number z = 1 / 0\nend\n";
+                                           "number d" + r + " = random_int(1, 6)\n"
+                                           "number u" + r + " = random_float()\n"
+                                           "list deck" + r + " = random_shuffle([1, 2, 3, 4])\n"
+                                           "number picked" + r + " = random_choice([1, 2, 3])\n"
+                                           "if d" + r + " < 1 or d" + r + " > 6 or u" + r + " < 0 or u" + r + " >= 1 or picked" + r + " < 1 or picked" + r +
+                                           " > 3 do:\n    number z = 1 / 0\nend\n";
                 auto outcome = session.run(source);
                 if (!outcome.success)
                 {
