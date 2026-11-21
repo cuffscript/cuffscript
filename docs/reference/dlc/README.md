@@ -28,7 +28,7 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 
 | Library | Load it with | Functions | Reference |
 | :--- | :--- | ---: | :--- |
-| math | `use DLC:math` | 25 | [math](math.md) |
+| math | `use DLC:math` | 34 | [math](math.md) |
 | string | `use DLC:string` | 12 | [string](string.md) |
 | time | `use DLC:time` | 3 | [time](time.md) |
 | datetime | `use DLC:datetime` | 5 | [datetime](datetime.md) |

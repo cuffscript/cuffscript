@@ -5,8 +5,8 @@ use DLC:math
 ```
 
 Mathematical functions. Numbers in CuffScript are double-precision floating point (see [types](../language.md#2-types-and-values)),
-and every function here takes and returns numbers; an argument of any other type is `E4-005`, and the wrong number of
-arguments is `E4-010`.
+and the functions here take and return numbers, except where [bits and bases](#bits-and-bases) says otherwise; an
+argument of any other type is `E4-005`, and the wrong number of arguments is `E4-010`.
 
 The arithmetic operators `%` and `**` do the same work as `math_mod` and `math_pow` (they share one implementation), so
 `-7 % 3` and `math_mod(-7, 3)` are always the same number.
@@ -45,6 +45,53 @@ print(math_mod(-7, 3), math_floor(-1.5), math_trunc(-1.5), math_sign(-8))
 2 8 10
 2 -2 -1 -1
 ```
+
+## Bits and bases
+
+| Function | Result |
+| :--- | :--- |
+| `math_bit_and(a, b, ...)`, `math_bit_or(a, b, ...)`, `math_bit_xor(a, b, ...)` | The bits set in every number, in any of them, or in an odd number of them. Two or more numbers (`E4-010` otherwise). |
+| `math_bit_not(x, width)` | `x` with its lowest `width` bits flipped: the complement in `width` bits. `width` is a whole number from 1 to 53, and `x` must fit in it (`E4-025`), so `math_bit_not(5, 4)` is `10` and `math_bit_not(16, 4)` is an error. |
+| `math_bit_shl(x, n)`, `math_bit_shr(x, n)` | `x` shifted `n` bits to the left or to the right, `n` a whole number from 0 to 53. Shifting right drops the low bits. Shifting left a bit past the 53rd is `E4-025` rather than a silent loss: keep the bits that fit first, with `math_bit_and`. |
+| `math_bit_test(x, position)` | Whether the bit at `position` is set, as a `boolean`. Position 0 is the lowest bit, and the highest is 52. |
+| `math_to_base(x, base [, width])` | The digits of `x` in `base`, from 2 to 36, as a `str`: `0`-`9` then lowercase `a`-`z`. With `width` (1 to 64) the digits are padded on the left with zeros to at least that many; a number with more digits is not cut. |
+| `math_from_base(text, base)` | The number that the digits in `text` write in `base` (2 to 36). Letters may be either case. Only digits are accepted: an empty string, a sign, a space, a prefix such as `0x` or a digit too large for the base is `E4-025`, as is a number above 2<sup>53</sup> - 1. |
+
+The numbers these take are the whole numbers a `number` holds exactly, from `0` to `9007199254740991` (2<sup>53</sup> - 1),
+which is 53 bits. A fraction, a negative number or a larger one is `E4-025`. There are no negative numbers, so a complement
+is always taken in a width that you give. The language has no hexadecimal or binary literals; `math_from_base` reads them
+from text, and `math_to_base` writes them. Each of these functions can also be called as a method:
+`12.bit_and(10)`, `255.to_base(16)`, `"ff".from_base(16)`.
+
+```cuff
+use DLC:math
+print(math_bit_and(12, 10), math_bit_or(12, 10), math_bit_xor(12, 10), math_bit_not(5, 4))
+print(math_bit_shl(1, 10), math_bit_shr(1024, 3), math_bit_test(5, 2), 5.bit_test(1))
+print(math_to_base(255, 16), math_to_base(5, 2, 8), math_from_base("FF", 16), "1010".from_base(2))
+```
+
+```output
+8 14 6 10
+1024 128 true false
+ff 00000101 255 10
+```
+
+Setting and clearing a flag in an 8-bit register:
+
+```cuff
+use DLC:math
+number status = math_from_base("10010110", 2)
+number set = math_bit_or(status, math_bit_shl(1, 0))
+number cleared = math_bit_and(set, math_bit_not(math_bit_shl(1, 7), 8))
+print(math_to_base(set, 2, 8), math_to_base(cleared, 2, 8))
+```
+
+```output
+10010111 00010111
+```
+
+`print` writes a number with at most 15 significant digits, so a number above 999999999999999 is shown in exponent form
+with its last digits rounded. The number itself is exact; `math_to_base(x, 10)` writes all of its digits.
 
 ## Rounding
 

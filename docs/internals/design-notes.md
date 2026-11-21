@@ -2013,3 +2013,19 @@ from before the libraries counted calls 5.1% fewer; that arrangement of the loop
   name for each; a part that works one way only says so in its `E4-044`. `cuffc --hardware` gives what a desktop computer has without
   a library (the battery and the temperature on Linux from `/sys`, the battery on Windows, a beep), and nothing else: a computer's
   pins and serial ports are not for a script to pick by number.
+
+## 79. v6.1.0: bit operations in `DLC:math`
+
+- **They are functions, not operators.** `&`, `|`, `^`, `<<` and `>>` would be new grammar, and `^` reads as a power to many
+  people; as functions they cost nothing to the parser and the loop, and sit with the other number functions in `DLC:math`.
+- **The numbers are the whole numbers a `number` holds exactly, 0 to 2^53 - 1.** A wider range would round the bits away. There
+  are no negative numbers, because a number has no width: `-1` is not "all ones" until one says how many. So `math_bit_not` takes
+  the width, and a negative argument is `E4-025` instead of a two's complement of a width the program did not choose.
+- **Nothing is lost silently.** A shift left that would push a bit past the 53rd is `E4-025`, as a result too large is for
+  `math_pow`; a program that wants the low bits of a wider value takes them first with `math_bit_and`.
+- **`math_to_base` and `math_from_base`** come with them because the language has no hexadecimal or binary literals (`0x10` is
+  `E1-003`), and bits are read and written as such digits. `math_from_base` takes only digits, like `to_number`
+  takes only decimal text: no sign, no `0x`, no spaces.
+- **They are registered from one table of function pointers**, as `DLC:hardware` is, so the nine of them add one copy of the
+  `std::function` machinery instead of nine: `cuffc` grew by 8.5 KB, where lambdas made it 16.7 KB.
+

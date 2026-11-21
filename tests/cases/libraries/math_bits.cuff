@@ -1,0 +1,27 @@
+note: bit operations and base conversion, as functions and as methods; the edges of the 53-bit range.
+use DLC:math
+
+print(math_bit_and(12, 10), math_bit_or(12, 10), math_bit_xor(12, 10))
+print(math_bit_and(255, 15, 6), math_bit_or(1, 2, 4, 8), math_bit_xor(7, 7, 1))
+print(12.bit_and(10), 12.bit_or(10), 12.bit_xor(10))
+print(math_bit_not(0, 8), math_bit_not(5, 4), math_bit_not(255, 8), 0.bit_not(1))
+print(math_bit_shl(1, 10), math_bit_shr(1024, 3), math_bit_shr(5, 53), math_bit_shl(0, 53))
+print(3.bit_shl(4), 48.bit_shr(4))
+print(math_bit_test(5, 0), math_bit_test(5, 1), 5.bit_test(2), 0.bit_test(52))
+
+note: the largest number, 2^53 - 1, has all 53 bits set
+number top = 9007199254740991
+print(math_to_base(top, 16), math_to_base(math_bit_shl(1, 52), 2).length(), math_bit_test(top, 52))
+print(math_to_base(math_bit_not(1, 53), 10), math_to_base(math_bit_xor(top, 1), 10))
+
+print(math_to_base(255, 16), math_to_base(5, 2, 8), math_to_base(0, 2), math_to_base(35, 36))
+print(math_to_base(255, 16, 1), 10.to_base(2), 4095.to_base(8, 6))
+print(math_from_base("FF", 16), math_from_base("ff", 16), "1010".from_base(2), "zz".from_base(36))
+print(math_from_base("0000", 2), math_from_base("1fffffffffffff", 16) is top)
+
+note: a register: read the flags, set one, clear one
+number status = math_from_base("10010110", 2)
+boolean ready = math_bit_test(status, 1)
+number set = math_bit_or(status, math_bit_shl(1, 0))
+number cleared = math_bit_and(set, math_bit_not(math_bit_shl(1, 7), 8))
+print(ready, math_to_base(set, 2, 8), math_to_base(cleared, 2, 8))

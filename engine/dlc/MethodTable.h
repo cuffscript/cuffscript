@@ -128,6 +128,15 @@ namespace cuff
             {"acos", "math_acos", RecvNumber, "math"},
             {"atan", "math_atan", RecvNumber, "math"},
             {"atan2", "math_atan2", RecvNumber, "math"},
+            {"bit_and", "math_bit_and", RecvNumber, "math"},
+            {"bit_or", "math_bit_or", RecvNumber, "math"},
+            {"bit_xor", "math_bit_xor", RecvNumber, "math"},
+            {"bit_not", "math_bit_not", RecvNumber, "math"},
+            {"bit_shl", "math_bit_shl", RecvNumber, "math"},
+            {"bit_shr", "math_bit_shr", RecvNumber, "math"},
+            {"bit_test", "math_bit_test", RecvNumber, "math"},
+            {"to_base", "math_to_base", RecvNumber, "math"},
+            {"from_base", "math_from_base", RecvStr, "math"},
 
             // DLC:json
             {"to_json", "to_json", RecvAny, "json"},

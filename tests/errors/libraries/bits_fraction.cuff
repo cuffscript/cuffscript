@@ -1,0 +1,3 @@
+note: E4-025: only whole numbers have bits
+use DLC:math
+print(math_bit_or(1.5, 2))

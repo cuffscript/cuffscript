@@ -1,0 +1,3 @@
+note: E4-025: a negative number has no bits to take
+use DLC:math
+print(math_bit_and(-1, 2))

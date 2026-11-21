@@ -1,0 +1,3 @@
+note: E4-025: a shift that would push a bit past 53 is an error, not a silent loss
+use DLC:math
+print(math_bit_shl(3, 52))

@@ -1,0 +1,3 @@
+note: E4-025: 16 does not fit in 4 bits
+use DLC:math
+print(math_bit_not(16, 4))

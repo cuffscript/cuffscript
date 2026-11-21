@@ -4,12 +4,158 @@
 #include "../common/Arithmetic.h"
 
 #include <cmath>
+#include <cstdint>
 
 namespace cuff
 {
 
+    // Bit operations work on the whole numbers a double holds exactly: 0 to 2^53 - 1. A negative number has no
+    // width to take a complement in, so there are none; math_bit_not is told the width instead.
+    namespace bits
+    {
+        constexpr uint64_t kMax = (uint64_t(1) << 53) - 1;
+
+        CUFF_NOINLINE inline uint64_t value(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
+        {
+            const double d = expectNumber(fn, args, i, loc);
+            if (!(d >= 0 && d <= static_cast<double>(kMax) && d == std::floor(d)))
+                throw ValueError(std::string(fn) + "() expects argument " + std::to_string(i + 1) +
+                                     " to be a whole number from 0 to 9007199254740991, got " + formatCuffNumber(d),
+                                 loc);
+            return static_cast<uint64_t>(d);
+        }
+
+        // A count (a shift, a width, a position, a base) from `lo` to `hi`.
+        CUFF_NOINLINE inline unsigned count(const char *fn, std::vector<Value> &args, size_t i, const char *what,
+                                            long long lo, long long hi, const SourceLocation &loc)
+        {
+            const long long n = expectWhole(fn, args, i, loc);
+            if (n < lo || n > hi)
+                throw ValueError(std::string(fn) + "()'s " + what + " must be a whole number from " + std::to_string(lo) +
+                                     " to " + std::to_string(hi) + ", got " + std::to_string(n),
+                                 loc);
+            return static_cast<unsigned>(n);
+        }
+
+        inline Value number(uint64_t v) { return Value::makeNumber(static_cast<double>(v)); }
+
+        // and, or, xor: two or more numbers.
+        inline Value fold(const char *fn, int op, std::vector<Value> &args, const SourceLocation &loc)
+        {
+            if (args.size() < 2)
+                throw ArgumentError(std::string(fn) + "() expects at least 2 arguments, got " + std::to_string(args.size()), loc);
+            uint64_t r = value(fn, args, 0, loc);
+            for (size_t i = 1; i < args.size(); ++i)
+            {
+                const uint64_t v = value(fn, args, i, loc);
+                r = op == 0 ? (r & v) : op == 1 ? (r | v) : (r ^ v);
+            }
+            return number(r);
+        }
+
+        inline Value bit_and(std::vector<Value> &args, const SourceLocation &loc) { return fold("math_bit_and", 0, args, loc); }
+        inline Value bit_or(std::vector<Value> &args, const SourceLocation &loc) { return fold("math_bit_or", 1, args, loc); }
+        inline Value bit_xor(std::vector<Value> &args, const SourceLocation &loc) { return fold("math_bit_xor", 2, args, loc); }
+
+        inline Value bit_not(std::vector<Value> &args, const SourceLocation &loc)
+        {
+            expectArgCount("math_bit_not", args, 2, loc);
+            const uint64_t x = value("math_bit_not", args, 0, loc);
+            const unsigned width = count("math_bit_not", args, 1, "width", 1, 53, loc);
+            const uint64_t mask = (uint64_t(1) << width) - 1;
+            if (x > mask)
+                throw ValueError("math_bit_not()'s number " + formatCuffNumber(static_cast<double>(x)) + " does not fit in " +
+                                     std::to_string(width) + " bits",
+                                 loc);
+            return number(~x & mask);
+        }
+
+        inline Value bit_shl(std::vector<Value> &args, const SourceLocation &loc)
+        {
+            expectArgCount("math_bit_shl", args, 2, loc);
+            const uint64_t x = value("math_bit_shl", args, 0, loc);
+            const unsigned n = count("math_bit_shl", args, 1, "shift", 0, 53, loc);
+            if (x > (kMax >> n))
+                throw ValueError("math_bit_shl() result is too large to represent (more than 53 bits)", loc,
+                                 "keep the bits that fit first, with math_bit_and");
+            return number(x << n);
+        }
+
+        inline Value bit_shr(std::vector<Value> &args, const SourceLocation &loc)
+        {
+            expectArgCount("math_bit_shr", args, 2, loc);
+            const uint64_t x = value("math_bit_shr", args, 0, loc);
+            return number(x >> count("math_bit_shr", args, 1, "shift", 0, 53, loc));
+        }
+
+        inline Value bit_test(std::vector<Value> &args, const SourceLocation &loc)
+        {
+            expectArgCount("math_bit_test", args, 2, loc);
+            const uint64_t x = value("math_bit_test", args, 0, loc);
+            return Value::makeBool(((x >> count("math_bit_test", args, 1, "position", 0, 52, loc)) & 1) != 0);
+        }
+
+        inline Value to_base(std::vector<Value> &args, const SourceLocation &loc)
+        {
+            expectArgRange("math_to_base", args, 2, 3, loc);
+            uint64_t x = value("math_to_base", args, 0, loc);
+            const unsigned base = count("math_to_base", args, 1, "base", 2, 36, loc);
+            const unsigned width = args.size() == 3 ? count("math_to_base", args, 2, "width", 1, 64, loc) : 1;
+            std::string out;
+            do
+            {
+                out.push_back("0123456789abcdefghijklmnopqrstuvwxyz"[x % base]);
+                x /= base;
+            } while (x != 0);
+            if (out.size() < width)
+                out.append(width - out.size(), '0');
+            return Value::makeStr(std::string(out.rbegin(), out.rend()));
+        }
+
+        inline Value from_base(std::vector<Value> &args, const SourceLocation &loc)
+        {
+            expectArgCount("math_from_base", args, 2, loc);
+            const std::string &text = expectStr("math_from_base", args, 0, loc);
+            const unsigned base = count("math_from_base", args, 1, "base", 2, 36, loc);
+            if (text.empty())
+                throw ValueError("math_from_base() cannot read an empty string", loc);
+            uint64_t r = 0;
+            for (const char c : text)
+            {
+                const unsigned d = c >= '0' && c <= '9' ? unsigned(c - '0')
+                                   : c >= 'a' && c <= 'z' ? unsigned(c - 'a' + 10)
+                                   : c >= 'A' && c <= 'Z' ? unsigned(c - 'A' + 10)
+                                                          : 99u;
+                if (d >= base)
+                    throw ValueError("math_from_base() found a character that is not a base-" + std::to_string(base) + " digit in \"" +
+                                         (text.size() > 40 ? text.substr(0, 40) + "..." : text) + "\"",
+                                     loc, "write only the digits: no sign, prefix such as 0x, or spaces");
+                r = r * base + d;
+                if (r > kMax)
+                    throw ValueError("math_from_base() result is larger than 9007199254740991", loc);
+            }
+            return number(r);
+        }
+    }
+
     inline void registerMathDLC(std::unordered_map<std::string, NativeFn> &reg)
     {
+        // One std::function type for all of them: a lambda each would add its own copy of the call machinery.
+        using Fn = Value (*)(std::vector<Value> &, const SourceLocation &);
+        static const struct { const char *name; Fn fn; } bitFunctions[] = {
+            {"math_bit_and", bits::bit_and},
+            {"math_bit_or", bits::bit_or},
+            {"math_bit_xor", bits::bit_xor},
+            {"math_bit_not", bits::bit_not},
+            {"math_bit_shl", bits::bit_shl},
+            {"math_bit_shr", bits::bit_shr},
+            {"math_bit_test", bits::bit_test},
+            {"math_to_base", bits::to_base},
+            {"math_from_base", bits::from_base},
+        };
+        for (const auto &f : bitFunctions)
+            reg[f.name] = f.fn;
+
         auto unary = [&reg](const char *name, double (*fn)(double), const char *problem)
         {
             reg[name] = [name, fn, problem](std::vector<Value> &args, const SourceLocation &loc) -> Value

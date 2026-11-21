@@ -1,0 +1,3 @@
+note: E4-010: and, or and xor take two or more numbers
+use DLC:math
+print(math_bit_and(1))

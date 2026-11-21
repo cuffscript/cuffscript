@@ -1,0 +1,3 @@
+note: E4-005
+use DLC:math
+print(math_bit_and("12", 10))

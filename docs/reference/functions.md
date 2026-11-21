@@ -87,12 +87,20 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`math_asin`](dlc/math.md) | `DLC:math` | `asin` |
 | [`math_atan`](dlc/math.md) | `DLC:math` | `atan` |
 | [`math_atan2`](dlc/math.md) | `DLC:math` | `atan2` |
+| [`math_bit_and`](dlc/math.md) | `DLC:math` | `bit_and` |
+| [`math_bit_not`](dlc/math.md) | `DLC:math` | `bit_not` |
+| [`math_bit_or`](dlc/math.md) | `DLC:math` | `bit_or` |
+| [`math_bit_shl`](dlc/math.md) | `DLC:math` | `bit_shl` |
+| [`math_bit_shr`](dlc/math.md) | `DLC:math` | `bit_shr` |
+| [`math_bit_test`](dlc/math.md) | `DLC:math` | `bit_test` |
+| [`math_bit_xor`](dlc/math.md) | `DLC:math` | `bit_xor` |
 | [`math_ceil`](dlc/math.md) | `DLC:math` | `ceil` |
 | [`math_clamp`](dlc/math.md) | `DLC:math` | `clamp` |
 | [`math_cos`](dlc/math.md) | `DLC:math` | `cos` |
 | [`math_e`](dlc/math.md) | `DLC:math` |  |
 | [`math_exp`](dlc/math.md) | `DLC:math` | `exp` |
 | [`math_floor`](dlc/math.md) | `DLC:math` | `floor` |
+| [`math_from_base`](dlc/math.md) | `DLC:math` | `from_base` |
 | [`math_log`](dlc/math.md) | `DLC:math` | `log` |
 | [`math_log10`](dlc/math.md) | `DLC:math` | `log10` |
 | [`math_log2`](dlc/math.md) | `DLC:math` | `log2` |
@@ -106,6 +114,7 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`math_sin`](dlc/math.md) | `DLC:math` | `sin` |
 | [`math_sqrt`](dlc/math.md) | `DLC:math` | `sqrt` |
 | [`math_tan`](dlc/math.md) | `DLC:math` | `tan` |
+| [`math_to_base`](dlc/math.md) | `DLC:math` | `to_base` |
 | [`math_trunc`](dlc/math.md) | `DLC:math` | `trunc` |
 | [`network_get`](dlc/network.md) | `DLC:network` |  |
 | [`network_post`](dlc/network.md) | `DLC:network` |  |

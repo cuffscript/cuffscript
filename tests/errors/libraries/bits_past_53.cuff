@@ -1,0 +1,3 @@
+note: E4-025: 2^53 is past the numbers a double holds exactly
+use DLC:math
+print(math_bit_xor(9007199254740992, 1))

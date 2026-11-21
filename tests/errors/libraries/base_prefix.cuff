@@ -1,0 +1,3 @@
+note: E4-025: only the digits; no 0x
+use DLC:math
+print(math_from_base("0x10", 16))
