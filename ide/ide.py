@@ -1,3 +1,4 @@
+import fnmatch
 import os
 import re
 import codecs
@@ -272,7 +273,22 @@ class CuffScriptIDE:
         self.run_started = None
         self.folder = None
         self.tree_paths = {}
+        self.tree_refreshed = 0.0
         self.sidebar_visible = True
+        self.side_panel = "explorer"
+        self.tab_drag = None
+        self.search_job = None
+        self.search_token = 0
+        self.search_cancel = None
+        self.search_queue = queue.Queue()
+        self.search_poll_job = None
+        self.search_items = {}
+        self.search_counts = (0, 0)
+        self.outline_symbols = []
+        self.outline_structure = None
+        self.outline_items = {}
+        self.outline_item_of = {}
+        self.outline_stale = True
 
         self.root.title("CuffScript IDE - Untitled")
         self.root.geometry("1080x780")
@@ -485,6 +501,14 @@ class CuffScriptIDE:
             label="Run Script", accelerator=run_label, command=self.run_code
         )
         run_menu.add_command(
+            label="Show Syntax Tree",
+            command=lambda: self.run_code(command="AST"),
+        )
+        run_menu.add_command(
+            label="Run and Show Bytecode",
+            command=lambda: self.run_code(command="BYTECODE"),
+        )
+        run_menu.add_command(
             label="Stop", accelerator=stop_label, command=self.stop_code
         )
         run_menu.add_separator()
@@ -493,10 +517,26 @@ class CuffScriptIDE:
 
         view_menu = tk.Menu(menubar, tearoff=False)
         view_menu.add_command(
-            label="Toggle Explorer",
+            label="Explorer",
+            accelerator=modifier_label + "+Shift+E",
+            command=self.show_explorer,
+        )
+        view_menu.add_command(
+            label="Search in Files",
+            accelerator=modifier_label + "+Shift+F",
+            command=self.search_in_files,
+        )
+        view_menu.add_command(
+            label="Outline",
+            accelerator=modifier_label + "+Shift+L",
+            command=self.show_outline,
+        )
+        view_menu.add_command(
+            label="Toggle Side Bar",
             accelerator=modifier_label + "+B",
             command=self.toggle_sidebar,
         )
+        view_menu.add_separator()
         view_menu.add_command(
             label="Next Tab",
             accelerator="Ctrl+Tab",
@@ -560,14 +600,16 @@ class CuffScriptIDE:
             background="#d8d8d8",
             borderwidth=0,
         )
-        self.main_split.pack(fill=tk.BOTH, expand=True)
+        self._build_activity_bar()
+        self.main_split.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._build_sidebar()
 
     def _build_sidebar(self):
         panel = "#f3f3f3"
         muted = "#6f6f6f"
         self.sidebar = tk.Frame(self.main_split, background=panel)
-        header = tk.Frame(self.sidebar, background=panel)
+        self.explorer_panel = tk.Frame(self.sidebar, background=panel)
+        header = tk.Frame(self.explorer_panel, background=panel)
         header.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(10, 6))
         tk.Label(header, text="Explorer", background=panel, foreground=muted).pack(
             side=tk.LEFT
@@ -588,11 +630,11 @@ class CuffScriptIDE:
             link.bind(
                 "<Leave>", lambda event, widget=link: widget.configure(foreground=muted)
             )
-        tk.Frame(self.sidebar, background="#e0e0e0", height=1).pack(
+        tk.Frame(self.explorer_panel, background="#e0e0e0", height=1).pack(
             side=tk.TOP, fill=tk.X
         )
 
-        body = tk.Frame(self.sidebar, background=panel)
+        body = tk.Frame(self.explorer_panel, background=panel)
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self._make_icons()
@@ -618,7 +660,10 @@ class CuffScriptIDE:
             pass
         self.tree_view = tk.Frame(body, background=panel)
         self.tree = ttk.Treeview(
-            self.tree_view, show="tree", selectmode="browse", style="Explorer.Treeview"
+            self.tree_view,
+            show="tree",
+            selectmode="extended",
+            style="Explorer.Treeview",
         )
         tree_scrollbar = ttk.Scrollbar(
             self.tree_view,
@@ -643,6 +688,15 @@ class CuffScriptIDE:
         self.tree.bind("<<TreeviewOpen>>", self.on_tree_open)
         self.tree.bind("<Double-Button-1>", self.on_tree_double_click)
         self.tree.bind("<Return>", self.on_tree_return)
+        self.tree.bind("<F2>", lambda event: self.explorer_rename())
+        self.tree.bind("<Delete>", lambda event: self.explorer_delete())
+        self.tree_menu = tk.Menu(self.tree, tearoff=False)
+        if sys.platform == "darwin":
+            self.tree.bind("<BackSpace>", lambda event: self.explorer_delete())
+            self.tree.bind("<Button-2>", self.show_tree_menu)
+            self.tree.bind("<Control-Button-1>", self.show_tree_menu)
+        else:
+            self.tree.bind("<Button-3>", self.show_tree_menu)
 
         self.empty_view = tk.Frame(body, background=panel)
         tk.Label(
@@ -666,6 +720,7 @@ class CuffScriptIDE:
         )
         self.empty_folder_button.pack()
         self.empty_view.pack(fill=tk.BOTH, expand=True)
+        self._build_side_panels()
         self.main_split.add(self.sidebar, width=240, minsize=150, stretch="never")
 
     def _make_icons(self):
@@ -709,7 +764,1135 @@ class CuffScriptIDE:
                 self.sidebar, before=self.paned, width=240, minsize=150, stretch="never"
             )
         self.sidebar_visible = not self.sidebar_visible
+        self._style_activity_bar()
         return "break"
+
+    # ---- Side bar: activity bar (Explorer / Search / Outline)
+
+    ACTIVITY_WIDTH = 44
+    SIDE_PANELS = (
+        ("explorer", "Explorer"),
+        ("search", "Search"),
+        ("outline", "Outline"),
+    )
+
+    def _build_activity_bar(self):
+        self.activity_bar = tk.Frame(
+            self.root, width=self.ACTIVITY_WIDTH, background="#e7e7e7"
+        )
+        self.activity_bar.pack(side=tk.LEFT, fill=tk.Y)
+        self.activity_bar.pack_propagate(False)
+        self.activity_buttons = {}
+        self.activity_hover = None
+        for name, _title in self.SIDE_PANELS:
+            canvas = tk.Canvas(
+                self.activity_bar,
+                width=self.ACTIVITY_WIDTH,
+                height=self.ACTIVITY_WIDTH,
+                highlightthickness=0,
+                borderwidth=0,
+                cursor="hand2",
+            )
+            canvas.pack(side=tk.TOP)
+            canvas.bind(
+                "<Button-1>", lambda event, n=name: self.show_side_panel(n, toggle=True)
+            )
+            canvas.bind("<Enter>", lambda event, n=name: self._hover_activity(n))
+            canvas.bind("<Leave>", lambda event: self._hover_activity(None))
+            self.activity_buttons[name] = canvas
+        self._style_activity_bar()
+
+    def _hover_activity(self, name):
+        self.activity_hover = name
+        self._style_activity_bar()
+
+    def _style_activity_bar(self):
+        if not hasattr(self, "activity_bar"):
+            return
+        dark = self.theme == "dark"
+        bar = "#333333" if dark else "#e7e7e7"
+        idle = "#858585" if dark else "#6f6f6f"
+        hover = "#cccccc" if dark else "#333333"
+        active = "#ffffff" if dark else "#1f1f1f"
+        accent = "#3794ff" if dark else self.TAB_ACCENT
+        self.activity_bar.configure(background=bar)
+        size = self.ACTIVITY_WIDTH
+        for name, canvas in self.activity_buttons.items():
+            selected = self.sidebar_visible and self.side_panel == name
+            color = (
+                active if selected else hover if self.activity_hover == name else idle
+            )
+            canvas.configure(background=bar)
+            canvas.delete("all")
+            if selected:
+                canvas.create_rectangle(0, 6, 2, size - 6, fill=accent, outline=accent)
+            self._draw_activity_icon(canvas, name, color)
+
+    @staticmethod
+    def _draw_activity_icon(canvas, name, color):
+        if name == "explorer":
+            canvas.create_line(
+                14, 10, 24, 10, 30, 16, 30, 34, 14, 34, 14, 10, fill=color, width=2
+            )
+            canvas.create_line(24, 10, 24, 16, 30, 16, fill=color, width=2)
+        elif name == "search":
+            canvas.create_oval(13, 11, 28, 26, outline=color, width=2)
+            canvas.create_line(26, 25, 33, 32, fill=color, width=2, capstyle="round")
+        else:
+            canvas.create_line(13, 14, 33, 14, fill=color, width=2)
+            canvas.create_line(17, 14, 17, 30, fill=color, width=2)
+            canvas.create_line(17, 22, 33, 22, fill=color, width=2)
+            canvas.create_line(17, 30, 33, 30, fill=color, width=2)
+
+    def _build_side_panels(self):
+        self._make_outline_icons()
+        self.side_separators = []
+        self._build_search_panel()
+        self._build_outline_panel()
+        self.side_panels = {
+            "explorer": self.explorer_panel,
+            "search": self.search_panel,
+            "outline": self.outline_panel,
+        }
+        self.explorer_panel.pack(fill=tk.BOTH, expand=True)
+        self.side_panel = "explorer"
+
+    def _make_result_tree(self, parent):
+        holder = tk.Frame(parent, background="#f3f3f3")
+        tree = ttk.Treeview(
+            holder, show="tree", selectmode="browse", style="Explorer.Treeview"
+        )
+        tree.column("#0", width=100, stretch=True)
+        scrollbar = ttk.Scrollbar(
+            holder,
+            orient=tk.VERTICAL,
+            command=tree.yview,
+            style="IDE.Vertical.TScrollbar",
+        )
+        shown = [False]
+
+        def on_scroll(first, last):
+            scrollbar.set(first, last)
+            needed = float(first) > 0.0 or float(last) < 1.0
+            if needed and not shown[0]:
+                scrollbar.pack(side=tk.RIGHT, fill=tk.Y, before=tree)
+                shown[0] = True
+            elif not needed and shown[0]:
+                scrollbar.pack_forget()
+                shown[0] = False
+
+        tree.configure(yscrollcommand=on_scroll)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        return holder, tree
+
+    def _side_header(self, panel, title, action_text, action):
+        header = tk.Frame(panel, background="#f3f3f3")
+        header.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(10, 6))
+        tk.Label(header, text=title, background="#f3f3f3", foreground="#6f6f6f").pack(
+            side=tk.LEFT
+        )
+        link = tk.Label(
+            header,
+            text=action_text,
+            background="#f3f3f3",
+            foreground="#6f6f6f",
+            cursor="hand2",
+        )
+        link.pack(side=tk.RIGHT)
+        link.bind("<Button-1>", lambda event: action())
+        line = tk.Frame(panel, background="#e0e0e0", height=1)
+        line.pack(side=tk.TOP, fill=tk.X)
+        self.side_separators.append(line)
+
+    # ---- Search panel
+
+    SEARCH_LIMIT = 5000
+    SEARCH_SKIP_DIRS = {"node_modules", "__pycache__"}
+    SEARCH_MAX_FILE = 2_000_000
+    SEARCH_MAX_LINE = 20000
+
+    def _build_search_panel(self):
+        panel = tk.Frame(self.sidebar, background="#f3f3f3")
+        self.search_panel = panel
+        self._side_header(panel, "Search", "Clear", self.clear_search)
+
+        form = tk.Frame(panel, background="#f3f3f3")
+        form.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(8, 2))
+        self.search_query = tk.StringVar()
+        self.search_files = tk.StringVar()
+        self.search_options = {"case": False, "word": False, "regex": False}
+        row = tk.Frame(form, background="#f3f3f3")
+        row.pack(side=tk.TOP, fill=tk.X)
+        self.search_entry = tk.Entry(
+            row,
+            width=1,
+            textvariable=self.search_query,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+        )
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+        self.search_toggles = {}
+        for key, text in (("case", "Aa"), ("word", "ab"), ("regex", ".*")):
+            label = tk.Label(row, text=text, padx=4, pady=2, cursor="hand2")
+            label.pack(side=tk.LEFT, padx=(3, 0))
+            label.bind("<Button-1>", lambda event, k=key: self.toggle_search_option(k))
+            self.search_toggles[key] = label
+        files_row = tk.Frame(form, background="#f3f3f3")
+        files_row.pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
+        tk.Label(files_row, text="Files", width=5, anchor="w").pack(side=tk.LEFT)
+        self.search_files_entry = tk.Entry(
+            files_row,
+            width=1,
+            textvariable=self.search_files,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+        )
+        self.search_files_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=2)
+        self.search_status = tk.Label(panel, text="", anchor="w", justify=tk.LEFT)
+        self.search_status.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(6, 4))
+        self.search_status_state = ("", False)
+        panel.bind(
+            "<Configure>",
+            lambda event: self.search_status.configure(
+                wraplength=max(80, event.width - 24)
+            ),
+        )
+        holder, self.search_tree = self._make_result_tree(panel)
+        holder.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.search_tree.bind("<ButtonRelease-1>", self.on_search_click)
+        self.search_tree.bind("<Return>", self.on_search_return)
+        for entry in (self.search_entry, self.search_files_entry):
+            entry.bind("<Return>", self.start_search)
+            entry.bind("<Down>", self.focus_search_results)
+            entry.bind("<Escape>", lambda event: self.editor.focus_set())
+        self.search_query.trace_add("write", lambda *args: self.schedule_search())
+        self.search_files.trace_add("write", lambda *args: self.schedule_search())
+        self._refresh_search_toggles()
+
+    def _refresh_search_toggles(self):
+        dark = self.theme == "dark"
+        panel = "#252526" if dark else "#f3f3f3"
+        for key, label in self.search_toggles.items():
+            if self.search_options[key]:
+                label.configure(
+                    background="#094771" if dark else "#d6e6f7",
+                    foreground="#ffffff" if dark else "#1f1f1f",
+                )
+            else:
+                label.configure(
+                    background=panel, foreground="#a0a0a0" if dark else "#6f6f6f"
+                )
+
+    def toggle_search_option(self, key):
+        self.search_options[key] = not self.search_options[key]
+        self._refresh_search_toggles()
+        self.start_search()
+
+    def _set_search_status(self, text, error=False):
+        self.search_status_state = (text, error)
+        dark = self.theme == "dark"
+        self.search_status.configure(
+            text=text,
+            foreground=(
+                ("#f48771" if dark else "#c4262e")
+                if error
+                else ("#a0a0a0" if dark else "#6f6f6f")
+            ),
+        )
+
+    def search_in_files(self, event=None):
+        selected = ""
+        try:
+            if self.editor.tag_ranges("sel"):
+                selected = self.editor.get("sel.first", "sel.last")
+        except tk.TclError:
+            selected = ""
+        if selected and "\n" not in selected and len(selected) <= 200:
+            self.search_query.set(selected)
+            self.start_search()
+        self.show_side_panel("search")
+        self.search_entry.select_range(0, tk.END)
+        return "break"
+
+    def clear_search(self):
+        self.search_query.set("")
+        self.start_search()
+        self.search_entry.focus_set()
+
+    def focus_search_results(self, event=None):
+        children = self.search_tree.get_children()
+        if children:
+            self.search_tree.focus_set()
+            self.search_tree.selection_set(children[0])
+            self.search_tree.focus(children[0])
+        return "break"
+
+    def schedule_search(self):
+        if self.search_job is not None:
+            try:
+                self.root.after_cancel(self.search_job)
+            except tk.TclError:
+                pass
+        self.search_job = self.root.after(350, self.start_search)
+
+    @staticmethod
+    def _compile_search(query, case=False, word=False, regex=False):
+        pattern = query if regex else re.escape(query)
+        if word:
+            pattern = r"(?<![A-Za-z0-9_])(?:" + pattern + r")(?![A-Za-z0-9_])"
+        return re.compile(pattern, 0 if case else re.IGNORECASE)
+
+    @staticmethod
+    def _file_filter(text):
+        """'*.cuff, src' includes; '!build' excludes. Returns (accept(rel), prune_dir(rel))."""
+        includes, excludes = [], []
+        for part in text.split(","):
+            part = part.strip().replace("\\", "/")
+            if not part:
+                continue
+            exclude = part.startswith("!")
+            part = part.lstrip("!").strip().rstrip("/")
+            if part:
+                (excludes if exclude else includes).append(part)
+
+        def hit(rel, patterns):
+            name = rel.rsplit("/", 1)[-1]
+            return any(
+                fnmatch.fnmatch(name, pattern)
+                or fnmatch.fnmatch(rel, pattern)
+                or rel == pattern
+                or rel.startswith(pattern + "/")
+                for pattern in patterns
+            )
+
+        def accept(rel):
+            if excludes and hit(rel, excludes):
+                return False
+            return not includes or hit(rel, includes)
+
+        def prune(rel):
+            return bool(excludes) and hit(rel, excludes)
+
+        return accept, prune
+
+    @staticmethod
+    def _search_preview(line, start):
+        lead = len(line) - len(line.lstrip())
+        begin = lead if start - lead <= 30 else start - 30
+        text = ("…" if begin > lead else "") + line[begin : begin + 160]
+        return text.replace("\t", " ").rstrip()
+
+    @classmethod
+    def _scan_text(cls, regex, text, limit):
+        hits = []
+        for number, line in enumerate(text.replace("\r\n", "\n").split("\n"), 1):
+            if len(line) > cls.SEARCH_MAX_LINE:
+                continue
+            for match in regex.finditer(line):
+                if match.end() == match.start():
+                    continue
+                hits.append(
+                    (
+                        number,
+                        match.start(),
+                        match.end() - match.start(),
+                        cls._search_preview(line, match.start()),
+                    )
+                )
+                if len(hits) >= limit:
+                    return hits
+        return hits
+
+    @staticmethod
+    def _relative_to(root, path):
+        if root is None:
+            return Path(path).name
+        base = os.path.normcase(str(root)).rstrip("/\\")
+        full = os.path.normcase(str(path))
+        if full.startswith(base + os.sep) or full.startswith(base + "/"):
+            return str(path)[len(base) + 1 :].replace("\\", "/")
+        return None
+
+    @classmethod
+    def _search_iter(
+        cls, root, regex, patterns, open_texts, untitled, cancel, limit, state
+    ):
+        """Yield (path, doc, relative_name, hits) per file. Open documents are searched from
+        their unsaved text; everything else is read from disk."""
+        accept, prune = cls._file_filter(patterns)
+        remaining = limit
+
+        def take(path, doc, rel, text):
+            # Ask for one hit more than the room left: that is how a full list is told
+            # from a cut-off one.
+            nonlocal remaining
+            hits = cls._scan_text(regex, text, remaining + 1)
+            if not hits:
+                return None
+            if len(hits) > remaining:
+                hits = hits[:remaining]
+                state["truncated"] = True
+            remaining -= len(hits)
+            return (path, doc, rel, hits) if hits else None
+
+        for key in sorted(open_texts):
+            if cancel.is_set():
+                return
+            path, text = open_texts[key]
+            rel = cls._relative_to(root, path)
+            if rel is None or not accept(rel):
+                continue
+            found = take(path, None, rel, text)
+            if found:
+                yield found
+            if state["truncated"]:
+                return
+        for doc, name, text in untitled:
+            if cancel.is_set():
+                return
+            if not accept(name):
+                continue
+            found = take(None, doc, name, text)
+            if found:
+                yield found
+            if state["truncated"]:
+                return
+        if root is None:
+            return
+        for dirpath, dirnames, filenames in os.walk(root):
+            if cancel.is_set():
+                return
+            kept = []
+            for name in sorted(dirnames, key=str.lower):
+                if name.startswith(".") or name in cls.SEARCH_SKIP_DIRS:
+                    continue
+                full = os.path.join(dirpath, name)
+                if os.path.islink(full):
+                    continue
+                rel = cls._relative_to(root, full)
+                if rel is not None and prune(rel):
+                    continue
+                kept.append(name)
+            dirnames[:] = kept
+            for name in sorted(filenames, key=str.lower):
+                if cancel.is_set():
+                    return
+                path = Path(dirpath) / name
+                if os.path.normcase(str(path)) in open_texts:
+                    continue
+                rel = cls._relative_to(root, path)
+                if rel is None or not accept(rel):
+                    continue
+                try:
+                    if os.path.getsize(path) > cls.SEARCH_MAX_FILE:
+                        continue
+                    with open(path, "rb") as handle:
+                        raw = handle.read(cls.SEARCH_MAX_FILE + 1)
+                except OSError:
+                    continue
+                if b"\0" in raw[:8192]:
+                    continue
+                try:
+                    text = raw.decode("utf-8-sig")
+                except UnicodeDecodeError:
+                    continue
+                found = take(path, None, rel, text)
+                if found:
+                    yield found
+                if state["truncated"]:
+                    return
+
+    def _search_snapshot(self):
+        open_texts, untitled = {}, []
+        for doc in self.docs:
+            text = doc.editor.get("1.0", "end-1c")
+            if doc.path is None:
+                if text:
+                    untitled.append((doc, self._display_name(doc), text))
+            else:
+                open_texts[os.path.normcase(str(doc.path))] = (doc.path, text)
+        return open_texts, untitled
+
+    def _search_worker(
+        self, token, root, regex, patterns, open_texts, untitled, cancel
+    ):
+        state = {"truncated": False}
+        try:
+            for item in self._search_iter(
+                root,
+                regex,
+                patterns,
+                open_texts,
+                untitled,
+                cancel,
+                self.SEARCH_LIMIT,
+                state,
+            ):
+                if cancel.is_set():
+                    return
+                self.search_queue.put(("hits", token, item))
+            self.search_queue.put(("done", token, state))
+        except Exception as exc:
+            self.search_queue.put(("error", token, str(exc)))
+
+    def _cancel_search(self):
+        if self.search_cancel is not None:
+            self.search_cancel.set()
+            self.search_cancel = None
+        if self.search_poll_job is not None:
+            try:
+                self.root.after_cancel(self.search_poll_job)
+            except tk.TclError:
+                pass
+            self.search_poll_job = None
+
+    def _clear_search_results(self):
+        self.search_tree.delete(*self.search_tree.get_children())
+        self.search_items = {}
+        self.search_counts = (0, 0)
+
+    def start_search(self, event=None):
+        if self.search_job is not None:
+            try:
+                self.root.after_cancel(self.search_job)
+            except tk.TclError:
+                pass
+            self.search_job = None
+        self._cancel_search()
+        self._clear_search_results()
+        query = self.search_query.get()
+        if not query:
+            self._set_search_status("")
+            return "break"
+        try:
+            regex = self._compile_search(query, **self.search_options)
+        except re.error as exc:
+            self._set_search_status(f"Invalid regular expression: {exc}", error=True)
+            return "break"
+        open_texts, untitled = self._search_snapshot()
+        self.search_token += 1
+        cancel = threading.Event()
+        self.search_cancel = cancel
+        threading.Thread(
+            target=self._search_worker,
+            args=(
+                self.search_token,
+                self.folder,
+                regex,
+                self.search_files.get(),
+                open_texts,
+                untitled,
+                cancel,
+            ),
+            daemon=True,
+        ).start()
+        self._set_search_status("Searching…")
+        self.search_poll_job = self.root.after(30, self._poll_search)
+        return "break"
+
+    def _poll_search(self):
+        self.search_poll_job = None
+        finished = False
+        try:
+            for _ in range(300):
+                kind, token, payload = self.search_queue.get_nowait()
+                if token != self.search_token:
+                    continue
+                if kind == "hits":
+                    self._add_search_file(*payload)
+                elif kind == "done":
+                    self._finish_search(payload)
+                    finished = True
+                    break
+                else:
+                    self._set_search_status(f"Search failed: {payload}", error=True)
+                    finished = True
+                    break
+        except queue.Empty:
+            pass
+        if not finished:
+            matches, files = self.search_counts
+            if matches:
+                self._set_search_status(f"{matches} results in {files} files…")
+            self.search_poll_job = self.root.after(40, self._poll_search)
+
+    def _finish_search(self, state):
+        matches, files = self.search_counts
+        if not matches:
+            self._set_search_status("No results")
+            return
+        text = f"{matches} result{'s' if matches != 1 else ''} in {files} file{'s' if files != 1 else ''}"
+        if state.get("truncated"):
+            text += f" (first {matches} shown; narrow the search)"
+        self._set_search_status(text)
+
+    def _add_search_file(self, path, doc, rel, hits):
+        name = rel.rsplit("/", 1)[-1]
+        folder = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        label = (
+            f"{name}  {folder}  ({len(hits)})" if folder else f"{name}  ({len(hits)})"
+        )
+        icon = self._icon_for(Path(name), False)
+        file_item = self.search_tree.insert(
+            "", "end", text=label, image=icon, open=True
+        )
+        self.search_items[file_item] = ("file", path, doc)
+        for line, column, length, preview in hits:
+            item = self.search_tree.insert(file_item, "end", text=f"{line}:  {preview}")
+            self.search_items[item] = ("match", path, doc, line, column, length)
+        matches, files = self.search_counts
+        self.search_counts = (matches + len(hits), files + 1)
+
+    def on_search_click(self, event):
+        item = self.search_tree.identify_row(event.y)
+        if not item:
+            return
+        if "indicator" in str(self.search_tree.identify("element", event.x, event.y)):
+            return
+        self.search_tree.selection_set(item)
+        self.open_search_item(item)
+
+    def on_search_return(self, event=None):
+        selection = self.search_tree.selection()
+        if selection:
+            self.open_search_item(selection[0])
+        return "break"
+
+    @staticmethod
+    def _safe_resolve(path):
+        try:
+            return Path(path).resolve()
+        except OSError:
+            return Path(path)
+
+    def open_search_item(self, item):
+        info = self.search_items.get(item)
+        if info is None:
+            return
+        if info[0] == "file":
+            opened = bool(self.search_tree.item(item, "open"))
+            self.search_tree.item(item, open=not opened)
+            return
+        _kind, path, doc, line, column, length = info
+        if doc is not None:
+            if doc not in self.docs:
+                self.status_var.set("That document has been closed")
+                return
+            self.select_document(doc)
+        else:
+            self.load_file(path)
+            current = self.doc
+            if (
+                current is None
+                or current.path is None
+                or os.path.normcase(str(current.path))
+                != os.path.normcase(str(self._safe_resolve(path)))
+            ):
+                return
+        self._select_range(line, column, length)
+
+    def _select_range(self, line, column, length):
+        editor = self.editor
+        start = f"{line}.{column}"
+        end = f"{line}.{column + length}"
+        editor.tag_remove("sel", "1.0", tk.END)
+        editor.tag_add("sel", start, end)
+        editor.mark_set(tk.INSERT, end)
+        editor.see(start)
+        editor.focus_set()
+        self.update_status()
+
+    # ---- Outline panel
+
+    OUTLINE_BLOCK = re.compile(r"(?<![.\w])(?:do\s*:|end(?!\w))")
+    OUTLINE_FUNC = re.compile(r"^(?:(private|pure|async)\s+)*func\s+([A-Za-z_]\w*)")
+    OUTLINE_CLASS = re.compile(
+        r"^class\s+([A-Za-z_]\w*)(?:\s+extends\s+([A-Za-z_]\w*))?"
+    )
+    OUTLINE_DECL = re.compile(
+        r"^((?:(?:private|constant)\s+)*)([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:=(?!=)|$)"
+    )
+
+    @classmethod
+    def _outline_symbols(cls, source, spans):
+        """Classes, functions, methods, constants, variables and fields of one source text.
+        Strings and comments are blanked first, then `do:`/`end` pairs give the block depth:
+        only top-level declarations and class members are listed. An `else` branch continues
+        the block of its `if`, so its `do:` does not open a new one."""
+        chars = list(source)
+        for start, end, tag in spans:
+            if tag in ("string", "pattern", "comment"):
+                for index in range(start, end):
+                    if chars[index] != "\n":
+                        chars[index] = " "
+        masked_lines = "".join(chars).split("\n")
+        raw_lines = source.split("\n")
+        symbols, stack = [], []
+        pending, statement_is_else, bracket = None, False, 0
+        for number, masked in enumerate(masked_lines, 1):
+            text = masked.strip()
+            if bracket <= 0 and text:
+                pending = None
+                statement_is_else = re.match(r"else\b", text) is not None
+                lead = len(masked) - len(masked.lstrip())
+                top = stack[-1] if stack else None
+                in_class = top is not None and symbols[top]["kind"] == "class"
+                found = None
+                match = cls.OUTLINE_FUNC.match(text)
+                if match:
+                    kind = "function" if not stack else "method" if in_class else None
+                    if kind:
+                        cut = cls.OUTLINE_BLOCK.search(text, match.end())
+                        raw = raw_lines[number - 1].strip()
+                        signature = raw[match.end(2) : cut.start() if cut else len(raw)]
+                        found = {
+                            "kind": kind,
+                            "name": match.group(2),
+                            "detail": re.sub(r"\s+", " ", signature).strip(),
+                            "col": lead + match.start(2),
+                            "private": "private" in text[: match.start(2)].split(),
+                        }
+                    else:
+                        found = False
+                    pending = None
+                else:
+                    match = cls.OUTLINE_CLASS.match(text)
+                    if match:
+                        if not stack or in_class:
+                            found = {
+                                "kind": "class",
+                                "name": match.group(1),
+                                "detail": (
+                                    f"extends {match.group(2)}"
+                                    if match.group(2)
+                                    else ""
+                                ),
+                                "col": lead + match.start(1),
+                                "private": False,
+                            }
+                        else:
+                            found = False
+                    else:
+                        match = cls.OUTLINE_DECL.match(text)
+                        if (
+                            match
+                            and match.group(2) not in cls.KEYWORDS
+                            and match.group(3) not in cls.KEYWORDS
+                        ):
+                            kind = (
+                                None
+                                if stack and not in_class
+                                else "field" if in_class else "variable"
+                            )
+                            modifiers = match.group(1).split()
+                            if kind == "variable" and "constant" in modifiers:
+                                kind = "constant"
+                            if kind:
+                                found = {
+                                    "kind": kind,
+                                    "name": match.group(3),
+                                    "detail": match.group(2),
+                                    "col": lead + match.start(3),
+                                    "private": "private" in modifiers,
+                                }
+                if found:
+                    found.update(
+                        line=number,
+                        end_line=number,
+                        parent=top if (stack and in_class) else None,
+                    )
+                    symbols.append(found)
+                    if found["kind"] in ("class", "function", "method"):
+                        pending = len(symbols) - 1
+            for token in cls.OUTLINE_BLOCK.finditer(masked):
+                if token.group().startswith("do"):
+                    if statement_is_else:
+                        statement_is_else = False
+                        continue
+                    stack.append(pending)
+                    pending = None
+                elif stack:
+                    closed = stack.pop()
+                    if closed is not None:
+                        symbols[closed]["end_line"] = number
+            bracket = max(
+                0,
+                bracket
+                + sum(masked.count(ch) for ch in "([{")
+                - sum(masked.count(ch) for ch in ")]}"),
+            )
+        last = len(masked_lines)
+        for index in stack:
+            if index is not None:
+                symbols[index]["end_line"] = last
+        return symbols
+
+    @staticmethod
+    def _outline_at(symbols, line):
+        best = None
+        for index, symbol in enumerate(symbols):
+            if symbol["line"] <= line <= symbol["end_line"]:
+                best = index
+        return best
+
+    def _make_outline_icons(self):
+        def draw(shapes):
+            image = tk.PhotoImage(master=self.root, width=16, height=16)
+            for color, x1, y1, x2, y2 in shapes:
+                image.put(color, to=(x1, y1, x2, y2))
+            return image
+
+        def frame(color, x1, y1, x2, y2):
+            return [
+                (color, x1, y1, x2, y1 + 1),
+                (color, x1, y2 - 1, x2, y2),
+                (color, x1, y1, x1 + 1, y2),
+                (color, x2 - 1, y1, x2, y2),
+            ]
+
+        diamond = lambda color: [
+            (color, 8 - half, row, 8 + half, row + 1)
+            for row, half in zip(range(2, 14), (1, 2, 3, 4, 5, 6, 6, 5, 4, 3, 2, 1))
+        ]
+        self.outline_icons = {
+            "class": draw(frame("#d18616", 2, 2, 14, 14) + [("#f1c27a", 4, 4, 12, 12)]),
+            "function": draw(diamond("#8a4fd3")),
+            "method": draw(diamond("#b07cf0")),
+            "constant": draw(
+                [
+                    ("#2e86de", 4, 5, 12, 11),
+                    ("#2e86de", 5, 4, 11, 12),
+                    ("#2e86de", 6, 3, 10, 13),
+                ]
+            ),
+            "variable": draw(frame("#1fa2b4", 3, 3, 13, 13)),
+            "field": draw(frame("#3fb27f", 3, 3, 13, 13) + [("#3fb27f", 6, 6, 10, 10)]),
+        }
+
+    def _build_outline_panel(self):
+        panel = tk.Frame(self.sidebar, background="#f3f3f3")
+        self.outline_panel = panel
+        self._side_header(panel, "Outline", "Collapse", self.collapse_outline)
+        form = tk.Frame(panel, background="#f3f3f3")
+        form.pack(side=tk.TOP, fill=tk.X, padx=10, pady=(8, 2))
+        self.outline_filter = tk.StringVar()
+        self.outline_entry = tk.Entry(
+            form,
+            width=1,
+            textvariable=self.outline_filter,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+        )
+        self.outline_entry.pack(side=tk.TOP, fill=tk.X, ipady=3)
+        self.outline_status = tk.Label(panel, text="", anchor="w")
+        self.outline_status.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(6, 4))
+        holder, self.outline_tree = self._make_result_tree(panel)
+        holder.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.outline_tree.bind("<ButtonRelease-1>", self.on_outline_click)
+        self.outline_tree.bind("<Return>", self.on_outline_return)
+        self.outline_entry.bind("<Return>", self.outline_first_match)
+        self.outline_entry.bind("<Down>", self.focus_outline_tree)
+        self.outline_entry.bind("<Escape>", self.escape_outline_filter)
+        self.outline_filter.trace_add("write", lambda *args: self.refilter_outline())
+        self.outline_keys = {}
+        self.outline_open = {}
+
+    def show_outline(self, event=None):
+        return self.show_side_panel("outline")
+
+    def show_explorer(self, event=None):
+        return self.show_side_panel("explorer")
+
+    def collapse_outline(self):
+        for item in self.outline_tree.get_children():
+            self.outline_tree.item(item, open=False)
+
+    def _outline_visible(self):
+        return bool(
+            getattr(self, "sidebar_visible", False)
+            and getattr(self, "side_panel", None) == "outline"
+        )
+
+    def update_outline(self, source, spans):
+        """Called after each syntax pass; the panel is only rebuilt while it is showing."""
+        if not self._outline_visible():
+            self.outline_stale = True
+            return
+        self._load_outline(self._outline_symbols(source, spans))
+
+    def refresh_outline(self):
+        source = self.editor.get("1.0", "end-1c")
+        self._load_outline(self._outline_symbols(source, self._scan_highlights(source)))
+
+    def refilter_outline(self):
+        self._load_outline(self.outline_symbols)
+
+    def _load_outline(self, symbols):
+        self.outline_stale = False
+        structure = (
+            tuple((s["kind"], s["name"], s["detail"], s["parent"]) for s in symbols),
+            self.outline_filter.get(),
+        )
+        self.outline_symbols = symbols
+        if structure != self.outline_structure:
+            self.outline_structure = structure
+            self._rebuild_outline_tree()
+        self.sync_outline_cursor()
+
+    @staticmethod
+    def _outline_label(symbol):
+        if symbol["kind"] in ("function", "method"):
+            text = symbol["name"] + symbol["detail"]
+            return text if len(text) <= 60 else text[:59] + "…"
+        if symbol["kind"] == "class":
+            return symbol["name"] + (
+                f"  {symbol['detail']}" if symbol["detail"] else ""
+            )
+        text = f"{symbol['name']} : {symbol['detail']}"
+        return text + ("  (private)" if symbol["private"] else "")
+
+    def _rebuild_outline_tree(self):
+        tree = self.outline_tree
+        for item, key in self.outline_keys.items():
+            if tree.exists(item) and tree.get_children(item):
+                self.outline_open[key] = bool(tree.item(item, "open"))
+        first = tree.yview()[0]
+        tree.delete(*tree.get_children())
+        self.outline_items, self.outline_item_of, self.outline_keys = {}, {}, {}
+        symbols = self.outline_symbols
+        needle = self.outline_filter.get().strip().casefold()
+        if needle:
+            visible = set()
+            for index, symbol in enumerate(symbols):
+                if needle in symbol["name"].casefold():
+                    walk = index
+                    while walk is not None and walk not in visible:
+                        visible.add(walk)
+                        walk = symbols[walk]["parent"]
+            for index, symbol in enumerate(symbols):
+                parent = symbol["parent"]
+                if (
+                    parent is not None
+                    and parent in visible
+                    and needle in symbols[parent]["name"].casefold()
+                ):
+                    visible.add(index)
+        else:
+            visible = set(range(len(symbols)))
+        created = {}
+        for index, symbol in enumerate(symbols):
+            if index not in visible:
+                continue
+            key = (symbol["kind"], symbol["name"])
+            parent_item = created.get(symbol["parent"], "")
+            item = tree.insert(
+                parent_item,
+                "end",
+                text=self._outline_label(symbol),
+                image=self.outline_icons[symbol["kind"]],
+                open=True if needle else self.outline_open.get(key, True),
+            )
+            created[index] = item
+            self.outline_items[item] = index
+            self.outline_item_of[index] = item
+            self.outline_keys[item] = key
+        if not symbols:
+            self.outline_status.configure(text="No symbols in this file")
+        elif not visible:
+            self.outline_status.configure(text="No matching symbols")
+        else:
+            count = len(symbols)
+            self.outline_status.configure(
+                text=f"{count} symbol{'s' if count != 1 else ''}"
+            )
+        tree.yview_moveto(first)
+
+    def sync_outline_cursor(self):
+        """Highlight the symbol that holds the cursor."""
+        if not self._outline_visible() or not self.outline_symbols:
+            return
+        try:
+            line = int(self.editor.index(tk.INSERT).split(".")[0])
+        except tk.TclError:
+            return
+        item = self.outline_item_of.get(self._outline_at(self.outline_symbols, line))
+        tree = self.outline_tree
+        if item is not None and tree.exists(item):
+            if tree.selection() != (item,):
+                tree.selection_set(item)
+                tree.see(item)
+        elif tree.selection():
+            tree.selection_remove(tree.selection())
+
+    def go_to_symbol(self, index):
+        if index is None or index >= len(self.outline_symbols):
+            return
+        symbol = self.outline_symbols[index]
+        self._select_range(symbol["line"], symbol["col"], len(symbol["name"]))
+
+    def on_outline_click(self, event):
+        item = self.outline_tree.identify_row(event.y)
+        if not item:
+            return
+        if "indicator" in str(self.outline_tree.identify("element", event.x, event.y)):
+            return
+        self.outline_tree.selection_set(item)
+        self.go_to_symbol(self.outline_items.get(item))
+
+    def on_outline_return(self, event=None):
+        selection = self.outline_tree.selection()
+        if selection:
+            self.go_to_symbol(self.outline_items.get(selection[0]))
+        return "break"
+
+    def outline_first_match(self, event=None):
+        children = self.outline_tree.get_children()
+        if children:
+            self.go_to_symbol(self.outline_items.get(children[0]))
+        return "break"
+
+    def focus_outline_tree(self, event=None):
+        children = self.outline_tree.get_children()
+        if children:
+            self.outline_tree.focus_set()
+            self.outline_tree.selection_set(children[0])
+            self.outline_tree.focus(children[0])
+        return "break"
+
+    def escape_outline_filter(self, event=None):
+        if self.outline_filter.get():
+            self.outline_filter.set("")
+        else:
+            self.editor.focus_set()
+        return "break"
+
+    # ---- Side bar: switching panels
+
+    def show_side_panel(self, name, toggle=False, focus=True):
+        if name not in self.side_panels:
+            return "break"
+        if toggle and self.sidebar_visible and self.side_panel == name:
+            return self.toggle_sidebar()
+        if not self.sidebar_visible:
+            self.toggle_sidebar()
+        if name != self.side_panel:
+            self.side_panels[self.side_panel].pack_forget()
+            self.side_panels[name].pack(fill=tk.BOTH, expand=True)
+            self.side_panel = name
+        if name == "outline":
+            self.outline_structure = None
+            self.refresh_outline()
+        elif name == "explorer" and self.folder is not None:
+            self.refresh_tree()
+        self._style_activity_bar()
+        if focus:
+            {
+                "explorer": self.tree,
+                "search": self.search_entry,
+                "outline": self.outline_entry,
+            }[name].focus_set()
+        return "break"
+
+    def _style_side_panels(self):
+        if not hasattr(self, "search_panel"):
+            return
+        dark = self.theme == "dark"
+        panel = "#252526" if dark else "#f3f3f3"
+        text = "#d4d4d4" if dark else "#333333"
+        muted = "#a0a0a0" if dark else "#6f6f6f"
+        field = "#3c3c3c" if dark else "#ffffff"
+        border = "#555555" if dark else "#c8c8c8"
+        line = "#3e3e42" if dark else "#e0e0e0"
+        accent = "#3794ff" if dark else "#005fb8"
+        separators = {str(widget) for widget in self.side_separators}
+
+        def walk(widget):
+            if isinstance(widget, tk.Entry):
+                widget.configure(
+                    background=field,
+                    foreground=text,
+                    insertbackground=text,
+                    highlightbackground=border,
+                    highlightcolor=accent,
+                    disabledbackground=field,
+                    selectbackground="#264f78" if dark else "#cce5ff",
+                    selectforeground="#ffffff" if dark else "#172b4d",
+                )
+            elif isinstance(widget, tk.Label):
+                widget.configure(background=panel, foreground=muted)
+            elif isinstance(widget, tk.Frame):
+                widget.configure(
+                    background=line if str(widget) in separators else panel
+                )
+            for child in widget.winfo_children():
+                walk(child)
+
+        for container in (self.search_panel, self.outline_panel):
+            walk(container)
+        self._refresh_search_toggles()
+        self._set_search_status(*self.search_status_state)
+
+    # ---- Tabs: drag to reorder
+
+    def press_tab(self, doc, event):
+        self.tab_drag = {"doc": doc, "x0": event.x_root, "active": False}
+        self.select_document(doc)
+
+    def drag_tab(self, doc, event):
+        state = self.tab_drag
+        if not state or state["doc"] is not doc or doc not in self.docs:
+            return
+        if not state["active"]:
+            if abs(event.x_root - state["x0"]) < 6:
+                return
+            state["active"] = True
+            self._set_tab_cursor(doc, "fleur")
+        self._reorder_tab_to(doc, event.x_root - self.tab_strip.winfo_rootx())
+        left = self.tab_canvas.winfo_rootx()
+        if event.x_root < left + 24:
+            self.tab_canvas.xview_scroll(-1, "units")
+        elif event.x_root > left + self.tab_canvas.winfo_width() - 24:
+            self.tab_canvas.xview_scroll(1, "units")
+
+    def release_tab(self, doc, event=None):
+        state, self.tab_drag = self.tab_drag, None
+        if state and state["active"] and doc.tab is not None:
+            self._set_tab_cursor(doc, "hand2")
+            self.update_tab_scroll_region()
+
+    @staticmethod
+    def _set_tab_cursor(doc, cursor):
+        for widget in (doc.tab, doc.tab_accent, doc.tab_title):
+            try:
+                widget.configure(cursor=cursor)
+            except tk.TclError:
+                pass
+
+    def _reorder_tab_to(self, doc, x):
+        """Move `doc` past a neighbour once the pointer (strip coordinates) crosses that
+        neighbour's centre; tabs are repacked in place."""
+        for _ in range(len(self.docs)):
+            starts, position = [], 0
+            for item in self.docs:
+                starts.append(position)
+                position += item.tab.winfo_reqwidth() + 1
+            index = self.docs.index(doc)
+            if index + 1 < len(self.docs):
+                right = self.docs[index + 1]
+                if x > starts[index + 1] + right.tab.winfo_reqwidth() / 2:
+                    self.docs[index], self.docs[index + 1] = right, doc
+                    doc.tab.pack(after=right.tab)
+                    continue
+            if index > 0:
+                left = self.docs[index - 1]
+                if x < starts[index - 1] + left.tab.winfo_reqwidth() / 2:
+                    self.docs[index], self.docs[index - 1] = left, doc
+                    doc.tab.pack(before=left.tab)
+                    continue
+            break
 
     def open_folder(self, event=None):
         start = self.folder or (
@@ -767,6 +1950,9 @@ class CuffScriptIDE:
             for item, path in self.tree_paths.items()
             if self.tree.exists(item) and self.tree.item(item, "open")
         }
+        selected = set(self._selected_paths())
+        scroll = self.tree.yview()[0]
+        self.tree_refreshed = time.monotonic()
         self.tree.delete(*self.tree.get_children())
         self.tree_paths.clear()
         if self.folder is not None and not self._is_dir(self.folder):
@@ -786,6 +1972,11 @@ class CuffScriptIDE:
         )
         self.tree_paths[root_item] = self.folder
         self.populate_tree(root_item, expanded)
+        restored = [item for item, path in self.tree_paths.items() if path in selected]
+        if restored:
+            self.tree.selection_set(restored)
+        self.tree.update_idletasks()
+        self.tree.yview_moveto(scroll)
 
     def on_tree_open(self, event=None):
         item = self.tree.focus()
@@ -814,12 +2005,471 @@ class CuffScriptIDE:
             self.open_path(path)
         return "break"
 
-    def select_in_tree(self, path):
+    def _item_for_path(self, path):
         for item, candidate in self.tree_paths.items():
             if candidate == path and self.tree.exists(item):
-                self.tree.selection_set(item)
-                self.tree.see(item)
-                return
+                return item
+        return None
+
+    def _expand_to(self, path):
+        """Open the folders down to path (loading them if needed) and return its row."""
+        if self.folder is None:
+            return None
+        try:
+            relative = path.relative_to(self.folder)
+        except ValueError:
+            return None
+        item = next(iter(self.tree.get_children("")), None)
+        for part in relative.parts:
+            if item is None:
+                return None
+            children = self.tree.get_children(item)
+            if len(children) == 1 and children[0] not in self.tree_paths:
+                self.populate_tree(item)
+            self.tree.item(item, open=True)
+            item = next(
+                (
+                    child
+                    for child in self.tree.get_children(item)
+                    if child in self.tree_paths and self.tree_paths[child].name == part
+                ),
+                None,
+            )
+        return item
+
+    def select_in_tree(self, path, expand=False):
+        item = self._item_for_path(path)
+        if item is None and expand:
+            item = self._expand_to(path)
+        if item is not None:
+            self.tree.selection_set(item)
+            self.tree.see(item)
+
+    def on_root_focus_in(self, event):
+        # Files change outside the IDE (the terminal, a file manager); catch up when the window
+        # comes back to the front, at most once a second.
+        if (
+            event.widget is self.root
+            and self.folder is not None
+            and self.sidebar_visible
+            and getattr(self, "side_panel", "explorer") == "explorer"
+            and time.monotonic() - self.tree_refreshed > 1.0
+        ):
+            self.refresh_tree()
+
+    # ---- Explorer: context menu and file operations
+
+    WINDOWS_RESERVED_NAMES = {"CON", "PRN", "AUX", "NUL"} | {
+        f"{prefix}{number}" for prefix in ("COM", "LPT") for number in range(1, 10)
+    }
+
+    def _selected_paths(self):
+        return [
+            self.tree_paths[item]
+            for item in self.tree.selection()
+            if item in self.tree_paths
+        ]
+
+    def _creation_dir(self, paths):
+        if len(paths) == 1:
+            return paths[0] if self._is_dir(paths[0]) else paths[0].parent
+        return self.folder
+
+    def _check_name(self, name):
+        name = name.strip()
+        if not name or name in (".", ".."):
+            raise ValueError("Enter a name.")
+        if "/" in name or "\\" in name or "\0" in name:
+            raise ValueError("A name cannot contain / or \\.")
+        if len(name.encode("utf-8")) > 255:
+            raise ValueError("That name is too long.")
+        if os.name == "nt":
+            if any(char in '<>:"|?*' or ord(char) < 32 for char in name):
+                raise ValueError('A name cannot contain any of < > : " | ? *')
+            if name[-1] in ". ":
+                raise ValueError("A name cannot end with a dot or a space.")
+            if name.split(".")[0].rstrip().upper() in self.WINDOWS_RESERVED_NAMES:
+                raise ValueError("That name is reserved by Windows.")
+        return name
+
+    def _ask_name(self, title, prompt, initial=""):
+        while True:
+            value = simpledialog.askstring(
+                title, prompt, initialvalue=initial, parent=self.root
+            )
+            if value is None:
+                return None
+            try:
+                return self._check_name(value)
+            except ValueError as exc:
+                messagebox.showerror(title, str(exc), parent=self.root)
+                initial = value
+
+    @staticmethod
+    def _real_base(path):
+        """The path with its folder resolved but the last name kept (a symlink stays itself)."""
+        return Path(os.path.realpath(path.parent)) / path.name
+
+    @staticmethod
+    def _under(path, base):
+        """The parts of path below base, or None when path is not base or inside it."""
+        path_parts, base_parts = Path(path).parts, Path(base).parts
+        if len(path_parts) < len(base_parts) or any(
+            os.path.normcase(a) != os.path.normcase(b)
+            for a, b in zip(path_parts, base_parts)
+        ):
+            return None
+        return path_parts[len(base_parts) :]
+
+    def _remap(self, current, old_base, new_base):
+        rest = self._under(current, old_base)
+        return None if rest is None else Path(new_base, *rest)
+
+    def _after_move(self, old_base, new_base):
+        """Keep open tabs and the terminal folder pointing at the files that were moved."""
+        for doc in self.docs:
+            if doc.path is None:
+                continue
+            moved = self._remap(doc.path, old_base, new_base)
+            if moved is not None:
+                doc.path = moved
+                doc.disk_stamp = self._disk_stamp(moved)
+                self._refresh_tab(doc)
+        for attribute in ("shell_cwd", "last_run_path"):
+            current = getattr(self, attribute, None)
+            if current:
+                moved = self._remap(Path(current), old_base, new_base)
+                if moved is not None:
+                    setattr(self, attribute, moved)
+        if self.doc is not None:
+            self.update_title()
+
+    def _detach_document(self, doc):
+        """The file behind a tab is gone: the tab keeps its text as an unsaved document."""
+        used = {item.untitled_number for item in self.docs}
+        number = 1
+        while number in used:
+            number += 1
+        doc.path = None
+        doc.untitled_number = number
+        doc.disk_stamp = None
+        doc.dirty = True
+        self._refresh_tab(doc)
+
+    def _fs_changed(self, select=None):
+        self.refresh_tree()
+        if select is not None:
+            self.select_in_tree(select, expand=True)
+
+    def explorer_new_file(self, directory=None):
+        directory = directory or self.folder
+        if directory is None:
+            return "break"
+        name = self._ask_name(
+            "New File", f"File name (in {directory.name or directory}):"
+        )
+        if name is None:
+            return "break"
+        if not Path(name).suffix and not name.startswith("."):
+            name += ".cuff"
+        target = directory / name
+        try:
+            os.close(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666))
+        except FileExistsError:
+            messagebox.showerror(
+                "New File", f'"{name}" already exists here.', parent=self.root
+            )
+            return "break"
+        except OSError as exc:
+            messagebox.showerror(
+                "New File", f"Could not create the file.\n{exc}", parent=self.root
+            )
+            return "break"
+        self._fs_changed(select=target)
+        self.load_file(target)
+        self.status_var.set(f"Created {name}")
+        return "break"
+
+    def explorer_new_folder(self, directory=None):
+        directory = directory or self.folder
+        if directory is None:
+            return "break"
+        name = self._ask_name(
+            "New Folder", f"Folder name (in {directory.name or directory}):"
+        )
+        if name is None:
+            return "break"
+        target = directory / name
+        try:
+            os.mkdir(target)
+        except FileExistsError:
+            messagebox.showerror(
+                "New Folder", f'"{name}" already exists here.', parent=self.root
+            )
+            return "break"
+        except OSError as exc:
+            messagebox.showerror(
+                "New Folder", f"Could not create the folder.\n{exc}", parent=self.root
+            )
+            return "break"
+        self._fs_changed(select=target)
+        self.status_var.set(f"Created {name}/")
+        return "break"
+
+    def explorer_rename(self):
+        paths = self._selected_paths()
+        if len(paths) != 1 or paths[0] == self.folder:
+            self.status_var.set("Select one file or folder to rename")
+            return "break"
+        old = paths[0]
+        name = self._ask_name("Rename", f'New name for "{old.name}":', old.name)
+        if name is None or name == old.name:
+            return "break"
+        new = old.with_name(name)
+        if os.path.lexists(new) and not (
+            old.name.lower() == name.lower() and os.path.samefile(old, new)
+        ):
+            messagebox.showerror(
+                "Rename", f'"{name}" already exists here.', parent=self.root
+            )
+            return "break"
+        old_base = self._real_base(old)
+        try:
+            os.rename(old, new)
+        except OSError as exc:
+            messagebox.showerror(
+                "Rename", f"Could not rename.\n{exc}", parent=self.root
+            )
+            return "break"
+        self._after_move(old_base, old_base.with_name(name))
+        self._fs_changed(select=new)
+        self.status_var.set(f"Renamed to {name}")
+        return "break"
+
+    def _unique_copy_path(self, path):
+        stem, suffix = (
+            (path.name, "") if self._is_dir(path) else (path.stem, path.suffix)
+        )
+        number = 1
+        while True:
+            label = " copy" if number == 1 else f" copy {number}"
+            candidate = path.with_name(f"{stem}{label}{suffix}")
+            if not os.path.lexists(candidate):
+                return candidate
+            number += 1
+
+    def explorer_duplicate(self):
+        paths = self._selected_paths()
+        if len(paths) != 1 or paths[0] == self.folder:
+            self.status_var.set("Select one file or folder to duplicate")
+            return "break"
+        source = paths[0]
+        target = self._unique_copy_path(source)
+        try:
+            if self._is_dir(source) and not source.is_symlink():
+                shutil.copytree(source, target, symlinks=True)
+            else:
+                shutil.copy2(source, target)
+        except (OSError, shutil.Error) as exc:
+            messagebox.showerror(
+                "Duplicate", f"Could not copy.\n{exc}", parent=self.root
+            )
+            self._fs_changed()
+            return "break"
+        self._fs_changed(select=target)
+        self.status_var.set(f"Created {target.name}")
+        return "break"
+
+    @staticmethod
+    def _force_remove(function, path, _error):
+        # A read-only file blocks deletion on Windows: clear the flag and try once more.
+        os.chmod(path, 0o700)
+        function(path)
+
+    def _delete_path(self, path):
+        if path.is_symlink() or not self._is_dir(path):
+            try:
+                os.unlink(path)
+            except (IsADirectoryError, PermissionError):
+                if not self._is_dir(path):
+                    raise
+                os.rmdir(path)  # a directory link on Windows
+            return
+        keyword = "onexc" if sys.version_info >= (3, 12) else "onerror"
+        shutil.rmtree(path, **{keyword: self._force_remove})
+
+    def explorer_delete(self):
+        selected = [path for path in self._selected_paths() if path != self.folder]
+        targets = []
+        for path in sorted(set(selected), key=lambda item: len(item.parts)):
+            if not any(self._under(path, kept) is not None for kept in targets):
+                targets.append(path)
+        if not targets:
+            self.status_var.set("Select the files or folders to delete")
+            return "break"
+        names = [
+            item.name + ("/" if self._is_dir(item) and not item.is_symlink() else "")
+            for item in targets
+        ]
+        shown = "\n".join("    " + name for name in names[:8])
+        if len(names) > 8:
+            shown += f"\n    ... and {len(names) - 8} more"
+        bases = [self._real_base(item) for item in targets]
+        open_tabs = [
+            doc
+            for doc in self.docs
+            if doc.path is not None
+            and any(self._under(doc.path, base) is not None for base in bases)
+        ]
+        if len(targets) == 1:
+            what = (
+                "this folder and everything in it"
+                if names[0].endswith("/")
+                else "this file"
+            )
+        else:
+            what = f"these {len(targets)} items"
+        message = f"Permanently delete {what}?\n\n{shown}\n\nThis cannot be undone."
+        if open_tabs:
+            message += (
+                f"\n\n{len(open_tabs)} open tab(s) will stay open with their text, "
+                "as unsaved documents."
+            )
+        if not messagebox.askyesno(
+            "Delete", message, icon="warning", default="no", parent=self.root
+        ):
+            return "break"
+        failures = []
+        for item in targets:
+            try:
+                self._delete_path(item)
+            except OSError as exc:
+                failures.append(f"{item.name}: {exc.strerror or exc}")
+        for doc in open_tabs:
+            if not os.path.exists(doc.path):
+                self._detach_document(doc)
+        if self.doc is not None:
+            self.update_title()
+        cwd = getattr(self, "shell_cwd", None)
+        if cwd and not os.path.isdir(cwd):
+            self.shell_cwd = None
+        self._fs_changed()
+        if failures:
+            messagebox.showerror(
+                "Delete",
+                "Some items could not be deleted:\n\n" + "\n".join(failures[:10]),
+                parent=self.root,
+            )
+        else:
+            self.status_var.set(f"Deleted {len(targets)} item(s)")
+        return "break"
+
+    def explorer_copy_path(self, paths, relative=False):
+        base = self.folder
+        lines = [
+            os.path.relpath(path, base) if relative and base else str(path)
+            for path in paths
+        ]
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append("\n".join(lines))
+            self.status_var.set("Copied path" if len(lines) == 1 else "Copied paths")
+        except tk.TclError:
+            self.status_var.set("Could not access the clipboard")
+
+    def explorer_reveal(self, path):
+        folder = self._is_dir(path)
+        try:
+            if sys.platform == "win32":
+                command = ["explorer", str(path) if folder else f"/select,{path}"]
+            elif sys.platform == "darwin":
+                command = ["open", str(path)] if folder else ["open", "-R", str(path)]
+            else:
+                command = ["xdg-open", str(path if folder else path.parent)]
+            subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, ValueError):
+            self.status_var.set("Could not open the file manager")
+
+    def show_tree_menu(self, event):
+        if self.folder is None:
+            return "break"
+        row = self.tree.identify_row(event.y)
+        if row:
+            if row not in self.tree.selection():
+                self.tree.selection_set(row)
+            self.tree.focus(row)
+        else:
+            self.tree.selection_set(())
+        paths = self._selected_paths()
+        single = paths[0] if len(paths) == 1 else None
+        editable = [path for path in paths if path != self.folder]
+        directory = self._creation_dir(paths)
+        menu = self.tree_menu
+        menu.delete(0, tk.END)
+
+        def add(label, command, enabled=True, accelerator=None):
+            options = {"label": label, "command": command}
+            options["state"] = tk.NORMAL if enabled else tk.DISABLED
+            if accelerator:
+                options["accelerator"] = accelerator
+            menu.add_command(**options)
+
+        def add_creation():
+            add("New File...", lambda: self.explorer_new_file(directory))
+            add("New Folder...", lambda: self.explorer_new_folder(directory))
+
+        delete_key = "⌫" if sys.platform == "darwin" else "Del"
+        if not paths:
+            add_creation()
+            menu.add_separator()
+            add("Open in Terminal", lambda: self.open_in_terminal(self.folder))
+            add("Reveal in File Manager", lambda: self.explorer_reveal(self.folder))
+        elif single is not None:
+            is_folder = self._is_dir(single)
+            if is_folder:
+                add("Open in Terminal", lambda: self.open_in_terminal(single))
+            else:
+                add("Open", lambda: self.open_path(single))
+                if single.suffix.lower() == ".cuff":
+                    add("Run", lambda: self.run_path(single))
+            menu.add_separator()
+            add_creation()
+            menu.add_separator()
+            add("Rename...", self.explorer_rename, bool(editable), "F2")
+            add("Duplicate", self.explorer_duplicate, bool(editable))
+            add("Delete", self.explorer_delete, bool(editable), delete_key)
+            menu.add_separator()
+            add("Copy Path", lambda: self.explorer_copy_path(paths))
+            add("Copy Relative Path", lambda: self.explorer_copy_path(paths, True))
+            add("Reveal in File Manager", lambda: self.explorer_reveal(single))
+        else:
+            add(
+                f"Delete {len(editable)} Items" if editable else "Delete",
+                self.explorer_delete,
+                bool(editable),
+                delete_key,
+            )
+            menu.add_separator()
+            add("Copy Paths", lambda: self.explorer_copy_path(paths))
+            add("Copy Relative Paths", lambda: self.explorer_copy_path(paths, True))
+        menu.add_separator()
+        add("Refresh", self.refresh_tree)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+        return "break"
+
+    def open_in_terminal(self, directory):
+        self._issue_command(f"%CD {self._quote_argument(str(directory))}")
+
+    def run_path(self, path):
+        self._issue_command(f"%RUN {self._quote_argument(str(path))}")
 
     def _build_editor_area(self):
         self.paned = tk.PanedWindow(
@@ -1005,7 +2655,11 @@ class CuffScriptIDE:
         doc.tab_close.pack(side=tk.LEFT, padx=(0, 5))
         middle_button = "<Button-3>" if sys.platform == "darwin" else "<Button-2>"
         for widget in (doc.tab, doc.tab_accent, doc.tab_title):
-            widget.bind("<Button-1>", lambda event, d=doc: self.select_document(d))
+            widget.bind("<Button-1>", lambda event, d=doc: self.press_tab(d, event))
+            widget.bind("<B1-Motion>", lambda event, d=doc: self.drag_tab(d, event))
+            widget.bind(
+                "<ButtonRelease-1>", lambda event, d=doc: self.release_tab(d, event)
+            )
             widget.bind(middle_button, lambda event, d=doc: self.close_document(d))
         doc.tab_close.bind("<Button-1>", lambda event, d=doc: self.close_document(d))
         doc.tab_close.bind(
@@ -1211,6 +2865,8 @@ class CuffScriptIDE:
 
         recolor(self.root)
         self.root.configure(background="#1e1e1e" if dark else "#ffffff")
+        self._style_activity_bar()
+        self._style_side_panels()
         self.TAB_BAR_BG = "#2d2d30" if dark else "#ececec"
         self.TAB_ACTIVE_BG = "#1e1e1e" if dark else "#ffffff"
         self.FIND_BAR_BG = "#252526" if dark else "#f3f3f3"
@@ -1329,6 +2985,9 @@ class CuffScriptIDE:
             ("s", True): self.save_as_file,
             ("w", False): self.close_current_document,
             ("b", False): self.toggle_sidebar,
+            ("f", True): self.search_in_files,
+            ("e", True): self.show_explorer,
+            ("l", True): self.show_outline,
         }
         return table.get((key, shift))
 
@@ -1357,6 +3016,7 @@ class CuffScriptIDE:
         modifier = "Command" if sys.platform == "darwin" else "Control"
         self.root.bind("<F5>", lambda event: self.run_code())
         self.root.bind("<F1>", lambda event: self.show_about())
+        self.root.bind("<FocusIn>", self.on_root_focus_in, add="+")
         self.root.bind("<Shift-F5>", lambda event: self.stop_code())
         if sys.platform == "darwin":
             self.root.bind("<Command-r>", lambda event: self.run_code())
@@ -1372,6 +3032,9 @@ class CuffScriptIDE:
             (("s", True), self.save_as_file),
             (("w", False), self.close_current_document),
             (("b", False), self.toggle_sidebar),
+            (("f", True), self.search_in_files),
+            (("e", True), self.show_explorer),
+            (("l", True), self.show_outline),
         ):
             letter = key.upper() if shift else key
             sequence = (
@@ -1452,6 +3115,9 @@ class CuffScriptIDE:
             ): self.autocomplete,
             f"<{modifier}-b>": self.toggle_sidebar,
             f"<{modifier}-Shift-O>": self.open_folder,
+            f"<{modifier}-Shift-F>": self.search_in_files,
+            f"<{modifier}-Shift-E>": self.show_explorer,
+            f"<{modifier}-Shift-L>": self.show_outline,
             "<F3>": self.find_next,
             "<Shift-F3>": self.find_previous,
             "<Escape>": self.close_find_bar,
@@ -1489,7 +3155,35 @@ class CuffScriptIDE:
         self.output.configure(insertbackground="#cccccc" if active else "#1e1e1e")
 
     def clear_output(self):
-        return self.terminal_clear_screen()
+        # The Clear button and menu items type %CLEAR like any other command.
+        return self._issue_command("%CLEAR", direct=self.terminal_clear_screen)
+
+    def _issue_command(self, text, override=None, replayable=True, direct=None):
+        """Type a command into the terminal and submit it, so what the IDE does for the user is
+        also what the user could have typed. While a program owns the terminal, run direct()
+        instead (when there is one)."""
+        if self.running:
+            if direct is not None:
+                direct()
+            else:
+                self.status_var.set(
+                    "Wait for the running program to finish, or stop it"
+                )
+            return "break"
+        pending = ""
+        if self.command_input_active:
+            pending = self.output.get("terminal_input_start", "end-1c")
+        else:
+            self._prepare_command_input()
+        self.command_override = (override, replayable) if override else None
+        self.output.delete("terminal_input_start", "end-1c")
+        self.output.insert("end-1c", text)
+        self.output.mark_set(tk.INSERT, "end-1c")
+        result = self.submit_terminal_input()
+        if pending and self.command_input_active and not self.running:
+            self.output.insert("end-1c", pending)
+            self.output.mark_set(tk.INSERT, "end-1c")
+        return result
 
     @staticmethod
     def _gutter_line(doc, event):
@@ -1632,6 +3326,7 @@ class CuffScriptIDE:
 
     def on_key_release(self, event=None):
         self.update_status()
+        self.sync_outline_cursor()
         self.highlight_matching_bracket()
 
     def highlight_matching_bracket(self):
@@ -1882,9 +3577,11 @@ class CuffScriptIDE:
         )
         for tag in tags:
             self.editor.tag_remove(tag, "1.0", tk.END)
-        for start, end, tag in self._scan_highlights(source):
+        spans = self._scan_highlights(source)
+        for start, end, tag in spans:
             self.editor.tag_add(tag, f"1.0+{start}c", f"1.0+{end}c")
         self.editor.tag_raise("comment")
+        self.update_outline(source, spans)
 
     def update_status(self, event=None):
         if not hasattr(self, "editor"):
@@ -1921,8 +3618,16 @@ class CuffScriptIDE:
             ),
         )
         if file_path:
-            self.engine_path = Path(file_path).resolve()
-            self.update_engine_status()
+            chosen = Path(file_path).resolve()
+
+            def apply():
+                self.engine_path = chosen
+                self.update_engine_status()
+
+            if self.running:
+                apply()
+            else:
+                self._issue_command(f"%ENGINE {self._quote_argument(str(chosen))}")
 
     def _display_name(self, doc):
         if doc.path is not None:
@@ -2135,7 +3840,7 @@ class CuffScriptIDE:
         self.editor.focus_set()
         if self.folder is None:
             self.set_folder(self.current_file_path.parent)
-        self.select_in_tree(self.current_file_path)
+        self.select_in_tree(self.current_file_path, expand=True)
 
     @staticmethod
     def _disk_stamp(path):
@@ -3099,25 +4804,26 @@ class CuffScriptIDE:
         self.font_size = 12
         self._apply_font()
 
-    def run_code(self, event=None):
+    RUN_COMMANDS = {"RUN": (), "AST": ("--ast",), "BYTECODE": ("--bytecode",)}
+
+    def run_code(self, event=None, command="RUN"):
         if self.running:
             self.status_var.set("A script is already running")
             return "break"
         if self.doc is None:
             return "break"
-        if not self.command_input_active:
-            self._prepare_command_input()
         # Echo the same full command a user would type (%RUN <file>), but run the tab's current
         # text, so unsaved edits are included.
+        extra = list(self.RUN_COMMANDS[command])
         shown = self._quote_argument(self._display_name(self.doc))
         replayable = (
             self.doc.path is not None and self.doc.path.parent == self._terminal_cwd()
         )
-        self.command_override = (lambda: self.cmd_run([]), replayable)
-        self.output.delete("terminal_input_start", "end-1c")
-        self.output.insert("end-1c", f"%RUN {shown}")
-        self.output.mark_set(tk.INSERT, "end-1c")
-        return self.submit_terminal_input()
+        return self._issue_command(
+            f"%{command} {shown}",
+            override=lambda: self.cmd_run([], extra),
+            replayable=replayable,
+        )
 
     def _fail_run(self, text, clear):
         if clear:
@@ -3132,11 +4838,11 @@ class CuffScriptIDE:
 
     @staticmethod
     def _quote_argument(value):
-        return (
-            f'"{value}"'
-            if (not value or any(char.isspace() for char in value))
-            else value
-        )
+        # _split_command has no escapes, so quote with whichever mark the text does not contain.
+        if value and not any(char.isspace() or char in "\"'" for char in value):
+            return value
+        mark = "'" if '"' in value else '"'
+        return f"{mark}{value}{mark}"
 
     def start_run(self, path=None, flags=(), clear=True):
         if self.running:
