@@ -13,6 +13,21 @@
 
 ---
 
+## v6.1.0 - 2026-11-21
+
+## Description
+
+- **Added: bit operations in [`DLC:math`](reference/dlc/math.md#bits-and-bases).** `math_bit_and`, `math_bit_or` and `math_bit_xor` (two or more numbers), `math_bit_not(x, width)`, `math_bit_shl` and `math_bit_shr`, and `math_bit_test(x, position)`, on the whole numbers from 0 to 2^53 - 1 that a `number` holds exactly. A negative number, a fraction, a larger number, and a left shift that would push a bit past the 53rd are `E4-025`, so no bit is lost silently, and `math_bit_not` is given the width to take the complement in, as a number has none of its own. They are functions, not operators: the grammar and the loop are unchanged.
+- **Added: `math_to_base(x, base [, width])` and `math_from_base(text, base)`** in `DLC:math`. The language has no hexadecimal or binary literals, so these write a number's digits in a base from 2 to 36 (lowercase, padded with zeros to `width`) and read them back (only digits: no sign, `0x` or spaces; `E4-025` otherwise).
+- **Added: methods.** All nine are also methods: `12.bit_and(10)`, `255.to_base(16)`, and `"ff".from_base(16)` on a string.
+- **Changed: cost.** `cuffc` is 8.5 KB larger (1,200,384 to 1,208,864 bytes). The nine functions are registered from one table of function pointers, as `DLC:hardware` is; one lambda each made it 16.7 KB larger. The loop is not touched.
+- **Changed: the IDE** colours the new function names (`ide/ide.py`), and the documentation check still keeps its lists the same as the engine's.
+- **Fixed: documentation.** `known-limitations.md` said that there are no bitwise operations; it now says what there is and what there is not.
+- **Added: tests.** `libraries/math_bits` and 10 error cases (`bits_*`, `base_*`). The suite is 339 tests, from 328, and the 235 examples of the documentation pass. The new tests were also run under GCC's AddressSanitizer and UndefinedBehaviorSanitizer. Not run again for this version: the Clang sanitizers, the stress and dynamic builds, the fuzzers against 5.2.0 and the out-of-memory sweep, which were run for 6.0.0 on the code without these functions.
+- **Changed: documentation.** The math page (bits and bases, with two examples), the function index, the library table, the README, and design note 79.
+
+---
+
 ## v6.0.0 - 2026-11-20
 
 ## Description
