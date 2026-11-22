@@ -40,6 +40,9 @@ class Document:
         self.tab_accent = None
         self.tab_title = None
         self.tab_close = None
+        self.problems = []
+        self.checked_key = None
+        self.check_token = 0
 
 
 def _active(name):
@@ -279,6 +282,14 @@ class CuffScriptIDE:
         self.tree_refreshed = 0.0
         self.sidebar_visible = True
         self.side_panel = "explorer"
+        self.bottom_panel = "terminal"
+        self.problem_job = None
+        self.problem_poll_job = None
+        self.problem_pending = 0
+        self.problem_queue = queue.Queue()
+        self.problem_rows = None
+        self.problem_items = {}
+        self.problem_note = "No problems detected in the open files."
         self.tab_drag = None
         self.search_job = None
         self.search_token = 0
@@ -533,6 +544,11 @@ class CuffScriptIDE:
             label="Outline",
             accelerator=modifier_label + "+Shift+L",
             command=self.show_outline,
+        )
+        view_menu.add_command(
+            label="Problems",
+            accelerator=modifier_label + "+Shift+M",
+            command=self.show_problems,
         )
         view_menu.add_command(
             label="Toggle Side Bar",
@@ -860,11 +876,11 @@ class CuffScriptIDE:
         self.explorer_panel.pack(fill=tk.BOTH, expand=True)
         self.side_panel = "explorer"
 
-    def _make_result_tree(self, parent):
-        holder = tk.Frame(parent, background="#f3f3f3")
-        tree = ttk.Treeview(
-            holder, show="tree", selectmode="browse", style="Explorer.Treeview"
-        )
+    def _make_result_tree(
+        self, parent, style="Explorer.Treeview", background="#f3f3f3"
+    ):
+        holder = tk.Frame(parent, background=background)
+        tree = ttk.Treeview(holder, show="tree", selectmode="browse", style=style)
         tree.column("#0", width=100, stretch=True)
         scrollbar = ttk.Scrollbar(
             holder,
@@ -1913,6 +1929,307 @@ class CuffScriptIDE:
                     continue
             break
 
+    # ---- Problems panel (syntax check with `cuffc --ast`)
+
+    PROBLEM_HEADER = re.compile(
+        r"^ERROR:\s*\[([A-Z]\d+-\d+)\]\s*(.*?)\s+at line (\d+), column (\d+)"
+    )
+    PROBLEM_CARET = re.compile(r"^\s*\|[ \t]*(\^+)[ \t]?(.*)$")
+
+    @classmethod
+    def _parse_problems(cls, text, returncode):
+        """The engine reports the first syntax error as
+            ERROR: [E2-001] Syntax Error at line 1, column 8
+              | ... source line ...
+              |        ^ message
+        Column is 1-based in characters; the carets give the length of the offending token.
+        """
+        if returncode == 0:
+            return []
+        lines = text.replace("\r\n", "\n").split("\n")
+        problems = []
+        for number, line in enumerate(lines):
+            header = cls.PROBLEM_HEADER.match(line)
+            if not header:
+                continue
+            problem = {
+                "code": header.group(1),
+                "line": int(header.group(3)),
+                "column": int(header.group(4)),
+                "length": 1,
+                "message": header.group(2),
+                "hint": "",
+            }
+            seen_caret = False
+            for follow in lines[number + 1 : number + 12]:
+                if cls.PROBLEM_HEADER.match(follow):
+                    break
+                caret = None if seen_caret else cls.PROBLEM_CARET.match(follow)
+                if caret:
+                    seen_caret = True
+                    problem["length"] = len(caret.group(1))
+                    problem["message"] = caret.group(2).strip() or problem["message"]
+                    continue
+                hint = re.match(r"\s*hint:\s*(.*)", follow)
+                if hint:
+                    problem["hint"] = hint.group(1).strip()
+            problems.append(problem)
+        if not problems:
+            first = next((line.strip() for line in lines if line.strip()), "")
+            problems.append(
+                {
+                    "code": "",
+                    "line": 1,
+                    "column": 1,
+                    "length": 1,
+                    "message": first or "The compiler rejected this code",
+                    "hint": "",
+                }
+            )
+        return problems
+
+    def _engine_key(self):
+        try:
+            return (str(self.engine_path), self.engine_path.stat().st_mtime)
+        except (OSError, AttributeError):
+            return (str(getattr(self, "engine_path", None)), None)
+
+    def schedule_problems(self):
+        if getattr(self, "problem_queue", None) is None:
+            return
+        if self.problem_job is not None:
+            try:
+                self.root.after_cancel(self.problem_job)
+            except tk.TclError:
+                pass
+        self.problem_job = self.root.after(700, self.check_problems)
+
+    def recheck_problems(self):
+        """The compiler changed: every open document needs a new check."""
+        if getattr(self, "problem_queue", None) is None:
+            return
+        for doc in self.docs:
+            doc.checked_key = None
+        self.schedule_problems()
+
+    def check_problems(self):
+        self.problem_job = None
+        doc = self.doc
+        if doc is None or doc not in self.docs:
+            return
+        if self.problem_pending:
+            # One engine process at a time: a slow check must not pile up behind typing.
+            self.schedule_problems()
+            return
+        source = doc.editor.get("1.0", "end-1c")
+        key = (source, self._engine_key())
+        if key == doc.checked_key:
+            return
+        usable = bool(
+            self.engine_path
+            and self.engine_path.is_file()
+            and (os.name == "nt" or os.access(self.engine_path, os.X_OK))
+        )
+        if not usable:
+            self.problem_note = (
+                "Compiler not found. Select one with Run > Select Compiler."
+            )
+            return self._finish_problems(doc, key, [])
+        if "--ast" not in self._known_flags():
+            self.problem_note = (
+                "This compiler cannot check syntax (it has no --ast option)."
+            )
+            return self._finish_problems(doc, key, [])
+        if len(source) > self.LARGE_FILE_CHARS:
+            self.problem_note = "The syntax check is off for very large files."
+            return self._finish_problems(doc, key, [])
+        self.problem_note = "No problems detected in the open files."
+        doc.check_token += 1
+        self.problem_pending += 1
+        threading.Thread(
+            target=self._problem_worker,
+            args=(doc, doc.check_token, key, str(self.engine_path), source),
+            daemon=True,
+        ).start()
+        if self.problem_poll_job is None:
+            self.problem_poll_job = self.root.after(60, self._poll_problems)
+
+    def _problem_worker(self, doc, token, key, engine, source):
+        options = {"stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE}
+        if os.name == "nt":
+            options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            result = subprocess.run(
+                [engine, "--ast", "-"],
+                input=source.encode("utf-8", "replace"),
+                timeout=10,
+                **options,
+            )
+            outcome = (
+                "ok",
+                result.returncode,
+                result.stderr.decode("utf-8", "replace"),
+            )
+        except subprocess.TimeoutExpired:
+            outcome = ("timeout",)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            outcome = ("failed", str(exc))
+        self.problem_queue.put((doc, token, key, outcome))
+
+    def _poll_problems(self):
+        self.problem_poll_job = None
+        try:
+            while True:
+                doc, token, key, outcome = self.problem_queue.get_nowait()
+                self.problem_pending = max(0, self.problem_pending - 1)
+                if doc not in self.docs or token != doc.check_token:
+                    continue
+                if outcome[0] == "ok":
+                    problems = self._parse_problems(outcome[2], outcome[1])
+                else:
+                    problems = []
+                    self.problem_note = "The syntax check did not finish."
+                if doc.editor.get("1.0", "end-1c") != key[0]:
+                    self.schedule_problems()
+                    continue
+                self._finish_problems(doc, key, problems)
+        except queue.Empty:
+            pass
+        if self.problem_pending > 0:
+            self.problem_poll_job = self.root.after(60, self._poll_problems)
+
+    def _finish_problems(self, doc, key, problems):
+        doc.problems = problems
+        doc.checked_key = key
+        self._mark_problems(doc)
+        self._refresh_problems_ui()
+
+    def _mark_problems(self, doc):
+        """Underline each problem in its editor."""
+        editor = doc.editor
+        editor.tag_remove("problem", "1.0", tk.END)
+        last = int(editor.index("end-1c").split(".")[0])
+        for problem in doc.problems:
+            line = min(max(problem["line"], 1), last)
+            text = editor.get(f"{line}.0", f"{line}.end")
+            column = problem["column"] - 1
+            length = max(1, problem["length"])
+            if column >= len(text):
+                column, length = len(text) - 1, 1
+            if column < 0:
+                continue
+            end = min(len(text), column + length)
+            editor.tag_add(
+                "problem",
+                f"{line}.{self._tk_column(text, column)}",
+                f"{line}.{self._tk_column(text, end)}",
+            )
+
+    def _refresh_problems_ui(self):
+        if not hasattr(self, "problem_tree"):
+            return
+        rows = []
+        for doc in self.docs:
+            name = self._display_name(doc)
+            for problem in getattr(doc, "problems", ()):
+                rows.append((doc, name, problem))
+        signature = tuple(
+            (id(doc), name, p["line"], p["column"], p["message"], p["hint"])
+            for doc, name, p in rows
+        )
+        count = len(rows)
+        self.problems_tab.configure(text=f"Problems {count}" if count else "Problems")
+        self._style_bottom_tabs()
+        if signature != self.problem_rows:
+            self.problem_rows = signature
+            tree = self.problem_tree
+            tree.delete(*tree.get_children())
+            self.problem_items = {}
+            for doc, name, problem in rows:
+                text = f"{problem['message']}   {name} [Ln {problem['line']}, Col {problem['column']}]"
+                if problem["hint"]:
+                    text += f"   (hint: {problem['hint']})"
+                item = tree.insert("", "end", text=text, image=self.problem_icon)
+                self.problem_items[item] = (doc, problem)
+        if rows:
+            self.problem_empty.pack_forget()
+            self.problem_holder.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        else:
+            self.problem_holder.pack_forget()
+            self.problem_empty.configure(text=self.problem_note)
+            self.problem_empty.pack(side=tk.TOP, fill=tk.X)
+
+    def _style_bottom_tabs(self):
+        has_problems = any(getattr(doc, "problems", None) for doc in self.docs)
+        for name, label in (
+            ("terminal", self.output_header_title),
+            ("problems", self.problems_tab),
+        ):
+            if name == self.bottom_panel:
+                color = "#ffffff"
+            elif name == "problems" and has_problems:
+                color = "#f48771"
+            else:
+                color = "#9d9d9d"
+            label.configure(foreground=color)
+
+    def show_bottom_panel(self, name, focus=True):
+        if not hasattr(self, "problems_body"):
+            return "break"
+        if name != self.bottom_panel:
+            old, new = (
+                (self.terminal_body, self.problems_body)
+                if name == "problems"
+                else (self.problems_body, self.terminal_body)
+            )
+            old.pack_forget()
+            new.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            self.bottom_panel = name
+            if name == "problems":
+                self.output_clear_label.pack_forget()
+            else:
+                self.output_clear_label.pack(side=tk.RIGHT)
+            self._style_bottom_tabs()
+        if focus:
+            (self.problem_tree if name == "problems" else self.output).focus_set()
+        return "break"
+
+    def show_problems(self, event=None):
+        self._refresh_problems_ui()
+        return self.show_bottom_panel("problems")
+
+    def on_problem_click(self, event):
+        item = self.problem_tree.identify_row(event.y)
+        if item:
+            self.problem_tree.selection_set(item)
+            self.go_to_problem(item)
+
+    def on_problem_return(self, event=None):
+        selection = self.problem_tree.selection()
+        if selection:
+            self.go_to_problem(selection[0])
+        return "break"
+
+    def go_to_problem(self, item):
+        found = self.problem_items.get(item)
+        if found is None:
+            return
+        doc, problem = found
+        if doc not in self.docs:
+            return
+        self.select_document(doc)
+        editor = self.editor
+        last = int(editor.index("end-1c").split(".")[0])
+        line = min(max(problem["line"], 1), last)
+        text = editor.get(f"{line}.0", f"{line}.end")
+        column = min(max(problem["column"] - 1, 0), len(text))
+        index = f"{line}.{self._tk_column(text, column)}"
+        editor.tag_remove("sel", "1.0", tk.END)
+        editor.mark_set(tk.INSERT, index)
+        editor.see(index)
+        editor.focus_set()
+        self.update_status()
+
     def open_folder(self, event=None):
         start = self.folder or (
             self.current_file_path.parent if self.current_file_path else self.base_dir
@@ -2708,6 +3025,23 @@ class CuffScriptIDE:
         )
         self.output_header_title.pack(side=tk.LEFT)
         self.output_header = header
+        self.output_header_title.configure(cursor="hand2")
+        self.output_header_title.bind(
+            "<Button-1>", lambda event: self.show_bottom_panel("terminal")
+        )
+        self.problems_tab = tk.Label(
+            header,
+            text="Problems",
+            background="#252526",
+            foreground="#9d9d9d",
+            padx=12,
+            pady=5,
+            cursor="hand2",
+        )
+        self.problems_tab.pack(side=tk.LEFT)
+        self.problems_tab.bind(
+            "<Button-1>", lambda event: self.show_bottom_panel("problems")
+        )
         clear_label = tk.Label(
             header,
             text="Clear",
@@ -2721,6 +3055,7 @@ class CuffScriptIDE:
         clear_label.bind("<Button-1>", lambda event: self.clear_output())
         body = tk.Frame(output_frame, background="#1e1e1e")
         body.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.terminal_body = body
         self.output = tk.Text(
             body,
             wrap=tk.CHAR,
@@ -2765,7 +3100,52 @@ class CuffScriptIDE:
         )
         self.terminal_menu.add_separator()
         self.terminal_menu.add_command(label="Clear", command=self.clear_output)
+        self._build_problems_body(output_frame)
+        self._style_bottom_tabs()
         self.paned.add(output_frame, minsize=135)
+
+    def _build_problems_body(self, output_frame):
+        self.problems_body = tk.Frame(output_frame, background="#1e1e1e")
+        style = ttk.Style(self.root)
+        style.configure(
+            "Problems.Treeview",
+            background="#1e1e1e",
+            fieldbackground="#1e1e1e",
+            foreground="#cccccc",
+            borderwidth=0,
+            rowheight=24,
+        )
+        style.map(
+            "Problems.Treeview",
+            background=[("selected", "#264f78")],
+            foreground=[("selected", "#ffffff")],
+        )
+        try:
+            style.layout(
+                "Problems.Treeview", [("Treeview.treearea", {"sticky": "nswe"})]
+            )
+        except tk.TclError:
+            pass
+        self.problem_holder, self.problem_tree = self._make_result_tree(
+            self.problems_body, style="Problems.Treeview", background="#1e1e1e"
+        )
+        self.problem_empty = tk.Label(
+            self.problems_body,
+            text=self.problem_note,
+            background="#1e1e1e",
+            foreground="#858585",
+            anchor="w",
+            justify=tk.LEFT,
+            padx=12,
+            pady=10,
+        )
+        self.problem_empty.pack(side=tk.TOP, fill=tk.X)
+        icon = tk.PhotoImage(master=self.root, width=16, height=16)
+        for x1, y1, x2, y2 in ((6, 3, 10, 13), (4, 4, 12, 12), (3, 6, 13, 10)):
+            icon.put("#f14c4c", to=(x1, y1, x2, y2))
+        self.problem_icon = icon
+        self.problem_tree.bind("<ButtonRelease-1>", self.on_problem_click)
+        self.problem_tree.bind("<Return>", self.on_problem_return)
 
     def _build_status_bar(self):
         status_frame = ttk.Frame(self.root, padding=(10, 5))
@@ -2819,6 +3199,10 @@ class CuffScriptIDE:
             background="#3a3d41" if dark else "#e8eef7",
             foreground="#ffffff" if dark else "#111111",
         )
+        try:
+            editor.tag_configure("problem", underline=True, underlinefg="#f14c4c")
+        except tk.TclError:
+            editor.tag_configure("problem", underline=True)
         editor.tag_configure("search_match", background=self.FIND_MATCH_BG)
         editor.tag_configure("search_current", background=self.FIND_CURRENT_BG)
 
@@ -2984,6 +3368,16 @@ class CuffScriptIDE:
                 self.output_clear_label.configure(
                     background="#252526", foreground="#9d9d9d"
                 )
+                self.problems_tab.configure(background="#252526")
+                for frame in (
+                    self.output_header.master,
+                    self.terminal_body,
+                    self.problems_body,
+                    self.problem_holder,
+                    self.problem_empty,
+                ):
+                    frame.configure(background="#1e1e1e")
+                self._style_bottom_tabs()
             if hasattr(self, "find_bar"):
                 self.find_bar.configure(background=self.FIND_BAR_BG)
                 self.replace_row.configure(background=self.FIND_BAR_BG)
@@ -3007,6 +3401,7 @@ class CuffScriptIDE:
             ("f", True): self.search_in_files,
             ("e", True): self.show_explorer,
             ("l", True): self.show_outline,
+            ("m", True): self.show_problems,
         }
         return table.get((key, shift))
 
@@ -3054,6 +3449,7 @@ class CuffScriptIDE:
             (("f", True), self.search_in_files),
             (("e", True), self.show_explorer),
             (("l", True), self.show_outline),
+            (("m", True), self.show_problems),
         ):
             letter = key.upper() if shift else key
             sequence = (
@@ -3137,6 +3533,7 @@ class CuffScriptIDE:
             f"<{modifier}-Shift-F>": self.search_in_files,
             f"<{modifier}-Shift-E>": self.show_explorer,
             f"<{modifier}-Shift-L>": self.show_outline,
+            f"<{modifier}-Shift-M>": self.show_problems,
             "<F3>": self.find_next,
             "<Shift-F3>": self.find_previous,
             "<Escape>": self.close_find_bar,
@@ -3181,6 +3578,7 @@ class CuffScriptIDE:
         """Type a command into the terminal and submit it, so what the IDE does for the user is
         also what the user could have typed. While a program owns the terminal, run direct()
         instead (when there is one)."""
+        self.show_bottom_panel("terminal", focus=False)
         if self.running:
             if direct is not None:
                 direct()
@@ -3638,6 +4036,7 @@ class CuffScriptIDE:
                 self.editor.tag_add(tag, *pairs[first : first + 2000])
         self.editor.tag_raise("comment")
         self.update_outline(source, spans)
+        self.schedule_problems()
 
     def _highlight_visible(self, source, tags):
         """Very large files: colour only the lines around the viewport (re-done on scroll), so
@@ -3676,6 +4075,7 @@ class CuffScriptIDE:
         editor.tag_raise("comment")
         doc.highlight_window = (start, end)
         self.update_outline(None, None)
+        self.schedule_problems()
 
     def update_status(self, event=None):
         if not hasattr(self, "editor"):
@@ -3690,6 +4090,7 @@ class CuffScriptIDE:
         dirty = "* " if doc.dirty else ""
         self.root.title(f"{dirty}CuffScript IDE - {self._display_name(doc)}")
         self._refresh_tab(doc)
+        self._refresh_problems_ui()
 
     def update_engine_status(self):
         if (
@@ -3700,6 +4101,7 @@ class CuffScriptIDE:
             self.engine_var.set(f"Compiler: {self.engine_path.name}")
         else:
             self.engine_var.set("Compiler: Not found")
+        self.recheck_problems()
 
     def choose_engine(self):
         file_path = filedialog.askopenfilename(
@@ -3856,6 +4258,7 @@ class CuffScriptIDE:
             self.doc = None
         doc.tab.destroy()
         doc.frame.destroy()
+        self._refresh_problems_ui()
         if not self.docs:
             self.select_document(self._create_document())
         elif was_active:
