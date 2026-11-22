@@ -1,3 +1,4 @@
+import bisect
 import fnmatch
 import os
 import re
@@ -196,6 +197,8 @@ class CuffScriptIDE:
     }
 
     MAX_FIND_MATCHES = 5000
+    MAX_OPEN_BYTES = 8_000_000
+    LARGE_FILE_CHARS = 1_500_000
     FIND_BAR_BG = "#f3f3f3"
     FIND_MATCH_BG = "#fff3b0"
     FIND_CURRENT_BG = "#ffb86b"
@@ -1393,10 +1396,16 @@ class CuffScriptIDE:
                 return
         self._select_range(line, column, length)
 
+    @staticmethod
+    def _tk_column(line_text, column):
+        """Python column -> Tk column (a character outside the BMP is two columns in Tk)."""
+        return column + sum(1 for char in line_text[:column] if ord(char) > 0xFFFF)
+
     def _select_range(self, line, column, length):
         editor = self.editor
-        start = f"{line}.{column}"
-        end = f"{line}.{column + length}"
+        text = editor.get(f"{line}.0", f"{line}.end")
+        start = f"{line}.{self._tk_column(text, column)}"
+        end = f"{line}.{self._tk_column(text, column + length)}"
         editor.tag_remove("sel", "1.0", tk.END)
         editor.tag_add("sel", start, end)
         editor.mark_set(tk.INSERT, end)
@@ -1621,20 +1630,28 @@ class CuffScriptIDE:
         if not self._outline_visible():
             self.outline_stale = True
             return
+        if source is None:
+            self._load_outline([], note="Outline is off for very large files")
+            return
         self._load_outline(self._outline_symbols(source, spans))
 
     def refresh_outline(self):
         source = self.editor.get("1.0", "end-1c")
+        if len(source) > self.LARGE_FILE_CHARS:
+            self._load_outline([], note="Outline is off for very large files")
+            return
         self._load_outline(self._outline_symbols(source, self._scan_highlights(source)))
 
     def refilter_outline(self):
         self._load_outline(self.outline_symbols)
 
-    def _load_outline(self, symbols):
+    def _load_outline(self, symbols, note=None):
         self.outline_stale = False
+        self.outline_note = note
         structure = (
             tuple((s["kind"], s["name"], s["detail"], s["parent"]) for s in symbols),
             self.outline_filter.get(),
+            note,
         )
         self.outline_symbols = symbols
         if structure != self.outline_structure:
@@ -1700,7 +1717,9 @@ class CuffScriptIDE:
             self.outline_item_of[index] = item
             self.outline_keys[item] = key
         if not symbols:
-            self.outline_status.configure(text="No symbols in this file")
+            self.outline_status.configure(
+                text=getattr(self, "outline_note", None) or "No symbols in this file"
+            )
         elif not visible:
             self.outline_status.configure(text="No matching symbols")
         else:
@@ -3242,6 +3261,8 @@ class CuffScriptIDE:
     def on_editor_scroll(self, doc, first, last):
         doc.vertical_scrollbar.set(first, last)
         doc.line_numbers.yview_moveto(first)
+        if doc is self.doc and getattr(doc, "highlight_window", None) is not None:
+            self.schedule_highlight()
 
     @staticmethod
     def _wheel_units(event):
@@ -3551,6 +3572,30 @@ class CuffScriptIDE:
 
         return spans
 
+    @staticmethod
+    def _line_index(text):
+        """Return a function turning a character offset of `text` into a Tk 'line.column'.
+        Tk counts a character outside the BMP (an emoji) as two columns, Python as one.
+        """
+        starts = [0]
+        find = text.find
+        position = find("\n")
+        while position != -1:
+            starts.append(position + 1)
+            position = find("\n", position + 1)
+        astral = [m.start() for m in re.finditer("[\U00010000-\U0010ffff]", text)]
+
+        def index(offset):
+            line = bisect.bisect_right(starts, offset) - 1
+            column = offset - starts[line]
+            if astral:
+                column += bisect.bisect_left(astral, offset) - bisect.bisect_left(
+                    astral, starts[line]
+                )
+            return f"{line + 1}.{column}"
+
+        return index
+
     def schedule_highlight(self):
         if self.highlight_job is not None:
             try:
@@ -3575,13 +3620,62 @@ class CuffScriptIDE:
             "function",
             "operator",
         )
+        if len(source) > self.LARGE_FILE_CHARS:
+            self._highlight_visible(source, tags)
+            return
+        self.doc.highlight_window = None
         for tag in tags:
             self.editor.tag_remove(tag, "1.0", tk.END)
         spans = self._scan_highlights(source)
+        # "1.0+Ncharsc" is counted from the top on every call, which made this pass quadratic
+        # (minutes for a 10,000-line file); line.column indexes and one call per tag are not.
+        index = self._line_index(source)
+        by_tag = {}
         for start, end, tag in spans:
-            self.editor.tag_add(tag, f"1.0+{start}c", f"1.0+{end}c")
+            by_tag.setdefault(tag, []).extend((index(start), index(end)))
+        for tag, pairs in by_tag.items():
+            for first in range(0, len(pairs), 2000):
+                self.editor.tag_add(tag, *pairs[first : first + 2000])
         self.editor.tag_raise("comment")
         self.update_outline(source, spans)
+
+    def _highlight_visible(self, source, tags):
+        """Very large files: colour only the lines around the viewport (re-done on scroll), so
+        typing does not wait for a pass over megabytes of text."""
+        doc, editor = self.doc, self.editor
+        last_line = int(editor.index("end-1c").split(".")[0])
+        top = int(editor.index("@0,0").split(".")[0])
+        bottom = int(editor.index(f"@0,{editor.winfo_height()}").split(".")[0])
+        window = getattr(doc, "highlight_window", None)
+        if window is None:
+            self.status_var.set(
+                "Large file: syntax colouring covers the visible part only; Outline is off"
+            )
+        elif (window[0] <= top - 100 or window[0] == 1) and (
+            window[1] >= bottom + 100 or window[1] >= last_line
+        ):
+            self.update_outline(None, None)
+            return
+        start, end = max(1, top - 300), min(last_line, bottom + 300)
+        cleared_from = min(start, window[0]) if window else start
+        cleared_to = max(end, window[1]) if window else end
+        for tag in tags:
+            editor.tag_remove(tag, f"{cleared_from}.0", f"{cleared_to}.end")
+        chunk = editor.get(f"{start}.0", f"{end}.end")
+        index = self._line_index(chunk)
+        by_tag = {}
+        for first, last, tag in self._scan_highlights(chunk):
+            pair = []
+            for offset in (first, last):
+                line, column = index(offset).split(".")
+                pair.append(f"{int(line) + start - 1}.{column}")
+            by_tag.setdefault(tag, []).extend(pair)
+        for tag, pairs in by_tag.items():
+            for first in range(0, len(pairs), 2000):
+                editor.tag_add(tag, *pairs[first : first + 2000])
+        editor.tag_raise("comment")
+        doc.highlight_window = (start, end)
+        self.update_outline(None, None)
 
     def update_status(self, event=None):
         if not hasattr(self, "editor"):
@@ -3796,10 +3890,11 @@ class CuffScriptIDE:
             self.select_document(existing)
             return
         try:
-            if path.stat().st_size > 5_000_000:
-                raise ValueError("File is too large (over 5 MB)")
+            limit = self.MAX_OPEN_BYTES
+            if path.stat().st_size > limit:
+                raise ValueError(f"File is too large (over {limit // 1_000_000} MB)")
             with open(path, "rb") as file:
-                raw = file.read(5_000_001)
+                raw = file.read(limit + 1)
             has_bom = raw.startswith(codecs.BOM_UTF8)
             try:
                 code = (
@@ -4267,8 +4362,10 @@ class CuffScriptIDE:
         self.find_matches = [
             (match.start(), match.end()) for match in found[: self.MAX_FIND_MATCHES]
         ]
-        for start, end in self.find_matches:
-            editor.tag_add("search_match", f"1.0+{start}c", f"1.0+{end}c")
+        index = self._line_index(text)
+        pairs = [index(offset) for span in self.find_matches for offset in span]
+        for first in range(0, len(pairs), 2000):
+            editor.tag_add("search_match", *pairs[first : first + 2000])
         if not self.find_matches:
             self.find_count_var.set("No results")
             self.find_entry.configure(background=self.FIND_ERROR_BG)
@@ -4393,7 +4490,8 @@ class CuffScriptIDE:
         if pattern is None:
             return "break"
         editor = self.editor
-        found = self._collect_matches(pattern, editor.get("1.0", "end-1c"))
+        text = editor.get("1.0", "end-1c")
+        found = self._collect_matches(pattern, text)
         if not found:
             self.status_var.set("Nothing to replace")
             return "break"
@@ -4403,10 +4501,13 @@ class CuffScriptIDE:
             self.status_var.set(str(exc))
             return "break"
 
+        index = self._line_index(text)
+
         def apply():
+            # Last match first, so the positions of the earlier ones stay valid.
             for match, replacement in zip(reversed(found), reversed(replacements)):
-                first = f"1.0+{match.start()}c"
-                editor.delete(first, f"1.0+{match.end()}c")
+                first = index(match.start())
+                editor.delete(first, index(match.end()))
                 editor.insert(first, replacement)
 
         self._edit_as_one_step(apply)
@@ -6191,6 +6292,15 @@ class CuffScriptIDE:
                 self.root.after_cancel(self.poll_job)
             except tk.TclError:
                 pass
+        for job in (self.search_job, self.search_poll_job):
+            if job is not None:
+                try:
+                    self.root.after_cancel(job)
+                except tk.TclError:
+                    pass
+        self.search_job = self.search_poll_job = None
+        if self.search_cancel is not None:
+            self.search_cancel.set()
         self.root.destroy()
 
 
