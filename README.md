@@ -14,7 +14,7 @@
     <img src="https://github.com/cuffscript/cuffscript/actions/workflows/docs-check.yaml/badge.svg" alt="Documentation Check">
 </p>
 
-CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository includes its language engine, a script runner (`cuffc`), an interactive shell (`cuffsh`), built-in libraries, and runnable examples.
+CuffScript is a lightweight scripting language designed for readable, natural-language-like syntax and simple general-purpose scripting. This repository brings together the language's core source code, documentation, command-line tools (including the REPL), an IDE, example programs, test files, logo assets, and other supporting resources.
 
 The engine can be used through the command-line interpreter, embedded in a C++ application, or run in a browser through WebAssembly.
 
