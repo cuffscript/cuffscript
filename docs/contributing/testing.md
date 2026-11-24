@@ -114,7 +114,7 @@ checks and the manual checklist it prints at the end cover the shell. CI runs th
 
 `python3 tools/docs.py check` verifies that the generated pages are current, that every library function is documented and
 nothing documented is missing from the code, that every relative link and heading anchor resolves, that no limit's value is
-written outside the generated page, that the version is the same everywhere, that the build files' lists of libraries agree with the engine, that nothing in
+written outside the generated page, that the version is the same everywhere, that the list of libraries a build can leave out (`engine/dlc/libraries.txt`) agrees with the engine and is the only one, that nothing in
 `engine/`, `main.cpp` or `wasm/` includes a file of `cuffsh` (`cli/`) or the IDE (`ide/`), and that every runnable example in the docs
 produces the output shown. See [Documentation](documentation.md).
 

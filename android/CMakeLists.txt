@@ -14,7 +14,15 @@ endif()
 get_filename_component(CUFF_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 # Libraries to leave out, as in the root Makefile: -DCUFF_EXCLUDE_DLC="network;hardware". DLC:convert cannot be left out.
-set(CUFF_DLC_NAMES math string time datetime random list map json network filesystem csv hash path hardware)
+# The libraries that can be left out: the DLC_NAMES line of engine/dlc/libraries.txt.
+file(STRINGS "${CUFF_ROOT}/engine/dlc/libraries.txt" CUFF_DLC_LINE REGEX "^DLC_NAMES = ")
+string(REGEX REPLACE "^DLC_NAMES = " "" CUFF_DLC_LINE "${CUFF_DLC_LINE}")
+string(STRIP "${CUFF_DLC_LINE}" CUFF_DLC_LINE)
+separate_arguments(CUFF_DLC_NAMES UNIX_COMMAND "${CUFF_DLC_LINE}")
+if(NOT CUFF_DLC_NAMES)
+    message(FATAL_ERROR "could not read the DLC_NAMES line of ${CUFF_ROOT}/engine/dlc/libraries.txt")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CUFF_ROOT}/engine/dlc/libraries.txt")
 set(CUFF_EXCLUDE_DLC "" CACHE STRING "Libraries to leave out of the build, separated by semicolons")
 set(CUFF_DLC_DEFINITIONS "")
 foreach(dlc IN LISTS CUFF_EXCLUDE_DLC)

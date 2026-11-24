@@ -18,7 +18,11 @@ FAIL=0
 # option) is counted as left out, not failed; every other test must pass as in the full build. The unit tests that
 # name one of them are not built.
 EXCLUDED=${EXCLUDED_DLC:-}
-DLC_NAMES="math string time datetime random list map json network filesystem csv hash path hardware"
+DLC_NAMES=$(sed -n 's/^DLC_NAMES = //p' engine/dlc/libraries.txt | tr -d '\r') # the libraries that can be left out
+if [ -z "$DLC_NAMES" ]; then
+    echo "could not read the DLC_NAMES line of engine/dlc/libraries.txt" >&2
+    exit 1
+fi
 LEFT_OUT=0
 for d in $EXCLUDED; do
     case " $DLC_NAMES " in

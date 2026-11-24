@@ -4,8 +4,8 @@ CXXFLAGS += $(EXTRA_CXXFLAGS) $(DLC_FLAGS)
 
 # Libraries to leave out of the build, e.g. `make EXCLUDE_DLC="network hardware"`: each one is then unknown, as if it
 # had never existed (see docs/contributing/building.md). DLC:convert holds built-ins and cannot be left out. After changing
-# the list, build with `make -B` (the binary does not depend on it).
-DLC_NAMES = math string time datetime random list map json network filesystem csv hash path hardware
+# the list, build with `make -B` (the binary does not depend on it). The list is engine/dlc/libraries.txt (DLC_NAMES).
+include engine/dlc/libraries.txt
 EXCLUDE_DLC ?=
 ifneq ($(filter-out $(DLC_NAMES),$(EXCLUDE_DLC)),)
 $(error EXCLUDE_DLC cannot leave out $(filter-out $(DLC_NAMES),$(EXCLUDE_DLC)) (those that can be left out are: $(DLC_NAMES)))

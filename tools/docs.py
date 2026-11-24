@@ -551,28 +551,36 @@ def check_ide_words(records):
 
 
 def check_dlc_lists():
-    """A build leaves libraries out by name (EXCLUDE_DLC), and each build file checks the names against a list of its own:
-    every list must be the libraries of engine/interpreter/NativeFunctions.h that can be left out, in the same order."""
+    """A build leaves libraries out by name (EXCLUDE_DLC), and checks the names against the one list of them,
+    engine/dlc/libraries.txt: it must be the libraries of engine/interpreter/NativeFunctions.h that can be left out, in the
+    same order, and every build file must read it instead of keeping a copy of its own."""
     table = read(ROOT / "engine" / "interpreter" / "NativeFunctions.h")
     names = [n.lower() for n in re.findall(r"#ifndef CUFF_EXCLUDE_DLC_(\w+)\n", table)]
     if not names:
         problem("engine/interpreter/NativeFunctions.h: found no library that a build can leave out")
         return
-    lists = {
-        "Makefile": r"^DLC_NAMES = (.*)$",
-        "Makefile.win": r"^DLC_NAMES = (.*)$",
-        "android/jni/Android.mk": r"^DLC_NAMES := (.*)$",
-        "android/CMakeLists.txt": r"^set\(CUFF_DLC_NAMES (.*)\)$",
-        "cli/build.sh": r'^DLC_NAMES="(.*)"$',
-        "cli/build.bat": r'^set "DLC_NAMES= (.*) "$',
-        "tests/run.sh": r'^DLC_NAMES="(.*)"$',
+    lines = re.findall(r"^DLC_NAMES = (.*)$", read(ROOT / "engine" / "dlc" / "libraries.txt"), re.M)
+    if len(lines) != 1:
+        problem("engine/dlc/libraries.txt: wanted one line 'DLC_NAMES = ...', found %d" % len(lines))
+    elif lines[0].split() != names or lines[0] != " ".join(lines[0].split()):
+        problem("engine/dlc/libraries.txt: the list is %s, but the engine's table is %s" % (lines[0], " ".join(names)))
+    readers = {
+        "Makefile": "engine/dlc/libraries.txt",
+        "Makefile.win": "engine/dlc/libraries.txt",
+        "android/jni/Android.mk": "engine/dlc/libraries.txt",
+        "android/CMakeLists.txt": "engine/dlc/libraries.txt",
+        "cli/build.sh": "engine/dlc/libraries.txt",
+        "cli/build.bat": "engine\\dlc\\libraries.txt",
+        "tests/run.sh": "engine/dlc/libraries.txt",
+        ".github/workflows/build-and-test.yaml": "engine/dlc/libraries.txt",
     }
-    for rel, pattern in lists.items():
-        m = re.search(pattern, read(ROOT / rel), re.M)
-        if not m:
-            problem("%s: could not find its list of libraries (DLC_NAMES)" % rel)
-        elif m.group(1).split() != names:
-            problem("%s: its list of libraries is %s, but the engine's is %s" % (rel, m.group(1), " ".join(names)))
+    copy = re.compile(r"\b" + r"\s+".join(map(re.escape, names[:3])) + r"\b")
+    for rel, path in readers.items():
+        text = read(ROOT / rel)
+        if path not in text:
+            problem("%s: does not read the list of libraries from %s" % (rel, path))
+        if copy.search(text):
+            problem("%s: has a list of libraries of its own; it reads engine/dlc/libraries.txt instead" % rel)
     # The three makefiles upper-case the names with the same function; one with a parenthesis missing fails only when
     # EXCLUDE_DLC is given, which an ordinary build never does.
     upper = {}

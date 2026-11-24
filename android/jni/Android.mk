@@ -5,7 +5,7 @@ ENGINE_ROOT := $(LOCAL_PATH)/../..
 
 # Libraries to leave out: `ndk-build EXCLUDE_DLC="network hardware"` (or android/build.sh EXCLUDE_DLC="..."), as in the
 # root Makefile. DLC:convert cannot be left out.
-DLC_NAMES := math string time datetime random list map json network filesystem csv hash path hardware
+include $(ENGINE_ROOT)/engine/dlc/libraries.txt # DLC_NAMES, the libraries that can be left out
 ifneq ($(filter-out $(DLC_NAMES),$(EXCLUDE_DLC)),)
 $(error EXCLUDE_DLC cannot leave out $(filter-out $(DLC_NAMES),$(EXCLUDE_DLC)) (those that can be left out are: $(DLC_NAMES)))
 endif

@@ -286,7 +286,8 @@ namespace cuff
     };
 
     // The one list of `use DLC:<name>` libraries: to add one, include its header above, add a row here, and add its name
-    // to the DLC_NAMES list of each build file (`tools/docs.py check` names the files and fails until they agree). The
+    // to the DLC_NAMES line of engine/dlc/libraries.txt, which every build file reads (`tools/docs.py check` fails until
+    // the two agree). The
     // "unknown library" hint below is built from this table, in this order.
     //
     // A build can leave libraries out with -DCUFF_EXCLUDE_DLC_<NAME> (`make EXCLUDE_DLC="network hardware"`). A library

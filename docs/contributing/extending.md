@@ -32,10 +32,11 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
   `NativeFunctions.h`, and add one row to `dlcTable()` in that file, inside
   `#ifndef CUFF_EXCLUDE_DLC_<NAME>` like the others. The "unknown library" hint is
   generated from the table. The build files check the names given to `EXCLUDE_DLC`
-  against lists of their own (`DLC_NAMES` in `Makefile`, `Makefile.win`,
-  `android/jni/Android.mk`, `android/CMakeLists.txt`, `cli/build.sh`, `cli/build.bat`
-  and `tests/run.sh`): add the name to each, in the table's order;
-  `tools/docs.py check` fails until they agree. A command-line flag that only the
+  against one list, the `DLC_NAMES` line of `engine/dlc/libraries.txt`, which they all
+  read (`Makefile`, `Makefile.win` and `android/jni/Android.mk` include the file;
+  `android/CMakeLists.txt`, `cli/build.sh`, `cli/build.bat`, `tests/run.sh` and CI read
+  the line): add the name there, in the table's order. `tools/docs.py check` fails until
+  the list and the table agree, and when a build file keeps a list of its own. A command-line flag that only the
   library reads goes inside the same `#ifndef` in `engine/EngineOptionsCli.h`, and
   `tests/run.sh` (`dlc_flags`) learns it too. Make sure the name does not collide
   with an existing library.

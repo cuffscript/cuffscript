@@ -1,0 +1,6 @@
+# The libraries that a build can leave out with EXCLUDE_DLC, in the order of the engine's table (dlcTable in
+# engine/interpreter/NativeFunctions.h). This is the only copy of the list: Makefile, Makefile.win and
+# android/jni/Android.mk include this file, and android/CMakeLists.txt, cli/build.sh, cli/build.bat, tests/run.sh and the
+# CI workflow read the line below. tools/docs.py check fails when it differs from the table. Keep that line as it is:
+# DLC_NAMES, a space, an equals sign, a space, and the names separated by single spaces.
+DLC_NAMES = math string time datetime random list map json network filesystem csv hash path hardware

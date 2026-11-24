@@ -53,10 +53,10 @@ jobs:
                 if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: |
-                    all="math string time datetime random list map json network filesystem csv hash path hardware"
+                    all=$(sed -n 's/^DLC_NAMES = //p' engine/dlc/libraries.txt) # every library that can be left out
                     make -B TARGET=cuffc-reduced EXCLUDE_DLC="$all"
                     EXCLUDED_DLC="$all" CUFFC=./cuffc-reduced bash tests/run.sh
-                    EXCLUDE_DLC="network hardware" ./cli/build.sh
+                    EXCLUDE_DLC="network hardware" bash cli/build.sh
                     ./cli/cuffsh --help | grep -q -- --no-filesystem
                     ! ./cli/cuffsh --help | grep -q -- --hardware
 
@@ -128,6 +128,6 @@ jobs:
                         echo "No Android NDK on this runner (a local act image has none): skipped."
                         exit 0
                     fi
-                    ANDROID_NDK_HOME="$ndk" android/build.sh -j4
-                    ANDROID_NDK_HOME="$ndk" android/build.sh -B APP_ABI=arm64-v8a EXCLUDE_DLC="network hardware" -j4
+                    ANDROID_NDK_HOME="$ndk" bash android/build.sh -j4
+                    ANDROID_NDK_HOME="$ndk" bash android/build.sh -B APP_ABI=arm64-v8a EXCLUDE_DLC="network hardware" -j4
                     ls -l android/libs/*/cuffc android/libs/*/cuffsh

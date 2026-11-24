@@ -8,7 +8,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 CXX="${CXX:-g++}"
 
 # EXCLUDE_DLC="network hardware" leaves those libraries out, as `make EXCLUDE_DLC=...` does for cuffc.
-DLC_NAMES="math string time datetime random list map json network filesystem csv hash path hardware"
+DLC_NAMES=$(sed -n 's/^DLC_NAMES = //p' ../engine/dlc/libraries.txt | tr -d '\r') # the libraries that can be left out
+if [ -z "$DLC_NAMES" ]; then
+    echo "could not read the DLC_NAMES line of engine/dlc/libraries.txt" >&2
+    exit 1
+fi
 DLC_FLAGS=()
 for dlc in ${EXCLUDE_DLC:-}; do
     case " $DLC_NAMES " in

@@ -50,7 +50,8 @@ A library left out is unknown to that binary, exactly as a name that never exist
 lists the libraries that are there; `x.sqrt()` without `DLC:math` is "number has no method 'sqrt'"; the command-line flags that only
 the library reads (`--no-network` and `--allow-private-network`, `--no-filesystem`, `--hardware`) are unknown options and are not
 in `--help`. Its code is not in the binary. `DLC:convert` cannot be left out: its functions are also built-ins of every program.
-A name that is not one of the libraries that can be left out stops the build, with the list of those that can. Use `make -B` after changing the list, because the binary does not depend on it.
+A name that is not one of the libraries that can be left out stops the build, with the list of those that can; that list is
+`engine/dlc/libraries.txt`, the one every build reads. Use `make -B` after changing the list, because the binary does not depend on it.
 
 The documentation, the IDE and `tools/docs.py` describe the full build: a library left out of one binary is still part of the
 language. For C++, `Engine::Options` keeps every field in every build, so a host compiles against either; a field of a library

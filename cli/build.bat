@@ -13,7 +13,13 @@ cd /d "%~dp0"
 if not defined CXX set "CXX=g++"
 
 REM set EXCLUDE_DLC=network hardware   leaves those libraries out, as make EXCLUDE_DLC=... does for cuffc.
-set "DLC_NAMES= math string time datetime random list map json network filesystem csv hash path hardware "
+REM The libraries that can be left out: the DLC_NAMES line of ..\engine\dlc\libraries.txt, with a space at each end.
+set "DLC_NAMES="
+for /f "tokens=1,* delims==" %%a in ('findstr /b /c:"DLC_NAMES =" "..\engine\dlc\libraries.txt"') do set "DLC_NAMES=%%b "
+if not defined DLC_NAMES (
+    echo could not read the DLC_NAMES line of engine\dlc\libraries.txt
+    exit /b 1
+)
 set "DLC_FLAGS="
 for %%d in (%EXCLUDE_DLC%) do (
     if "!DLC_NAMES: %%d =!"=="!DLC_NAMES!" (

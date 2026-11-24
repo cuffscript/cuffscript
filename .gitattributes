@@ -3,3 +3,4 @@
 CHANGELOG.md -text
 Makefile.win linguist-language=Makefile
 *.cuff text eol=lf
+engine/dlc/libraries.txt text eol=lf

@@ -70,6 +70,7 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 | `regex/RegexMatcher.h` | Matches a tree against text, with the step, time and recursion budgets. |
 | `regex/RegexEngine.h` | Compiles patterns and exposes whole-text matching, `match`, `find`, `replace`, `split` and `count`; the value behind a `pattern` (`PatternData`: the compiled pattern with its source text and flags). |
 | `dlc/DLCCommon.h` | Argument checking shared by every library, number parsing for `to_number`, case mapping. |
+| `dlc/libraries.txt` | The names of the libraries a build can leave out (`EXCLUDE_DLC`), read by every build file. |
 | `dlc/MethodTable.h` | The one list of built-in methods: which function runs for `value.name(...)`, on which kinds of value, from which library. |
 | `dlc/MathDLC.h`, `StringDLC.h`, `ListDLC.h`, `MapDLC.h`, `ConvertDLC.h`, `TimeDLC.h`, `DatetimeDLC.h`, `RandomDLC.h`, `JsonDLC.h`, `CsvDLC.h`, `HashDLC.h`, `PathDLC.h` | One library each: [`DLC:math`](../reference/dlc/math.md) and the others. `HashDLC.h` holds its own SHA-1, SHA-256, SHA-512, MD5 and CRC-32. |
 | `dlc/FilesystemDLC.h`, `NetworkDLC.h` | The two libraries that act on the outside world. |

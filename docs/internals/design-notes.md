@@ -2049,8 +2049,10 @@ from before the libraries counted calls 5.1% fewer; that arrangement of the loop
   would make a library that is absent and present at once.
 - **The documentation describes the full build.** A library that one binary leaves out is still part of the language; the pages,
   the IDE's word lists and the function index stay as they are. What each library costs is in the build documentation, measured.
-- **Each build file checks the names against its own list** (`DLC_NAMES` in seven files), because a misspelt name would otherwise
-  leave the library in without a word. `tools/docs.py check` keeps the seven lists equal to the table, and the three makefiles'
+- **Every build file checks the names against one list**, `engine/dlc/libraries.txt`, because a misspelt name would otherwise
+  leave the library in without a word. Its one line is make syntax (`DLC_NAMES = math string ...`), so the three makefiles
+  include it, and CMake, the shell and batch scripts and CI read that line; there is no copy to keep in step. `tools/docs.py
+  check` keeps it equal to the table, fails when a build file has a list of its own, and keeps the three makefiles'
   `dlc_upper` the same: one with a parenthesis missing fails only when a name is given, which an ordinary build never does. `tests/run.sh` with
   `EXCLUDED_DLC` runs the suite on such a binary: a test that stops at the library that is not there counts as left out, every
   other test must pass as it does in the full build, and a binary that still has the library fails at once.
