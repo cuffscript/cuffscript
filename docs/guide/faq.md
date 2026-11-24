@@ -169,8 +169,6 @@ print(total)
 
 **How do I make an HTTP request?** `use DLC:network`, then `network_get` or `network_post`. It is plain HTTP only: there is no TLS, so `https://` addresses are refused. See [`DLC:network`](../reference/dlc/network.md).
 
-**How do I wait or sleep?** There is no sleep function. `DLC:time` gives the clock (`time_now`) and nothing more.
-
 **Is the random generator suitable for passwords?** No. See [`DLC:random`](../reference/dlc/random.md).
 
 ## Running other people's scripts
