@@ -28,6 +28,17 @@ cmake -S android -B build-android -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build
 cmake --build build-android
 ```
 
+## Leaving libraries out
+
+As with the root `Makefile` (see [Building](../docs/contributing/building.md#leaving-libraries-out)), name the libraries to leave out:
+
+```bash
+ANDROID_NDK_HOME=/path/to/android-ndk android/build.sh EXCLUDE_DLC="network hardware"
+cmake -S android -B build-android ... -DCUFF_EXCLUDE_DLC="network;hardware"
+```
+
+On Windows, `android\build.bat EXCLUDE_DLC="network hardware"`.
+
 ## Run on a device
 
 ```bash

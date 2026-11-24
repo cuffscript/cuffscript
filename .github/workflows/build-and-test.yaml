@@ -48,6 +48,17 @@ jobs:
                 if: matrix.os == 'ubuntu-latest'
                 shell: bash
                 run: python3 tests/coverage.py
+            -
+                name: Build without every library that can be left out, and test it
+                if: matrix.os == 'ubuntu-latest'
+                shell: bash
+                run: |
+                    all="math string time datetime random list map json network filesystem csv hash path hardware"
+                    make -B TARGET=cuffc-reduced EXCLUDE_DLC="$all"
+                    EXCLUDED_DLC="$all" CUFFC=./cuffc-reduced bash tests/run.sh
+                    EXCLUDE_DLC="network hardware" ./cli/build.sh
+                    ./cli/cuffsh --help | grep -q -- --no-filesystem
+                    ! ./cli/cuffsh --help | grep -q -- --hardware
 
     build-and-test-windows:
         needs: ignore
@@ -85,3 +96,38 @@ jobs:
                 name: Build the interactive shell
                 shell: cmd
                 run: cli\build.bat
+            -
+                name: Build without some libraries
+                shell: cmd
+                run: |
+                    mingw32-make -f Makefile.win -B TARGET=cuffc-reduced.exe EXCLUDE_DLC="network hardware"
+                    if errorlevel 1 exit /b 1
+                    cuffc-reduced.exe --help | findstr /c:"--hardware" && exit /b 1
+                    set "EXCLUDE_DLC=network hardware"
+                    call cli\build.bat
+                    if errorlevel 1 exit /b 1
+                    cli\cuffsh.exe --help | findstr /c:"--hardware" && exit /b 1
+                    exit /b 0
+
+    build-android:
+        needs: ignore
+        if: needs.ignore.outputs.skip != 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+
+        steps:
+            -
+                name: Checkout code
+                uses: actions/checkout@v4
+            -
+                name: Build for Android with the runner's NDK
+                shell: bash
+                run: |
+                    ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+                    if [ -z "$ndk" ] || [ ! -x "$ndk/ndk-build" ]; then
+                        echo "No Android NDK on this runner (a local act image has none): skipped."
+                        exit 0
+                    fi
+                    ANDROID_NDK_HOME="$ndk" android/build.sh -j4
+                    ANDROID_NDK_HOME="$ndk" android/build.sh -B APP_ABI=arm64-v8a EXCLUDE_DLC="network hardware" -j4
+                    ls -l android/libs/*/cuffc android/libs/*/cuffsh

@@ -100,3 +100,11 @@ the current directory. See [Modules](../guide/modules.md).
 Source is UTF-8. A leading byte order mark is ignored, and lines may end in LF or CRLF. The file is read as
 bytes, so it is not changed on the way in on any platform. The engine does not check the text inside a string literal for valid UTF-8, so a stray byte there is passed through to the output as it is; a
 program in another encoding (Latin-1, EUC-KR, Shift-JIS) should be converted to UTF-8 first.
+
+## Text and file names on Windows
+
+`cuffc.exe` reads its command line as Unicode, so a script's name and folder may hold any character, whatever language Windows is
+set to, and a module beside the script is found by the same folder. On a console, what the program prints and what `input()` reads
+are UTF-8 for as long as it runs, whatever the console's own code page is (949 for Korean, 437 for English), so `print("한글")`
+is not garbled; the console's code page is put back when the program ends, also after Ctrl+C. When the output goes to a pipe or a file, its bytes are the
+program's UTF-8, unchanged, as on every other platform.

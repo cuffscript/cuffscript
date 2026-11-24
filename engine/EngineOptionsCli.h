@@ -1,7 +1,9 @@
 #pragma once
 
 #include "CuffEngine.h"
+#ifndef CUFF_EXCLUDE_DLC_HARDWARE
 #include "DesktopHardware.h"
+#endif
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
@@ -51,15 +53,7 @@ namespace cuff
             return true;
         };
 
-        if (arg == "--no-network")
-            options.networkEnabled = false;
-        else if (arg == "--allow-private-network")
-            options.allowPrivateNetworkTargets = true;
-        else if (arg == "--no-filesystem")
-            options.filesystemEnabled = false;
-        else if (arg == "--hardware")
-            options.hardware = desktopHardware();
-        else if (arg == "--root")
+        if (arg == "--root")
         {
             std::string v;
             if (!needValue(v))
@@ -82,23 +76,45 @@ namespace cuff
             else
                 options.timeoutMs = static_cast<uint32_t>(std::min<uint64_t>(n, UINT32_MAX));
         }
+#ifndef CUFF_EXCLUDE_DLC_NETWORK
+        else if (arg == "--no-network")
+            options.networkEnabled = false;
+        else if (arg == "--allow-private-network")
+            options.allowPrivateNetworkTargets = true;
+#endif
+#ifndef CUFF_EXCLUDE_DLC_FILESYSTEM
+        else if (arg == "--no-filesystem")
+            options.filesystemEnabled = false;
+#endif
+#ifndef CUFF_EXCLUDE_DLC_HARDWARE
+        else if (arg == "--hardware")
+            options.hardware = desktopHardware();
+#endif
         else
             return OptionStatus::NotEngineOption;
         return OptionStatus::Consumed;
     }
 
-    // Usage lines for the flags parseEngineOption() accepts, so every front end documents them identically.
+    // Usage lines for the flags parseEngineOption() accepts, so every front end documents them identically. A flag that
+    // only a library reads is not there in a build that leaves the library out.
     inline const char *engineOptionsHelp()
     {
         return "  --root <dir>           allow 'use ... from' to load modules anywhere under <dir>\n"
                "  --max-steps <n>        stop after <n> loop iterations + function calls (0 = unlimited)\n"
                "  --timeout <ms>         stop after <ms> milliseconds of run time (0 = unlimited)\n"
+#ifndef CUFF_EXCLUDE_DLC_NETWORK
                "  --no-network           switch DLC:network off (calls into it raise E5-005)\n"
                "  --allow-private-network\n"
                "                         let DLC:network reach loopback/private/link-local addresses\n"
+#endif
+#ifndef CUFF_EXCLUDE_DLC_FILESYSTEM
                "  --no-filesystem        switch DLC:filesystem off (calls into it raise E5-005)\n"
+#endif
+#ifndef CUFF_EXCLUDE_DLC_HARDWARE
                "  --hardware             give DLC:hardware this computer's battery, temperature and beep\n"
-               "                         (off by default: every hw_ function then raises E4-044)\n";
+               "                         (off by default: every hw_ function then raises E4-044)\n"
+#endif
+            ;
     }
 
 }

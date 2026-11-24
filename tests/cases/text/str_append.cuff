@@ -1,0 +1,46 @@
+note: `t = t + more` adds to the text in place when `t` alone holds it; every other holder keeps what it had.
+func build() do:
+    str t = ""
+    str keep = ""
+    list parts = []
+    map seen = {}
+    loop repeat number i = 1 ~ 4 do:
+        t = t + "한"
+        keep = t
+        add t to parts
+        seen[to_str(i)] = t
+        t = t + "a"
+    end
+    return [t, keep, parts, seen, t.length(), t[3], t[8], keep.length()]
+end
+print(build())
+
+func twice(str s) do:
+    s = s + "!"
+    return s
+end
+str word = "hi"
+print(twice(word), word)
+
+func doubled() do:
+    str t = "ab"
+    t = t + t
+    t = t + t
+    t = t + ""
+    return t
+end
+print(doubled())
+
+note: a long text built piece by piece, then read
+func long() do:
+    str t = ""
+    loop repeat number i = 1 ~ 3000 do:
+        t = t + "é"
+    end
+    return [t.length(), t[3000], t[1 ~ 3]]
+end
+print(long())
+
+str g = "top"
+g = g + "level"
+print(g)

@@ -38,7 +38,7 @@ The words this documentation uses in a particular way, in alphabetical order. Ea
 
 **engine.** The C++ headers under `engine/` that tokenize, parse and run CuffScript. `cuffc`, `cuffsh` and the WebAssembly package are front ends to it.
 
-**Error.** The built-in class that describes what went wrong, with the fields `message`, `code`, `line`, `column` and `hint`. A handler written `or_else as Error err` receives one; `fail` raises one; a class of your own may extend it. See [errors are objects](classes.md#errors-are-objects).
+**Error.** The built-in class that describes what went wrong, with the fields `message`, `code`, `line`, `column`, `hint` and `backtrace`. A handler written `or_else as Error err` receives one; `fail` raises one; a class of your own may extend it. See [errors are objects](classes.md#errors-are-objects).
 
 **f-string.** A string written `f"..."` in which `{expression}` is replaced by the display form of the expression's value. `{{` and `}}` are literal braces.
 

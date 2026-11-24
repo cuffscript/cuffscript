@@ -4,6 +4,10 @@
 
 // Building with -DCUFF_DISABLE_NETWORK leaves out the socket client (and its platform headers) for targets
 // without sockets; `use DLC:network` still loads, and its functions fail with the same "unavailable" error.
+// -DCUFF_EXCLUDE_DLC_NETWORK leaves the library out altogether (interpreter/NativeFunctions.h), and the client with it.
+#if defined(CUFF_EXCLUDE_DLC_NETWORK) && !defined(CUFF_DISABLE_NETWORK)
+#define CUFF_DISABLE_NETWORK
+#endif
 #ifndef CUFF_DISABLE_NETWORK
 #include "../net/HttpClient.h"
 #endif

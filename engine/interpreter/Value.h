@@ -159,7 +159,7 @@ namespace cuff
         }
         static Value makeStr(std::string s)
         {
-            return makeStr(std::make_shared<const StrData>(std::move(s)));
+            return makeStr(std::make_shared<StrData>(std::move(s))); // not a const object: binarySlow may add to it
         }
         static Value makeStr(StrPtr p)
         {
@@ -436,7 +436,7 @@ namespace cuff
                 std::vector<StrPtr> t;
                 t.reserve(128);
                 for (int i = 0; i < 128; ++i)
-                    t.push_back(std::make_shared<const StrData>(std::string(1, static_cast<char>(i))));
+                    t.push_back(std::make_shared<StrData>(std::string(1, static_cast<char>(i))));
                 return t;
             }();
             return table;
@@ -1208,38 +1208,68 @@ namespace cuff
         return false;
     }
 
-    inline void appendCuffNumber(std::string &out, double d)
+    // The text of a number as the language writes it, into `buf` (40 bytes is always enough). Returns its length.
+    inline size_t cuffNumberText(char *buf, double d)
     {
         if (std::isnan(d))
         {
-            out += "NaN";
-            return;
+            std::memcpy(buf, "NaN", 3);
+            return 3;
         }
         if (std::isinf(d))
         {
-            out += d > 0 ? "Infinity" : "-Infinity";
-            return;
-        }
-        char buf[40];
-        if (std::fabs(d) < 1e15 && d == std::floor(d))
-        {
-            // A whole number, which is what most numbers a program shows are: its digits, written from the last one
-            // back. The text is what "%lld" gives, without the cost of going through printf.
-            const long long n = static_cast<long long>(d);
-            unsigned long long u = n < 0 ? 0ULL - static_cast<unsigned long long>(n) : static_cast<unsigned long long>(n);
-            char *const end = buf + sizeof buf;
-            char *p = end;
-            do
+            if (d > 0)
             {
-                *--p = static_cast<char>('0' + u % 10);
-                u /= 10;
-            } while (u != 0);
-            if (n < 0)
-                *--p = '-';
-            out.append(p, static_cast<size_t>(end - p));
-            return;
+                std::memcpy(buf, "Infinity", 8);
+                return 8;
+            }
+            std::memcpy(buf, "-Infinity", 9);
+            return 9;
         }
-        out.append(buf, numtext::format15g(buf, sizeof buf, d));
+        if (std::fabs(d) < 1e15)
+        {
+            // A whole number, which is what most numbers a program shows are: what "%lld" gives, without the cost of
+            // going through printf. The round trip through long long tells a whole number (|d| < 1e15 fits) without a
+            // call to floor, and the digits go two at a time.
+            const long long n = static_cast<long long>(d);
+            if (static_cast<double>(n) == d)
+            {
+                static constexpr char kPairs[] = "00010203040506070809101112131415161718192021222324252627282930313233343536373839"
+                                                 "40414243444546474849505152535455565758596061626364656667686970717273747576777879"
+                                                 "8081828384858687888990919293949596979899";
+                unsigned long long u = n < 0 ? 0ULL - static_cast<unsigned long long>(n) : static_cast<unsigned long long>(n);
+                size_t digits = 1;
+                for (unsigned long long p = 10; digits < 16 && u >= p; p *= 10)
+                    ++digits;
+                const size_t len = digits + (n < 0 ? 1 : 0);
+                char *q = buf + len;
+                while (u >= 100)
+                {
+                    const unsigned r = static_cast<unsigned>(u % 100) * 2;
+                    u /= 100;
+                    *--q = kPairs[r + 1];
+                    *--q = kPairs[r];
+                }
+                if (u >= 10)
+                {
+                    const unsigned r = static_cast<unsigned>(u) * 2;
+                    *--q = kPairs[r + 1];
+                    *--q = kPairs[r];
+                }
+                else
+                    *--q = static_cast<char>('0' + u);
+                if (n < 0)
+                    *--q = '-';
+                return len;
+            }
+        }
+        return numtext::format15g(buf, 40, d);
+    }
+
+    inline void appendCuffNumber(std::string &out, double d)
+    {
+        char buf[40];
+        out.append(buf, cuffNumberText(buf, d));
     }
 
     inline std::string formatCuffNumber(double d)

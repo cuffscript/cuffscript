@@ -72,7 +72,7 @@ session survives.
 
 ## Windows details
 
-The command line is read as UTF-16 and converted to UTF-8; paths are converted back for the engine with `platform::enginePath`.
+The command line is read as UTF-16 and converted to UTF-8, which is what the engine reads paths as, so they are handed over as they are.
 Standard input is read as UTF-16 from the console and converted, so `input()` returns UTF-8. Under Git Bash (mintty) a Windows
 program has no console, which the shell detects and reports. The executable is linked statically so it needs no runtime DLLs.
 

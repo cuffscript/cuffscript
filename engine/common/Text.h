@@ -109,6 +109,22 @@ namespace cuff
 
         const std::string &text() const { return text_; }
 
+        // Adds `more` at the end. Only for a text that one value alone holds, which nothing else can have seen: the
+        // engine checks that before it calls this (Interpreter::binarySlow). A text that stays ASCII needs nothing
+        // else; otherwise what was remembered about it is forgotten, because bytes that did not end a character can
+        // end one now.
+        void append(const std::string &more)
+        {
+            text_ += more;
+            if (asciiState_ == 1 && isAscii(more.data(), more.size()))
+                return;
+            if (asciiState_ == 1)
+                asciiState_ = 0;
+            cpCount_ = kUnknown;
+            cursorCp_ = 0;
+            cursorByte_ = 0;
+        }
+
         bool ascii() const
         {
             if (asciiState_ < 0)
@@ -165,10 +181,11 @@ namespace cuff
         mutable uint32_t cursorByte_ = 0;
         mutable int8_t asciiState_ = -1;
 
-        bool scanAscii() const
+        bool scanAscii() const { return isAscii(text_.data(), text_.size()); }
+
+        static bool isAscii(const char *p, size_t n)
         {
-            const char *p = text_.data();
-            size_t n = text_.size(), i = 0;
+            size_t i = 0;
             for (; i + 8 <= n; i += 8)
             {
                 uint64_t w;

@@ -133,8 +133,10 @@ wait while it runs) and it cannot use the engine that called it. The full list i
 
 A library that is switched off raises `E5-005` from every call; see [the rules for libraries](../reference/dlc/README.md#libraries-that-reach-outside-the-program).
 
-Paths in the options and in `scriptDir` are the platform's own narrow encoding. On Windows that is the ANSI code page; the shell converts its
-UTF-8 paths with `platform::enginePath` (see `cli/Platform.h`) before handing them over.
+Paths in the options and in `scriptDir` are UTF-8, like every other string of the engine, on every platform. On Windows, a string that is
+not UTF-8 is read in the ANSI code page instead, which is how every path was read before 6.2.0, so a host that passes ANSI paths keeps
+working. A host on Windows that has a path as `std::filesystem::path` hands over `path.u8string()`, not `path.string()`, which throws for
+a name outside the ANSI code page.
 
 `cuffc` and `cuffsh` build their `Options` from the command line with `parseEngineOption` in `engine/EngineOptionsCli.h`, which a
 host can call too, to accept the same flags with the same meaning.

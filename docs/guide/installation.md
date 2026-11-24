@@ -89,13 +89,24 @@ standard functions are inside the binary.
 
 ## Build options
 
-`EXTRA_CXXFLAGS` adds compiler flags to every target. The only option that changes what is built is `-DCUFF_DISABLE_NETWORK`, which leaves the network client out of the binary entirely, for a build that must never be able to reach the network:
+`EXCLUDE_DLC` leaves libraries out of the binary, for a device that has no use for them or a smaller file. A library left out is
+unknown to that binary, exactly as a name that never existed: `use DLC:network` is `E5-004`, and the flags that only it reads,
+such as `--hardware`, are not options. `DLC:convert` cannot be left out, because its functions are built-ins.
+
+```sh
+make -B EXCLUDE_DLC="network hardware"
+```
+
+The documentation describes the full build. Which libraries each one costs, and the same option for the shell, Windows, Android
+and WebAssembly, are in [Building](../contributing/building.md#leaving-libraries-out).
+
+`EXTRA_CXXFLAGS` adds compiler flags to every target. `-DCUFF_DISABLE_NETWORK` leaves the network client out but keeps the
+library: `use DLC:network` loads, and its functions report that the feature is unavailable, as if every program ran with
+`--no-network`.
 
 ```sh
 make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK
 ```
-
-A binary built this way behaves as if every program ran with `--no-network`.
 
 ## Building for the browser
 

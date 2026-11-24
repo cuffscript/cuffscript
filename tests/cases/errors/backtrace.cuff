@@ -1,0 +1,74 @@
+note: Error.backtrace: the frames an error came out of, innermost first.
+use parsing from ./fixtures
+
+func show(any e) do:
+    loop each map t in e.backtrace do:
+        print("  " + t["function"] + "|" + t["file"] + "|" + to_str(t["line"]) + "|" + to_str(t["column"]) + "|" + to_str(t["repeated"]))
+    end
+end
+
+class Server do:
+    number port = 0
+    func init(str p) do:
+        self.port = parse_port(p)
+    end
+end
+func start(str p) do:
+    return Server(p)
+end
+
+note: through a method, a function of a module, and the top level
+start("80a") or_else as Error e do:
+    print(e.code, length(e.backtrace))
+    show(e)
+end
+
+note: raised at the top level: one entry
+number zero = 0
+number q = 1 / zero or_else as Error e do:
+    print(e.code, length(e.backtrace))
+    show(e)
+end
+
+note: recursion is one entry with the number of repeats
+func down(number n) do:
+    if n is 0 do:
+        fail "bottom"
+    end
+    return down(n - 1)
+end
+down(5) or_else as Error e do:
+    print(e.message, length(e.backtrace))
+    show(e)
+end
+
+note: caught, raised again: the first frames stay, and the `fail` that raised it again follows
+func catcher() do:
+    start("x") or_else as Error e do:
+        return e
+    end
+end
+any caught = catcher()
+func again(any e) do:
+    fail e
+end
+again(caught) or_else as Error e do:
+    print(e.code, length(e.backtrace))
+    show(e)
+end
+
+note: an error in a task reaches the frame that awaits it
+async func work(number n) do:
+    return 10 / n
+end
+func run() do:
+    any t = work(0)
+    return await t
+end
+run() or_else as Error e do:
+    print(e.code, length(e.backtrace))
+    show(e)
+end
+
+note: an Error made by the program has none until it is raised
+print(length(Error("made").backtrace))

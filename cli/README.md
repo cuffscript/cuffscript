@@ -5,6 +5,7 @@
 ```sh
 ./cli/build.sh          # Linux, macOS  ->  cli/cuffsh
 cli\build.bat           # Windows       ->  cli\cuffsh.exe
+EXCLUDE_DLC="network hardware" ./cli/build.sh   # without those libraries (set EXCLUDE_DLC=... on Windows)
 ```
 
 Using it is described in the [`cuffsh` reference](../docs/reference/cuffsh.md); how it is built is in

@@ -411,7 +411,7 @@ namespace cuff
             uint32_t functionId;
         };
         std::unordered_map<uint32_t, std::vector<BoundMethod>> builtinMethods_;
-        size_t errMessageIdx_ = 0, errCodeIdx_ = 0, errLineIdx_ = 0, errColumnIdx_ = 0, errHintIdx_ = 0;
+        size_t errMessageIdx_ = 0, errCodeIdx_ = 0, errLineIdx_ = 0, errColumnIdx_ = 0, errHintIdx_ = 0, errTraceIdx_ = 0;
 
         // ---- tasks -----------------------------------------------------------------------------------------------
         Task mainTask_;
@@ -657,6 +657,7 @@ namespace cuff
                    "    number line = 0\n"
                    "    number column = 0\n"
                    "    str hint = \"\"\n"
+                   "    list backtrace = []\n"
                    "\n"
                    "    func init(str message = \"\") do:\n"
                    "        self.message = message\n"
@@ -673,7 +674,8 @@ namespace cuff
             initId_ = internName("init");
             toStrId_ = internName("to_str");
             for (const MethodEntry &e : methodTable())
-                builtinMethods_[internName(e.method)].push_back({&e, internName(e.function)});
+                if (!*e.library || dlcInBuild(e.library)) // a library left out of the build has no methods
+                    builtinMethods_[internName(e.method)].push_back({&e, internName(e.function)});
 
             preludeProgram_ = parseProgram(makeSourceRef(std::string(preludeSource()), "<built-in>"));
             registerClasses(*preludeProgram_);
@@ -695,6 +697,7 @@ namespace cuff
             errLineIdx_ = errorClass_->fieldIndex.at(internName("line"));
             errColumnIdx_ = errorClass_->fieldIndex.at(internName("column"));
             errHintIdx_ = errorClass_->fieldIndex.at(internName("hint"));
+            errTraceIdx_ = errorClass_->fieldIndex.at(internName("backtrace"));
         }
 
         ClassInfo *findClass(uint32_t id) const
@@ -1342,8 +1345,28 @@ namespace cuff
             obj->fields[errLineIdx_] = Value::makeNumber(e.location.line);
             obj->fields[errColumnIdx_] = Value::makeNumber(e.location.column);
             obj->fields[errHintIdx_] = Value::makeStr(e.hint);
+            obj->fields[errTraceIdx_] = traceValue(e);
             obj->origin = std::make_shared<CuffError>(e);
             return Value::makeObject(std::move(obj));
+        }
+
+        // An error's backtrace as the program sees it (Error.backtrace): a list of maps, innermost first, each with
+        // the function ("" at a top level), the file ("" for the program itself), the line and column, and how many
+        // times more the same call follows it (`repeated`).
+        Value traceValue(const CuffError &e)
+        {
+            auto list = std::make_shared<ValueList>();
+            for (const TraceEntry *t : e.traceEntries())
+            {
+                auto m = std::make_shared<ValueMap>();
+                m->set("function", Value::makeStr(t->function));
+                m->set("file", Value::makeStr(t->source ? t->source->name : std::string()));
+                m->set("line", Value::makeNumber(t->location.line));
+                m->set("column", Value::makeNumber(t->location.column));
+                m->set("repeated", Value::makeNumber(t->repeated));
+                list->items.push_back(Value::makeMap(std::move(m)));
+            }
+            return Value::makeList(std::move(list));
         }
 
         Value newErrorValue(const std::string &message)
@@ -1356,6 +1379,7 @@ namespace cuff
             obj->fields[errLineIdx_] = Value::makeNumber(0);
             obj->fields[errColumnIdx_] = Value::makeNumber(0);
             obj->fields[errHintIdx_] = Value::makeStr(std::string());
+            obj->fields[errTraceIdx_] = Value::makeList(std::make_shared<ValueList>());
             return Value::makeObject(std::move(obj));
         }
 
@@ -1389,7 +1413,11 @@ namespace cuff
                 throw CuffRuntimeError(ErrorCode::FractionalIndex,
                                        std::string(what) + " must be a whole number, got " + formatCuffNumber(d),
                                        loc,
+#ifndef CUFF_EXCLUDE_DLC_MATH
                                        "round it explicitly first (DLC:math's round/floor/ceil)");
+#else
+                                       "make it a whole number first");
+#endif
             }
             if (std::fabs(d) > kExactLimit)
             {
@@ -1702,8 +1730,12 @@ namespace cuff
                                                                 const SourceLocation &loc)
         {
             throw CuffRuntimeError(ErrorCode::UnknownMember, valueTypeName(receiver.type()) + " has no method '" + name + "'", loc,
+#ifndef CUFF_EXCLUDE_DLC_STRING
                                    "a built-in method is a library function that takes the value first, "
                                    "such as text.upper() for str_upper(text)");
+#else
+                                   "a built-in method is a library function that takes the value first");
+#endif
         }
 
         void checkFieldAccess(const ClassInfo::Field &f, const ClassInfo *owner, const SourceLocation &loc) const
@@ -2327,7 +2359,13 @@ namespace cuff
             {
                 const CuffError &original = *static_cast<const CuffError *>(o.origin.get());
                 if (original.message == message && original.hint == hint && errorCodeTag(original.code) == code)
-                    throw CuffError(original);
+                {
+                    // Its backtrace goes on from where it was caught, through the `fail` that raises it again.
+                    CuffError again(original);
+                    again.traceAt = f.loc;
+                    again.traceHasAt = true;
+                    throw again;
+                }
             }
 
             // An error that has not been raised before records where it was.
@@ -2496,6 +2534,7 @@ namespace cuff
             {
                 Frame &f = *top_;
                 const Proto &p = *f.proto;
+                noteTrace(e, f);
                 const bool barred = uncatchable_ == frameCount_ - 1;
                 if (e.recoverable && !barred)
                 {
@@ -2508,7 +2547,10 @@ namespace cuff
                             e.attachSource(p.source);
                         f.noStamp = false;
                         if (h.errCell != bc::kNoCell)
+                        {
                             cellAt(f, h.errCell).v = makeErrorValue(e);
+                            setRaisedTrace(cellAt(f, h.errCell).v, e);
+                        }
                         f.ip = p.code.data() + h.target;
                         return true;
                     }
@@ -2517,9 +2559,105 @@ namespace cuff
                     uncatchable_ = kNoFrame;
                 if (!f.noStamp)
                     e.attachSource(p.source);
+                noteCaller(e);
                 dropFrame(f);
             }
             return false;
+        }
+
+        // ---- backtraces ----------------------------------------------------------------------------------------------
+
+        // The name a frame has in a backtrace: its function, `Class.method` for a method, `Class.field` for the default
+        // value of a field, and nothing at the top level of a program or a module.
+        std::string traceName(const Frame &f) const
+        {
+            const Proto &p = *f.proto;
+            if (p.kind == Proto::Kind::Thunk)
+                return fieldOfThunk(p);
+            if (p.kind != Proto::Kind::Function || !p.decl)
+                return std::string();
+            if (p.isMethod && f.owner)
+                return f.owner->name + "." + p.decl->name;
+            return p.decl->name;
+        }
+
+        // `Class.field` for the compiled default value of a field: only an error looks for it, so it is searched for.
+        std::string fieldOfThunk(const Proto &p) const
+        {
+            for (const std::shared_ptr<ClassInfo> &cls : classById_)
+            {
+                if (!cls || !cls->runtime)
+                    continue;
+                const ClassRuntime &rt = runtimeOf(*cls);
+                for (size_t k = 0; k < rt.inits.size() && k < cls->fields.size(); ++k)
+                    if (rt.inits[k].thunk == &p)
+                        return cls->name + "." + cls->fields[k].name;
+            }
+            return std::string();
+        }
+
+        // Adds the frame the error has reached to its backtrace, with where the error is in it: where it was raised,
+        // for the frame it was raised in, and the call it came out of for each one after.
+        CUFF_NOINLINE void noteTrace(CuffError &e, const Frame &f)
+        {
+            SourceLocation at;
+            bool have = false;
+            if (!e.traceStarted)
+            {
+                e.traceStarted = true;
+                at = e.location;
+                have = !f.noStamp; // an error that points into the caller's text: the caller's entry has its place
+            }
+            else if (e.traceHasAt)
+            {
+                at = e.traceAt;
+                have = true;
+            }
+            else if (f.ip > f.proto->code.data() && static_cast<Op>(f.ip[-1].op) == Op::Await)
+            {
+                // A task's error, handed to the frame that awaits the task: the place is the `await`.
+                at = static_cast<const AwaitExpr *>(f.proto->nodes[static_cast<size_t>(f.ip - f.proto->code.data()) - 1])->loc;
+                have = true;
+            }
+            e.traceHasAt = false;
+            if (have && at.line > 0)
+                e.addTrace(TraceEntry{traceName(f), at, f.proto->source, 0});
+        }
+
+        // Before a frame is left: where the error is in its caller, which is the call that made the frame.
+        CUFF_NOINLINE void noteCaller(CuffError &e)
+        {
+            if (frameCount_ < 2)
+                return; // the first frame of its stack: the program's, or a task's
+            // The caller's instruction, not f.callLoc: a call the engine makes itself (an object's to_str) records the
+            // function's own declaration there. That instruction is a call (to the function, or to one that showed
+            // an object, such as print), or the ToStr of an f-string that showed one.
+            const Frame &caller = *frameAt(frameCount_ - 2);
+            if (caller.ip <= caller.proto->code.data())
+                return;
+            const Instr &ins = caller.ip[-1];
+            const Op op = static_cast<Op>(ins.op);
+            if (op == Op::Call || op == Op::CallW || op == Op::CallM || op == Op::CallS)
+            {
+                e.traceAt = *siteOf(*caller.proto, ins).loc;
+                e.traceHasAt = true;
+            }
+            else if (op == Op::ToStr)
+            {
+                e.traceAt = static_cast<const FStringExpr *>(caller.proto->nodes[static_cast<size_t>(&ins - caller.proto->code.data())])->loc;
+                e.traceHasAt = true;
+            }
+        }
+
+        // An error that the program raised with `fail` hands its own object to `or_else`: that object gets the
+        // backtrace too, when it is an Error (every object `fail` accepts is).
+        void setRaisedTrace(Value &v, const CuffError &e)
+        {
+            if (!dynamic_cast<const ProgramError *>(&e) || !v.isObject())
+                return;
+            ObjectData &o = *v.asObject();
+            if (o.cls->isSubclassOf(errorClass_.get()) && errTraceIdx_ < o.fields.size())
+                o.fields[errTraceIdx_] = traceValue(e);
         }
 
         // ---- calls -------------------------------------------------------------------------------------------------
@@ -3841,6 +3979,15 @@ namespace cuff
 
         CUFF_NOINLINE void binarySlow(Value &out, const BinaryOp &b, const Value &l, const Value &r)
         {
+            // `t = t + more`, where `t` is the only value that holds its text: the text is added to where it is, so a
+            // loop that builds a str piece by piece copies it once and not once per piece. Any other value holding
+            // the same text (another variable, an element, a constant of the program) makes a new str, as before.
+            if (b.op == BinOp::Add && &out == &l && &l != &r && l.isStr() && r.isStr() && l.asStrPtr().use_count() == 1)
+            {
+                checkStringSize(l.asStr().size() + r.asStr().size(), b.loc);
+                const_cast<StrData &>(l.asStrData()).append(r.asStr()); // made by make_shared<StrData>: not a const object
+                return;
+            }
             Value v = evalBinaryOpSlow(b, l, r);
             out = std::move(v);
         }
@@ -3861,23 +4008,61 @@ namespace cuff
                                    "only objects made from a class can be used with 'with'");
         }
 
-        // An f-string, once each of its expressions is a str in consecutive registers.
+        // An f-string, once each of its expressions is a str or a number, boolean or empty in consecutive registers
+        // (ToStr leaves those three as they are: their text is written here, with no str made for each).
         CUFF_NOINLINE void concat(Value &out, const Reg *parts, const FStringExpr &fs)
         {
-            // Checked after each piece: a sum of many large pieces could wrap around a 32-bit size_t.
-            size_t total = 0;
+            // The pieces whose size is known, checked after each: a sum of many large pieces could wrap around a 32-bit
+            // size_t. A number, boolean or empty is at most 24 characters.
+            size_t known = 0;
+            size_t plain = 0;
             size_t k = 0;
             for (const auto &seg : fs.segments)
             {
-                total += seg.isExpression ? parts[k++].v.asStr().size() : seg.text.size();
-                checkStringSize(total, fs.loc);
+                if (!seg.isExpression)
+                    known += seg.text.size();
+                else if (parts[k].v.isStr())
+                    known += parts[k++].v.asStr().size();
+                else
+                {
+                    ++plain;
+                    ++k;
+                }
+                checkStringSize(known, fs.loc);
             }
             std::string text;
-            text.reserve(total);
+            text.reserve(known + std::min(plain * 24, limits::kMaxStringBytes - known));
             k = 0;
+            char buf[40];
             for (const auto &seg : fs.segments)
-                text += seg.isExpression ? parts[k++].v.asStr() : seg.text;
+            {
+                if (!seg.isExpression)
+                {
+                    text += seg.text;
+                    continue;
+                }
+                const Value &v = parts[k++].v;
+                if (v.isStr())
+                {
+                    text += v.asStr();
+                    continue;
+                }
+                const size_t n = plainText(v, buf);
+                checkStringSize(text.size() + n, fs.loc);
+                text.append(buf, n);
+            }
             out = Value::makeStr(std::move(text));
+        }
+
+        // The text of a number, boolean or empty, as appendDisplay writes it, into `buf` (40 bytes).
+        static size_t plainText(const Value &v, char *buf)
+        {
+            if (v.isNumber())
+                return cuffNumberText(buf, v.asNumber());
+            const char *word = v.isBool() ? (v.asBool() ? "true" : "false") : "empty";
+            const size_t n = std::strlen(word);
+            std::memcpy(buf, word, n);
+            return n;
         }
 
         // What an f-string shows for a value: the value itself if it is a str.
@@ -4441,8 +4626,9 @@ namespace cuff
                     }
                     CUFF_VM_CASE(ToStr)
                     {
+                        // A str, number, boolean or empty is written by Concat as it is (ValueType puts them first).
                         Value &v = CUFF_RA.v;
-                        if (!v.isStr())
+                        if (v.type() > ValueType::Str)
                         {
                             toStr(v, *CUFF_NODE(FStringExpr));
                         }
@@ -4863,7 +5049,7 @@ namespace cuff
         {
             namespace fs = std::filesystem;
             std::error_code ec;
-            fs::path root = config_.rootDir.empty() ? fs::path(scriptDir_) : fs::path(config_.rootDir);
+            fs::path root = hostPath(config_.rootDir.empty() ? scriptDir_ : config_.rootDir);
             fs::path canon = fs::weakly_canonical(root, ec);
             moduleRoot_ = ec ? root.lexically_normal() : canon;
         }
@@ -4980,7 +5166,7 @@ namespace cuff
                                   "absolute module paths are not allowed ('use " + moduleName + " from " + relPath + "')", loc,
                                   "use a path relative to the running script, e.g. ./lib");
 
-            fs::path full = fs::path(scriptDir_) / rel / fs::u8path(moduleName + ".cuff");
+            fs::path full = hostPath(scriptDir_) / rel / fs::u8path(moduleName + ".cuff");
             std::error_code ec;
             fs::path canon = fs::weakly_canonical(full, ec);
             if (ec)

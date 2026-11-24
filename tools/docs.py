@@ -550,6 +550,63 @@ def check_ide_words(records):
         problem("ide/ide.py: LIBRARY_FUNCTIONS has %s, which no library has" % name)
 
 
+def check_dlc_lists():
+    """A build leaves libraries out by name (EXCLUDE_DLC), and each build file checks the names against a list of its own:
+    every list must be the libraries of engine/interpreter/NativeFunctions.h that can be left out, in the same order."""
+    table = read(ROOT / "engine" / "interpreter" / "NativeFunctions.h")
+    names = [n.lower() for n in re.findall(r"#ifndef CUFF_EXCLUDE_DLC_(\w+)\n", table)]
+    if not names:
+        problem("engine/interpreter/NativeFunctions.h: found no library that a build can leave out")
+        return
+    lists = {
+        "Makefile": r"^DLC_NAMES = (.*)$",
+        "Makefile.win": r"^DLC_NAMES = (.*)$",
+        "android/jni/Android.mk": r"^DLC_NAMES := (.*)$",
+        "android/CMakeLists.txt": r"^set\(CUFF_DLC_NAMES (.*)\)$",
+        "cli/build.sh": r'^DLC_NAMES="(.*)"$',
+        "cli/build.bat": r'^set "DLC_NAMES= (.*) "$',
+        "tests/run.sh": r'^DLC_NAMES="(.*)"$',
+    }
+    for rel, pattern in lists.items():
+        m = re.search(pattern, read(ROOT / rel), re.M)
+        if not m:
+            problem("%s: could not find its list of libraries (DLC_NAMES)" % rel)
+        elif m.group(1).split() != names:
+            problem("%s: its list of libraries is %s, but the engine's is %s" % (rel, m.group(1), " ".join(names)))
+    # The three makefiles upper-case the names with the same function; one with a parenthesis missing fails only when
+    # EXCLUDE_DLC is given, which an ordinary build never does.
+    upper = {}
+    for rel in ("Makefile", "Makefile.win", "android/jni/Android.mk"):
+        m = re.search(r"^dlc_upper = (.*)$", read(ROOT / rel), re.M)
+        upper[rel] = m.group(1) if m else None
+    first = upper["Makefile"]
+    if not first or first.count("(") != first.count(")"):
+        problem("Makefile: dlc_upper is missing or its parentheses do not match")
+    for rel, text in upper.items():
+        if text != first:
+            problem("%s: dlc_upper differs from the one in Makefile" % rel)
+
+
+def check_engine_stands_alone():
+    """The engine is the engine; the tools (cli/ for cuffsh, ide/) are built on it. Nothing in engine/, main.cpp (cuffc)
+    or wasm/ may include a file of a tool, so that each of them builds with the tools' folders gone."""
+    sources = [ROOT / "main.cpp"] + sorted((ROOT / "engine").rglob("*.h")) + sorted((ROOT / "engine").rglob("*.cpp"))
+    sources += sorted((ROOT / "wasm").glob("*.cpp"))
+    for path in sources:
+        for no, line in enumerate(read(path).splitlines(), 1):
+            m = re.match(r'\s*#\s*include\s*"([^"]+)"', line)
+            if not m:
+                continue
+            target = (path.parent / m.group(1)).resolve()
+            try:
+                first = target.relative_to(ROOT).parts[0]
+            except ValueError:
+                continue
+            if first in ("cli", "ide"):
+                problem("%s:%d: includes %s, a file of a tool; the engine and cuffc do not depend on the tools"
+                        % (path.relative_to(ROOT), no, m.group(1)))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate and check the documentation.")
     parser.add_argument("command", choices=["generate", "check"])
@@ -575,6 +632,8 @@ def main():
         if records is not None:
             check_ide_words(records)
         check_versions()
+        check_dlc_lists()
+        check_engine_stands_alone()
         check_links()
         check_tables()
         check_examples(args.require_binaries)

@@ -210,8 +210,85 @@ namespace cuff
         return out;
     }
 
-    // The full report: the headline, the source line with the message beside its marks, anything related, then the
-    // hint. The line is taken from the text the error itself points into (e.source) and only falls back to
+    // Line `line` of `text`, without the spaces it starts and ends with, and cut at 60 characters.
+    inline std::string traceLineText(const SourceRef &source, int line)
+    {
+        if (!source || line < 1)
+            return std::string();
+        const std::string &t = source->text;
+        size_t start = 0;
+        for (int k = 1; k < line; ++k)
+        {
+            start = t.find('\n', start);
+            if (start == std::string::npos)
+                return std::string();
+            ++start;
+        }
+        size_t end = t.find('\n', start);
+        if (end == std::string::npos)
+            end = t.size();
+        while (start < end && (t[start] == ' ' || t[start] == '\t'))
+            ++start;
+        while (end > start && (t[end - 1] == ' ' || t[end - 1] == '\t' || t[end - 1] == '\r'))
+            --end;
+        std::string out = t.substr(start, end - start);
+        if (utf8::length(out) > 60)
+        {
+            size_t off = 0;
+            for (int k = 0; k < 57 && off < out.size(); ++k)
+                off += utf8::seqLen(static_cast<unsigned char>(out[off]));
+            out = out.substr(0, std::min(off, out.size())) + "...";
+        }
+        return out;
+    }
+
+    // The calls an error came out of, outermost last, under its report:
+    //
+    //   in divide, called from:
+    //     line 5 in average: return divide(total, count)
+    //     line 9: print(average([]))
+    //
+    // Nothing for an error at the top level, which no call led to.
+    inline std::string formatTrace(const CuffError &e)
+    {
+        const std::vector<const TraceEntry *> all = e.traceEntries();
+        if (all.empty() || (all.size() == 1 && all[0]->repeated == 0))
+            return std::string();
+        auto where = [](const TraceEntry &t)
+        {
+            const bool named = t.source && !t.source->name.empty();
+            if (t.function.empty())
+                return named ? "the top level of '" + t.source->name + "'" : std::string("the top level");
+            return named ? t.function + " ('" + t.source->name + "')" : t.function;
+        };
+        auto row = [](const TraceEntry &t)
+        {
+            std::string out = "\n    line " + std::to_string(t.location.line);
+            if (!t.function.empty())
+                out += " in " + t.function;
+            if (t.source && !t.source->name.empty())
+                out += (t.function.empty() ? " of '" : " ('") + t.source->name + (t.function.empty() ? "'" : "')");
+            const std::string code = traceLineText(t.source, t.location.line);
+            if (!code.empty())
+                out += ": " + code;
+            return out;
+        };
+        std::string out = "\n\n  in " + where(*all[0]) + ", called from:";
+        if (all[0]->repeated > 0)
+            out += row(*all[0]) + " (" + std::to_string(all[0]->repeated) + (all[0]->repeated == 1 ? " time)" : " times)");
+        for (size_t i = 1; i < all.size(); ++i)
+        {
+            if (i == CuffError::kTraceHead && e.traceOmitted > 0)
+                out += "\n    ... " + std::to_string(e.traceOmitted) + (e.traceOmitted == 1 ? " more call" : " more calls");
+            out += row(*all[i]);
+            if (all[i]->repeated > 0)
+                out += " (and " + std::to_string(all[i]->repeated) + (all[i]->repeated == 1 ? " more time)" : " more times)");
+        }
+        return out;
+    }
+
+    // The full report: the headline, the source line with the message beside its marks, anything related, the calls
+    // that led to it, then the hint. The line is taken from the text the error itself points into (e.source) and only falls back to
     // `fallbackSource`, the program the caller ran, for an error that carries none.
     inline std::string renderErrorWithSnippet(const CuffError &e, const std::string &fallbackSource)
     {
@@ -223,6 +300,7 @@ namespace cuff
             out = errorHeadline(e);
         if (!e.related.empty())
             out += "\n\n" + e.related;
+        out += formatTrace(e);
         if (!e.hint.empty())
             out += formatHint(e.hint);
         return out;

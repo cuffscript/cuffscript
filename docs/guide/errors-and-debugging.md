@@ -73,7 +73,50 @@ ERROR: [E5-002] Module Error at line 1, column 1
     |               ^ unexpected end of line in expression
 ```
 
-The report names the file and line where the error happened, but not who called it; it is not a stack trace.
+### Backtraces
+
+An error inside a function also says which calls led to it, outermost last, each with its line:
+
+```text
+ERROR: [E4-006] Runtime Error at line 2, column 14
+  |
+2 |     return a / b
+  |              ^ division by zero
+
+  in divide, called from:
+    line 5 in average: return divide(total, length(xs))
+    line 7: print(average([]))
+```
+
+A method is shown as `Class.method`, a function from a module with its file, and a function that calls itself is one line with
+the number of times (`(999 times)` when it ran out of depth). After the first 30 calls only the last 10 are kept, with the number
+left out between them. An error at the top level has no backtrace: no call led to it. A task's error goes on from the `await` that
+received it, and an error raised again with `fail err` keeps the calls it first came out of and goes on from the `fail`.
+
+A handler sees the same calls in `err.backtrace`, a list with one map per call, innermost first: `function` (empty at the top level),
+`file` (empty for the program itself), `line`, `column`, and `repeated`, how many times more the same call follows it.
+
+```cuff
+func check(number n) do:
+    if n < 0 do:
+        fail "negative"
+    end
+end
+func load() do:
+    check(-1)
+end
+load() or_else as Error err do:
+    loop each map call in err.backtrace do:
+        print(call["function"], call["line"])
+    end
+end
+```
+
+```output
+check 3
+load 7
+ 9
+```
 
 ## Recovering with `or_else`
 
@@ -98,7 +141,7 @@ is not caught by the same `or_else`.
 
 ### Looking at the error
 
-`or_else as Error err do:` gives the handler the error as an object with a `message`, a `code`, the `line` and `column` where it happened, and a `hint`:
+`or_else as Error err do:` gives the handler the error as an object with a `message`, a `code`, the `line` and `column` where it happened, a `hint`, and the calls it came out of in `backtrace` (see [backtraces](#backtraces)):
 
 ```cuff
 print(10 / 0) or_else as Error err do:

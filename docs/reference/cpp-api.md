@@ -188,7 +188,9 @@ for the program you pass to `run`).
 ## Errors
 
 Everything the engine throws derives from `CuffError` (which derives from `std::runtime_error`). The public fields are `code` (an `ErrorCode`),
-`category` (the name shown in the headline), `location`, `message`, `hint`, `recoverable` (whether `or_else` can catch it), `source` and `related`.
+`category` (the name shown in the headline), `location`, `message`, `hint`, `recoverable` (whether `or_else` can catch it), `source`, `related`, and the backtrace:
+`traceEntries()` gives the frames it came out of, innermost first (`TraceEntry`: `function`, `location`, `source`, `repeated`), with
+`traceOmitted` frames left out after the first `kTraceHead`. `formatTrace(e)` in `engine/common/ErrorFormat.h` writes them as the report does.
 `what()` is the headline and the hint, without the source line.
 
 | Class | Raised for |

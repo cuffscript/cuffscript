@@ -5,7 +5,7 @@ how to reproduce a failure on your own machine.
 
 | Workflow | File | Runs on | What it checks |
 | :--- | :--- | :--- | :--- |
-| Build and Test | `build-and-test.yaml` | Every pull request and every push to `main` | Builds `cuffc` and runs the engine and language suite on Linux and macOS; builds with MinGW-w64 and runs it on Windows |
+| Build and Test | `build-and-test.yaml` | Every pull request and every push to `main` | Builds `cuffc` and runs the engine and language suite on Linux and macOS; builds with MinGW-w64 and runs it on Windows; builds without the libraries that can be left out; builds for Android |
 | REPL Build and Test | `repl-test.yaml` | Changes under `cli/`, `engine/`, `main.cpp`, `Makefile`, `Makefile.win` | Builds `cuffsh` and runs the shell suites |
 | Documentation Check | `docs-check.yaml` | Every pull request and every push to `main` | `python3 tools/docs.py check --require-binaries` |
 | Sanitizers | `sanitizers.yaml` | Changes under `engine/`, `tests/`, `examples/`, `main.cpp`, `Makefile` | The engine suite under AddressSanitizer and UndefinedBehaviorSanitizer, and on the two other forms of the bytecode machine |
@@ -18,6 +18,8 @@ All of them take their permissions from the workflow file: the checks only read 
 
 - **Linux and macOS** (`ubuntu-latest`, `macos-latest`, not stopped by each other's failure): `make`, then `bash tests/run.sh`. macOS first installs GNU coreutils with Homebrew, because the test runner uses `timeout`, which a stock macOS does not have.
 - **Windows** (`windows-latest`): installs MSYS2 with the MinGW-w64 toolchain, puts it on `PATH`, builds with `mingw32-make -f Makefile.win`, runs `tests/run.ps1`, and builds the shell with `cli\build.bat`.
+- **Reduced builds**: on Linux, `cuffc` without every library that can be left out, with the suite run on it in its `EXCLUDED_DLC` mode (see [Testing](testing.md#a-reduced-build)), and `cuffsh` without `network` and `hardware`; on Windows, `cuffc.exe` and `cuffsh.exe` without `network` and `hardware`, each checked to have dropped `--hardware` from its help.
+- **Android** (`ubuntu-latest`): `android/build.sh` with the NDK that the runner has, for the four ABIs, and once more for arm64-v8a without `network` and `hardware`. A runner with no NDK (a local `act` image) skips the job with a note.
 
 To reproduce locally: `make && bash tests/run.sh` (Windows: `mingw32-make -f Makefile.win` and `powershell -File tests\run.ps1`). [Testing](testing.md) lists every section of the suite.
 
@@ -33,7 +35,7 @@ A shell test that fails only on a CI runner is usually timing; see [When CI fail
 ## Documentation Check
 
 Builds `cuffc` and `cuffsh` (the examples in the documentation are run, and the command-line help is embedded) and runs `python3 tools/docs.py check --require-binaries`, which fails when a generated page is stale, a link or heading anchor is broken, a library function is
-undocumented, a limit's value is written outside its generated page, the versions disagree, or an example's output differs from what the page shows. To fix it locally, run `python3 tools/docs.py generate` and then the check; see [Documentation](documentation.md).
+undocumented, a limit's value is written outside its generated page, the versions disagree, the engine or `cuffc` includes a file of a tool, or an example's output differs from what the page shows. To fix it locally, run `python3 tools/docs.py generate` and then the check; see [Documentation](documentation.md).
 
 ## Sanitizers
 

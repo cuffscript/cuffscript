@@ -332,7 +332,9 @@ int main()
         check(!r.success && contains(r.error, "Runtime Error in './lib/boom.cuff' at line 3, column 14") &&
                   contains(r.error, " |     return n / 0\n"),
               "an error inside a module's function is drawn from the module:\n" + r.error);
-        check(!contains(r.error, "print(boom(5))"), "...and not from the importing file:\n" + r.error);
+        check(!contains(r.error, "| print(boom(5))"), "...and not from the importing file:\n" + r.error);
+        check(contains(r.error, "\n\n  in boom ('./lib/boom.cuff'), called from:\n    line 4: print(boom(5))"),
+              "...whose call is in the backtrace:\n" + r.error);
 
         dir.write("lib/top.cuff", "note: one\nnote: two\nnumber t = 1 / 0\n");
         r = Engine::execute("use top from ./lib\n", dir.path.string());
@@ -355,7 +357,7 @@ int main()
         check(first.success, "declaring the function works:\n" + first.error);
         auto second = session.run("print(half(2))\n");
         check(!second.success && contains(second.error, "at line 3, column 14") &&
-                  contains(second.error, " |     return n / 0\n") && !contains(second.error, "print(half(2))"),
+                  contains(second.error, " |     return n / 0\n") && !contains(second.error, "| print(half(2))"),
               "an error in a function from an earlier entry is drawn from that entry:\n" + second.error);
         auto third = session.run("print(1 + 1)\n");
         check(third.success, "the session is still usable after an error:\n" + third.error);
@@ -377,28 +379,28 @@ int main()
 
         auto r = session.run("print(scaled(2))\n");
         check(!r.success && contains(r.error, "at line 2, column 37") && hasSnippet(r.error, "func scaled(number n, number by = 1 / 0) do:", "                                    ^") &&
-                  !contains(r.error, "print(scaled(2))"),
+                  !contains(r.error, "| print(scaled(2))"),
               "an error in a parameter's default value is drawn from the function's text:\n" + r.error);
 
         r = session.run("note: one\nnote: two\nnote: three\nnote: four\nnote: five\nescape()\n");
-        check(!r.success && contains(r.error, "[E4-023]") && hasSnippet(r.error, "    stop", "    ^^^^") && !contains(r.error, "escape()"),
+        check(!r.success && contains(r.error, "[E4-023]") && hasSnippet(r.error, "    stop", "    ^^^^") && !contains(r.error, "| escape()"),
               "'stop' outside a loop is drawn from the function's text:\n" + r.error);
 
         r = session.run("Gauge g = Gauge()\n");
         check(!r.success && contains(r.error, "[E4-020]") && hasSnippet(r.error, "    number level = \"high\"", "    ^^^^^^") &&
-                  !contains(r.error, "Gauge g"),
+                  !contains(r.error, "| Gauge g"),
               "a field default of the wrong type is drawn from the class's text:\n" + r.error);
 
         r = session.run("print(Odd())\n");
-        check(!r.success && contains(r.error, "[E4-006]") && hasSnippet(r.error, "        return 1 / 0", "                 ^") && !contains(r.error, "print(Odd())"),
+        check(!r.success && contains(r.error, "[E4-006]") && hasSnippet(r.error, "        return 1 / 0", "                 ^") && !contains(r.error, "| print(Odd())"),
               "an error inside a to_str that print runs is drawn from the class's text:\n" + r.error);
 
         r = session.run("print(Word())\n");
-        check(!r.success && contains(r.error, "[E4-005]") && hasSnippet(r.error, "    func to_str() do:", "    ^^^^") && !contains(r.error, "print(Word())"),
+        check(!r.success && contains(r.error, "[E4-005]") && hasSnippet(r.error, "    func to_str() do:", "    ^^^^") && !contains(r.error, "| print(Word())"),
               "a to_str that gives no str is drawn from the class's text:\n" + r.error);
 
         r = session.run("note: a\nnote: b\nlater()\n");
-        check(!r.success && contains(r.error, "[E4-006]") && hasSnippet(r.error, "    number z = 1 / 0", "                 ^") && !contains(r.error, "later()"),
+        check(!r.success && contains(r.error, "[E4-006]") && hasSnippet(r.error, "    number z = 1 / 0", "                 ^") && !contains(r.error, "| later()"),
               "an error in a queued call is drawn from the function's text:\n" + r.error);
 
         // An argument of the wrong type is the caller's mistake, and stays at the call.
@@ -412,10 +414,10 @@ int main()
                                     "func leave() do:\n    skip\nend\n");
         auto r = Engine::execute("use tools from ./lib\nprint(padded(\"x\"))\n", dir.path.string());
         check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 2") &&
-                  contains(r.error, " | func padded(str text, number width = 10 / 0) do:\n") && !contains(r.error, "print(padded"),
+                  contains(r.error, " | func padded(str text, number width = 10 / 0) do:\n") && !contains(r.error, "| print(padded"),
               "a default value's error in a module's function is drawn from the module:\n" + r.error);
         r = Engine::execute("use tools from ./lib\nnote: pad\nnote: pad\nnote: pad\nnote: pad\nleave()\n", dir.path.string());
-        check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 6") && contains(r.error, " |     skip\n") && !contains(r.error, "leave()"),
+        check(!r.success && contains(r.error, "in './lib/tools.cuff' at line 6") && contains(r.error, " |     skip\n") && !contains(r.error, "| leave()"),
               "'skip' outside a loop in a module's function is drawn from the module:\n" + r.error);
     }
 
@@ -481,6 +483,47 @@ int main()
             }
             checkLocationAgrees("mutated", mutated);
         }
+    }
+
+    // ---- backtraces ---------------------------------------------------------------------------------------------
+
+    // An error inside functions lists the calls that led to it, outermost last, each with its line.
+    {
+        auto r = runSource("func divide(number a, number b) do:\n    return a / b\nend\n"
+                           "func average(list xs) do:\n    return divide(1, length(xs))\nend\nprint(average([]))\n");
+        check(!r.success && contains(r.error, "^ division by zero\n\n  in divide, called from:\n"
+                                              "    line 5 in average: return divide(1, length(xs))\n"
+                                              "    line 7: print(average([]))"),
+              "a backtrace names each caller and its line:\n" + r.error);
+    }
+    // At the top level there is no call, and no backtrace.
+    {
+        auto r = runSource("number z = 0\nprint(1 / z)\n");
+        check(!r.success && !contains(r.error, "called from"), "no backtrace at the top level:\n" + r.error);
+    }
+    // A function that calls itself until the depth limit is one line, with the number of times.
+    {
+        auto r = runSource("func f(number n) do:\n    return f(n + 1)\nend\nprint(f(0))\n");
+        check(!r.success && contains(r.error, "  in f, called from:\n    line 2 in f: return f(n + 1) (") &&
+                  contains(r.error, " times)\n    line 4: print(f(0))"),
+              "recursion is folded into one line:\n" + r.error);
+        size_t lines = 0;
+        for (const char c : r.error)
+            lines += c == '\n';
+        check(lines < 15, "a folded backtrace stays short:\n" + r.error);
+    }
+    // Two functions that call each other: the first frames and the last ones, with the number left out between.
+    {
+        auto r = runSource("func a(number n) do:\n    return b(n + 1)\nend\nfunc b(number n) do:\n    return a(n + 1)\nend\nprint(a(0))\n");
+        check(!r.success && contains(r.error, "    ... ") && contains(r.error, " more calls\n") && contains(r.error, "    line 7: print(a(0))"),
+              "a long backtrace keeps its two ends:\n" + r.error);
+    }
+    // An object's to_str that print runs: the caller is the print.
+    {
+        auto r = runSource("class Odd do:\n    func to_str() do:\n        return f\"{1 / 0}\"\n    end\nend\n"
+                           "func show() do:\n    print(Odd())\nend\nshow()\n");
+        check(!r.success && contains(r.error, "  in Odd.to_str, called from:\n    line 7 in show: print(Odd())\n    line 9: show()"),
+              "a method that the engine runs is called from the line that showed the object:\n" + r.error);
     }
 
     std::cout << pass << " passed, " << fail << " failed\n";

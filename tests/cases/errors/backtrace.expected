@@ -1,0 +1,23 @@
+E4-025 4
+  parse_port|./fixtures/parsing.cuff|2|12|0
+  Server.init||13|21|0
+  start||17|12|0
+  ||21|1|0
+E4-006 1
+  ||28|14|0
+bottom 3
+  down||36|9|0
+  down||38|12|4
+  ||40|1|0
+E4-025 6
+  parse_port|./fixtures/parsing.cuff|2|12|0
+  Server.init||13|21|0
+  start||17|12|0
+  catcher||47|5|0
+  again||53|5|0
+  ||55|1|0
+E4-006 3
+  work||62|15|0
+  run||66|12|0
+  ||68|1|0
+0

@@ -16,7 +16,8 @@ in which the engine became a bytecode machine. The items before them that descri
 `evalExpr`, `Environment`, `ExecOutcome`, the stack a call uses: items 13, 21, 22, 24, 29, 30 and 45 among them) describe the
 tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so. Items 71 to 78 record
 6.0.0: item 71 replaces item 1 (the queue of `async` calls became tasks), item 74 replaces the part of item 11 that says a
-cycle is never freed, and item 78 replaces the parts of items 59 and 64 that let a shell entry declare a name again.
+cycle is never freed, and item 78 replaces the parts of items 59 and 64 that let a shell entry declare a name again. Item 79
+records 6.1.0, and items 80 and 81 record 6.2.0.
 
 ## 1. The `async` / `await` execution model
 
@@ -2028,4 +2029,94 @@ from before the libraries counted calls 5.1% fewer; that arrangement of the loop
   takes only decimal text: no sign, no `0x`, no spaces.
 - **They are registered from one table of function pointers**, as `DLC:hardware` is, so the nine of them add one copy of the
   `std::function` machinery instead of nine: `cuffc` grew by 8.5 KB, where lambdas made it 16.7 KB.
+
+## 80. v6.2.0: builds without some libraries, paths as UTF-8 on Windows, and faster text
+
+- **A library left out is a library that does not exist.** `-DCUFF_EXCLUDE_DLC_<NAME>` (`make EXCLUDE_DLC="..."`) removes the
+  library's row from `dlcTable()`, and everything that knows a library by name follows from that table: `use DLC:<name>` is
+  `E5-004` with the hint listing what is there, the library's methods are not methods ("has no method"), and the flags that only it
+  reads are unknown options and are not in `--help`. There is no second kind of error for "not in this build": a program cannot
+  tell such a binary from one of a language that never had the library, which is the point, and which keeps the error codes as
+  they are. The two hints of the engine that named a library's function (`str_upper`, `DLC:math`'s rounding) give their advice
+  without it in a build that lacks the library.
+- **Nothing is compiled differently, only not referred to.** The headers are still included, so the types a host fills in
+  `Engine::Options` (`Hardware`, the network and file system options) exist in every build and a host compiles against either;
+  a field of a library that is not there is not read. With no row, nothing calls the library's registration, and the linker keeps
+  none of its code. The one exception is the socket client, which `CUFF_EXCLUDE_DLC_NETWORK` also leaves out as
+  `CUFF_DISABLE_NETWORK` does, so that its platform headers are not needed either. `CUFF_DISABLE_NETWORK` itself keeps its meaning:
+  the library loads and its functions say that the feature is unavailable.
+- **`DLC:convert` cannot be left out** (`#error`): its functions are built-ins of every program, and leaving out only the name
+  would make a library that is absent and present at once.
+- **The documentation describes the full build.** A library that one binary leaves out is still part of the language; the pages,
+  the IDE's word lists and the function index stay as they are. What each library costs is in the build documentation, measured.
+- **Each build file checks the names against its own list** (`DLC_NAMES` in seven files), because a misspelt name would otherwise
+  leave the library in without a word. `tools/docs.py check` keeps the seven lists equal to the table, and the three makefiles'
+  `dlc_upper` the same: one with a parenthesis missing fails only when a name is given, which an ordinary build never does. `tests/run.sh` with
+  `EXCLUDED_DLC` runs the suite on such a binary: a test that stops at the library that is not there counts as left out, every
+  other test must pass as it does in the full build, and a binary that still has the library fails at once.
+- **Paths that a host hands in are UTF-8, on Windows too.** Up to 6.0.0 the engine read `scriptDir` and `rootDir` in the ANSI code
+  page on Windows, as `std::filesystem::path(std::string)` does there. A name outside that code page could not be passed at all, and
+  the shell, which had the name in UTF-8, converted it with `path::string()`, which throws for such a name; its fallback then gave
+  the engine "." as the script's folder, so a module beside a script in a Korean-named folder was not found on a Windows set to
+  another language. `hostPath()` reads the string as UTF-8, and reads it in the ANSI code page only when it is not valid UTF-8,
+  which in practice is every ANSI path with a non-ASCII character; a host that passed ANSI paths keeps working. `cuffc` reads its command
+  line as UTF-16 and a script file through the wide API, as `cuffsh` already did, and while it runs on a console it writes UTF-8
+  and reads the keyboard through `ReadConsoleW`, so `print("한글")` and `input()` work on a Korean console without `chcp 65001`.
+  The console's code page is put back when it ends, also on Ctrl+C.
+- **An f-string writes a number, a boolean and `empty` itself.** Each expression of an f-string used to become a `str` (`ToStr`)
+  before `Concat` joined them, which for a number is an allocation and a release for text that is copied once more at once.
+  `ToStr` now leaves those three as they are (they come before `Str` in `ValueType`, so the test is one compare), and `Concat`
+  writes their text into the result. A list, a map or an object is still made a `str` by `ToStr`, because showing an object can
+  run its `to_str`, which runs bytecode; `Concat` itself never runs any.
+- **A number's text is written without `floor` and two digits at a time.** `cuffNumberText` tells a whole number by the round
+  trip through `long long` (a whole number below 10^15 fits) instead of calling `floor`, which on the x86-64 baseline is a call
+  into the C library, and writes the digits in pairs from a table. It gives the same text as before: 6.2 million numbers (every
+  whole number to 100,000, the powers of ten around their edges, random whole numbers below 10^15, random doubles of every
+  magnitude) were compared with the 6.0.0 code, and none differed. `print` puts its line together and writes it once, where it
+  wrote each piece and each space to the stream; a `str` over 4 KB is written as it is, and when showing an object fails, what came
+  before it is written first, as it was.
+- **`t = t + more` adds in place when `t` alone holds the text.** A `str` never changes once made, so a loop that adds to one copied
+  it whole on every pass: 20,000 pieces cost 2,077 million instructions, nearly all of them `memcpy`. When the `Add` writes into the
+  register it reads (`Add r0 r0 r1`, which is what the compiler makes of `t = t + more` for a local `t`) and the text's count of
+  holders is one, `binarySlow` appends to it. No one else can see the change: a second variable, an element of a list or map, a
+  parameter that was passed the text, or a constant of the program each holds a count, and then a new text is made as before. The
+  same 20,000 pieces now cost 26 million. An assignment to a constant is a `Raise` that runs before any `Add`, so a constant is
+  never added to. The text objects are made as `StrData`, not `const StrData`, so that changing one that a single value holds is
+  not a change to a `const` object; what a text remembers about itself (ASCII or not, its length in characters, where the last
+  index was) is kept when an ASCII text gets ASCII added, and forgotten otherwise, because a byte that ended no character can
+  end one once more bytes follow it. `t = t + a + b` still copies, because its first `+` makes a text of its own; changing the
+  compiler to write it into `t` would leave `t` changed when the second `+` fails, which a program that catches the error could
+  see.
+- **Measured** in instructions (callgrind) against 6.1.0: 1.43x fewer on a program that only builds
+  f-strings, 1.36x on one that prints 100,000 lines of numbers, 1.27x on the text benchmark, 1.99x on the collections benchmark
+  (whose string loop was the quadratic case), 80x on building a string of 20,000 pieces, and within 0.01% on `fib24`, `calls`,
+  `objects` and `fields`.
+
+## 81. v6.2.0: backtraces
+
+- **Recorded on the way out, not kept on the way in.** Nothing is written while a call is made: the frames are already on the
+  machine's stack, and `handleError`, which leaves them one by one when an error unwinds, adds each to the error
+  (`CuffError::trace`) before it goes. So a program that does not fail pays nothing; a caught error pays for the frames it left.
+- **Each entry is where the error is in that frame.** The innermost is where it was raised; every other one is the call the
+  error came out of, which `noteCaller` takes from the caller's instruction (a call, or the `ToStr` of an f-string that showed an
+  object) before the frame is left. It does not use `Frame::callLoc`: a call the engine makes itself (an object's `to_str`) records the
+  function's own declaration there, which is not where it was called from. A frame whose error points into its caller's text
+  (`noStamp`: a wrong argument) adds nothing, because the caller's entry is that place. A task's first frame has no caller in its
+  stack; when its error reaches the frame that awaits it, that frame's entry is its `await`.
+- **Bounded.** A run of the same entry (a function calling itself from one place) is one entry with a count, so the call depth
+  limit's thousand frames are one line. After 30 distinct entries only the last 10 are kept, in a ring, with the number left out:
+  a report shows where the error is and where the program entered, and an error costs at most 40 entries.
+- **An error raised again keeps its first frames.** `fail err` of a caught error that is unchanged throws the original
+  `CuffError` again; its backtrace goes on, and the frame of the `fail` is added at the `fail`. An `Error` the
+  program made and raises for the first time starts its own.
+- **In the program: `Error.backtrace`.** The handler's `Error` gets a list of maps, `function`, `file`, `line`, `column` and `repeated`,
+  innermost first, the same entries as the report. Maps rather than text so that a program (or the IDE) can read them, and a field
+  like the others rather than a method so that it is there in `print(err.backtrace)` and survives `copy()`. The field is new on a
+  built-in class, so a program whose own `Error` subclass declares `backtrace` is `E4-037` now: the name was chosen to make that rare.
+- **In the report: under the snippet, before the hint,** and only when a call led to the error, so the report of an error at the
+  top level is what it was. Each line has the text of its source line, cut at 60 characters, because a line number alone means
+  little in a file one is not looking at.
+- **Cost.** Building the `backtrace` value is a list and a map per entry, made when a handler that names the error catches it: a
+  loop that does nothing but catch 40,000 errors in a function runs 13% more instructions (an error was already about 38,000
+  instructions to raise, catch and describe); the benchmarks that do not fail are unchanged.
 

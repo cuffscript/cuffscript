@@ -1,6 +1,7 @@
 # CMake build for Android Studio / Gradle (externalNativeBuild) or `cmake -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake`.
 # Builds the same two executables as Android.mk. Nothing outside android/ is modified.
 cmake_minimum_required(VERSION 3.10)
+cmake_policy(SET CMP0057 NEW) # if(... IN_LIST ...)
 project(cuffscript CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -12,6 +13,18 @@ endif()
 
 get_filename_component(CUFF_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
+# Libraries to leave out, as in the root Makefile: -DCUFF_EXCLUDE_DLC="network;hardware". DLC:convert cannot be left out.
+set(CUFF_DLC_NAMES math string time datetime random list map json network filesystem csv hash path hardware)
+set(CUFF_EXCLUDE_DLC "" CACHE STRING "Libraries to leave out of the build, separated by semicolons")
+set(CUFF_DLC_DEFINITIONS "")
+foreach(dlc IN LISTS CUFF_EXCLUDE_DLC)
+    if(NOT dlc IN_LIST CUFF_DLC_NAMES)
+        message(FATAL_ERROR "CUFF_EXCLUDE_DLC cannot leave out ${dlc} (those that can be left out are: ${CUFF_DLC_NAMES})")
+    endif()
+    string(TOUPPER "${dlc}" dlc_upper)
+    list(APPEND CUFF_DLC_DEFINITIONS "CUFF_EXCLUDE_DLC_${dlc_upper}")
+endforeach()
+
 foreach(target cuffc cuffsh)
     if(target STREQUAL "cuffc")
         set(entry "${CUFF_ROOT}/main.cpp")
@@ -21,6 +34,6 @@ foreach(target cuffc cuffsh)
     add_executable(${target} "${entry}")
     target_include_directories(${target} PRIVATE "${CUFF_ROOT}")
     target_compile_options(${target} PRIVATE -Wall -Wextra -fexceptions -frtti)
-    target_compile_definitions(${target} PRIVATE NDEBUG)
+    target_compile_definitions(${target} PRIVATE NDEBUG ${CUFF_DLC_DEFINITIONS})
     target_link_options(${target} PRIVATE -Wl,--gc-sections)
 endforeach()

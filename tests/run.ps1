@@ -48,7 +48,8 @@ function Invoke-Program {
     param(
         [string]$FilePath,
         [string[]]$Arguments = @(),
-        [int]$TimeoutSeconds = 10
+        [int]$TimeoutSeconds = 10,
+        [string]$InputText = ''
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $FilePath
@@ -68,6 +69,10 @@ function Invoke-Program {
     }
     catch {
         return [PSCustomObject]@{ Output = "could not start ${FilePath}: $($_.Exception.Message)"; ExitCode = 127 }
+    }
+    if ($InputText.Length -gt 0) {
+        $bytes = $Utf8.GetBytes($InputText)
+        $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
     }
     $proc.StandardInput.Close()
     $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
@@ -181,6 +186,34 @@ foreach ($f in (Get-ChildItem 'examples/*.cuff' | Where-Object { $_.Name -match 
 
 Write-Host '== examples/error_cases (error code check) =='
 foreach ($f in (Get-ChildItem 'examples/error_cases/*.cuff' | Sort-Object Name)) { Invoke-ErrorCase $f.FullName }
+
+Write-Host '== cuffc command line =='
+# The same cases as in tests/run.sh.
+function Invoke-CliCase {
+    param([string]$Name, [int]$WantCode, [string]$WantText, [string[]]$Arguments, [string]$InputText = '')
+    $r = Invoke-Program -FilePath $Bin -Arguments $Arguments -InputText $InputText
+    if ($r.ExitCode -ne $WantCode -or -not $r.Output.Contains($WantText)) {
+        Write-Host "FAIL (cuffc command line): ${Name}: exit $($r.ExitCode), wanted $WantCode and '$WantText'"
+        Write-Host $r.Output
+        Register-Failure "cuffc command line: $Name"
+        return
+    }
+    $script:Pass++
+}
+$cliDir = Join-Path $tmp ('cuff_cli_' + [System.Guid]::NewGuid().ToString('N'))
+$korean = Join-Path $cliDir ([string][char]0xD55C + [char]0xAE00 + ' ' + [char]0xD3F4 + [char]0xB354) # "한글 폴더", written so that the file's encoding does not matter
+$null = New-Item -ItemType Directory -Path $korean -Force
+$script = Join-Path $korean ([string][char]0xC2A4 + [char]0xD06C + [char]0xB9BD + [char]0xD2B8 + '.cuff') # "스크립트.cuff"
+[System.IO.File]::WriteAllText($script, "print(`"ok`")`n", $Utf8)
+$none = Join-Path $cliDir 'none.cuff'
+Invoke-CliCase 'a folder is not a script' 1 "Cannot open file '$cliDir'" @($cliDir)
+Invoke-CliCase 'a file that is not there' 1 "Cannot open file '$none'" @($none)
+Invoke-CliCase 'a name with Korean and a space' 0 'ok' @($script)
+Invoke-CliCase 'a file name after --' 0 'ok' @('--', $script)
+Invoke-CliCase 'the script from stdin (-)' 0 'from stdin' @('-') 'print("from stdin")'
+Invoke-CliCase 'an unknown option' 2 "unknown option '--nope'" @('--nope')
+Invoke-CliCase 'two scripts' 2 'only one script file may be given' @($none, $none)
+Remove-Item -Recurse -Force $cliDir -ErrorAction SilentlyContinue
 
 Write-Host ''
 Write-Host "$($script:Pass) passed, $($script:Fail) failed"

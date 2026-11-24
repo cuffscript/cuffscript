@@ -33,7 +33,7 @@ namespace cuff
         std::shared_ptr<const StrData> shared;
         SourceLocation loc;
         StringLiteral(std::string v, SourceLocation l)
-            : value(std::move(v)), shared(std::make_shared<const StrData>(value)), loc(l) {}
+            : value(std::move(v)), shared(std::make_shared<StrData>(value)), loc(l) {}
     };
 
     struct BoolLiteral

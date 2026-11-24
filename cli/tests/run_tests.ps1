@@ -425,6 +425,22 @@ if ($runNative) {
     $r = Invoke-Proc $Cuffsh @($kf) $null
     Check 'startup file in a Korean-named folder, with a Korean file name' ($r.Out -ceq ($hangul + " path ok`n")) ($r.Out + '|' + $r.Err)
 
+    # the folder itself reaches the engine intact: a module beside the script is found (Hangul is outside the
+    # runner's ANSI code page, so a folder converted to ANSI would be lost)
+    $klib = Join-Path $kdir 'lib'
+    New-Item -ItemType Directory -Path $klib | Out-Null
+    [System.IO.File]::WriteAllBytes((Join-Path $klib 'helper.cuff'), (Bytes "func hi() do:`n    return `"module ok`"`nend`n"))
+    $km = Join-Path $kdir ($hangul + '_main.cuff')
+    [System.IO.File]::WriteAllBytes($km, (Bytes "use helper from ./lib`nprint(hi())`n"))
+    $r = Invoke-Proc $Cuffsh @($km) $null
+    Check 'a module beside a startup file in a Korean-named folder' ($r.Out -ceq "module ok`n") ($r.Out + '|' + $r.Err)
+    if ($Cuffc) {
+      $r = Invoke-Proc $Cuffc @($kf) $null
+      Check 'cuffc: a script in a Korean-named folder, with a Korean file name' ($r.Out -ceq ($hangul + " path ok`n")) ($r.Out + '|' + $r.Err)
+      $r = Invoke-Proc $Cuffc @($km) $null
+      Check 'cuffc: a module beside a script in a Korean-named folder' ($r.Out -ceq "module ok`n") ($r.Out + '|' + $r.Err)
+    }
+
     $spaced = Join-Path $tmp 'a folder with spaces'
     New-Item -ItemType Directory -Path $spaced | Out-Null
     $sf = Join-Path $spaced 'x y.cuff'
@@ -483,6 +499,9 @@ if ($runNative) {
       @{ Dir = 'examples'; Stdin = $true },
       @{ Dir = 'examples/error_cases'; Stdin = $false }
     )
+    # How many times a recursion that ran out of native stack repeated depends on the program's own stack, which is
+    # not the same in cuffc and cuffsh: the backtrace's count is left out of the comparison.
+    function Fold([string]$t) { return ($t -replace '\((and )?\d+ (more )?times?\)', '(N times)') }
     $nFile = 0; $nStdin = 0; $diffs = New-Object System.Collections.ArrayList
     foreach ($g in $groups) {
       $dir = Join-Path $root $g.Dir
@@ -493,14 +512,14 @@ if ($runNative) {
         $a = Invoke-Proc $Cuffc @($_.Name) $null $_.DirectoryName
         $b = Invoke-Proc $Cuffsh @('--timeout', '0', $_.Name) $null $_.DirectoryName
         $nFile++
-        if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (as a file)')) }
+        if (($a.Out -cne $b.Out) -or ((Fold $a.Err) -cne (Fold $b.Err))) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (as a file)')) }
         # as a script on stdin (how cuffc reads a script when given no file)
         if ($g.Stdin) {
           $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
           $a = Invoke-Proc $Cuffc @() $bytes $root
           $b = Invoke-Proc $Cuffsh @('--timeout', '0') $bytes $root
           $nStdin++
-          if (($a.Out -cne $b.Out) -or ($a.Err -cne $b.Err)) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (on stdin)')) }
+          if (($a.Out -cne $b.Out) -or ((Fold $a.Err) -cne (Fold $b.Err))) { [void]$diffs.Add(($g.Dir + '/' + $_.Name + '  (on stdin)')) }
         }
       }
     }

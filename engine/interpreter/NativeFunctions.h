@@ -18,6 +18,7 @@
 #include "../dlc/PathDLC.h"
 #include "../dlc/HardwareDLC.h"
 #include "../dlc/MethodTable.h"
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -178,16 +179,33 @@ namespace cuff
 
         reg["print"] = [](std::vector<Value> &args, const SourceLocation &) -> Value
         {
-            for (size_t i = 0; i < args.size(); ++i)
+            // The line is put together and written at once: each write to the stream costs more than the text it
+            // writes. A long str is written as it is, not copied. Showing an object can run its to_str and fail; what
+            // came before it is written first, as it would have been.
+            std::string line;
+            try
             {
-                if (i)
-                    std::cout << ' ';
-                if (args[i].isStr())
-                    std::cout << args[i].asStr();
-                else
-                    std::cout << args[i].toDisplayString();
+                for (size_t i = 0; i < args.size(); ++i)
+                {
+                    if (i)
+                        line += ' ';
+                    if (args[i].isStr() && args[i].asStr().size() > 4096)
+                    {
+                        std::cout.write(line.data(), static_cast<std::streamsize>(line.size()));
+                        line.clear();
+                        std::cout << args[i].asStr();
+                    }
+                    else
+                        args[i].appendDisplay(line);
+                }
             }
-            std::cout << '\n';
+            catch (...)
+            {
+                std::cout.write(line.data(), static_cast<std::streamsize>(line.size()));
+                throw;
+            }
+            line += '\n';
+            std::cout.write(line.data(), static_cast<std::streamsize>(line.size()));
             return Value::makeEmpty();
         };
 
@@ -267,28 +285,75 @@ namespace cuff
         void (*registerFn)(NativeTable &, const DLCOptions &);
     };
 
-    // The one list of `use DLC:<name>` libraries: to add one, include its header above and add a row here.
-    // The "unknown library" hint below is built from this table, in this order.
+    // The one list of `use DLC:<name>` libraries: to add one, include its header above, add a row here, and add its name
+    // to the DLC_NAMES list of each build file (`tools/docs.py check` names the files and fails until they agree). The
+    // "unknown library" hint below is built from this table, in this order.
+    //
+    // A build can leave libraries out with -DCUFF_EXCLUDE_DLC_<NAME> (`make EXCLUDE_DLC="network hardware"`). A library
+    // left out has no row, so it is unknown as a name that never existed is: `use DLC:<name>` is E5-004 with the
+    // libraries that are there in its hint, its methods are not methods, and the command-line flags that only it
+    // reads are not flags. Its code is not referred to, so it is not in the binary. What a host can set for it in
+    // Engine::Options stays, and is not read.
+#if defined(CUFF_EXCLUDE_DLC_CONVERT)
+#error "DLC:convert cannot be left out: its functions (to_str, to_number, ...) are also built-ins of every program"
+#endif
     inline const std::vector<DLCEntry> &dlcTable()
     {
         static const std::vector<DLCEntry> table = {
+#ifndef CUFF_EXCLUDE_DLC_MATH
             {"math", [](NativeTable &reg, const DLCOptions &) { registerMathDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_STRING
             {"string", [](NativeTable &reg, const DLCOptions &) { registerStringDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_TIME
             {"time", [](NativeTable &reg, const DLCOptions &) { registerTimeDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_DATETIME
             {"datetime", [](NativeTable &reg, const DLCOptions &) { registerDatetimeDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_RANDOM
             {"random", [](NativeTable &reg, const DLCOptions &) { registerRandomDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_LIST
             {"list", [](NativeTable &reg, const DLCOptions &) { registerListDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_MAP
             {"map", [](NativeTable &reg, const DLCOptions &) { registerMapDLC(reg); }},
+#endif
             {"convert", [](NativeTable &reg, const DLCOptions &) { registerConvertDLC(reg); }},
+#ifndef CUFF_EXCLUDE_DLC_JSON
             {"json", [](NativeTable &reg, const DLCOptions &) { registerJsonDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_NETWORK
             {"network", [](NativeTable &reg, const DLCOptions &opts) { registerNetworkDLC(reg, opts.network); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_FILESYSTEM
             {"filesystem", [](NativeTable &reg, const DLCOptions &opts) { registerFilesystemDLC(reg, opts.filesystem); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_CSV
             {"csv", [](NativeTable &reg, const DLCOptions &) { registerCsvDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_HASH
             {"hash", [](NativeTable &reg, const DLCOptions &) { registerHashDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_PATH
             {"path", [](NativeTable &reg, const DLCOptions &) { registerPathDLC(reg); }},
+#endif
+#ifndef CUFF_EXCLUDE_DLC_HARDWARE
             {"hardware", [](NativeTable &reg, const DLCOptions &opts) { registerHardwareDLC(reg, opts.hardware); }},
+#endif
         };
         return table;
+    }
+
+    // Whether `use DLC:<name>` can load `name` in this build.
+    inline bool dlcInBuild(const char *name)
+    {
+        for (const DLCEntry &entry : dlcTable())
+            if (std::strcmp(entry.name, name) == 0)
+                return true;
+        return false;
     }
 
     inline void registerDLC(const std::string &libName, NativeTable &reg, const SourceLocation &loc,

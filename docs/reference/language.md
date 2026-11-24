@@ -863,7 +863,7 @@ around that `await` catches it (section 6.5).
 
 ### 8.3 Error objects and `fail`
 
-`or_else as [type] [name] do:` runs the handler with the error in a variable, and the type is `Error`, a class that extends `Error`, `object` or `any`; a type that does not accept the error is `E4-020`. Every error a handler can catch arrives as an object of the built-in class `Error`, with the fields `message`, `code`, `line`, `column` and `hint`.
+`or_else as [type] [name] do:` runs the handler with the error in a variable, and the type is `Error`, a class that extends `Error`, `object` or `any`; a type that does not accept the error is `E4-020`. Every error a handler can catch arrives as an object of the built-in class `Error`, with the fields `message`, `code`, `line`, `column`, `hint` and `backtrace` (the calls it came out of: see [backtraces](../guide/errors-and-debugging.md#backtraces)).
 
 `fail [value]` raises an error from the program. The value is an `Error` object, or a string, which becomes `Error(string)`; its code is `E7-001`. A class of your own may extend `Error` to carry more. Inside a handler, `fail [name]` raises the same error again.
 

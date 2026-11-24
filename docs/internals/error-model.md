@@ -31,7 +31,7 @@ space does not have to be renumbered.
 
 ## Errors as objects
 
-A program sees an error as an object of the built-in class `Error` (`message`, `code`, `line`, `column`, `hint`).
+A program sees an error as an object of the built-in class `Error` (`message`, `code`, `line`, `column`, `hint`, `backtrace`).
 Two kinds of error become one:
 
 - An error the program raises with `fail` is a `ProgramError` (in `interpreter/Interpreter.h`, code `E7-001`). It carries the

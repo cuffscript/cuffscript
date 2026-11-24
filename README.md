@@ -57,7 +57,7 @@ On Windows with MinGW:
 mingw32-make -f Makefile.win
 ```
 
-The executable is `cuffc` on Linux/macOS and `cuffc.exe` on Windows. The interactive shell is built separately with `./cli/build.sh` (`cli\build.bat` on Windows).
+The executable is `cuffc` on Linux/macOS and `cuffc.exe` on Windows. The interactive shell is built separately with `./cli/build.sh` (`cli\build.bat` on Windows). `android/` builds both for Android, and `make EXCLUDE_DLC="network hardware"` leaves libraries a device has no use for out of the binary ([Building](docs/contributing/building.md#leaving-libraries-out)).
 
 ### Run a Script
 
@@ -126,7 +126,7 @@ Ann has 30 points
 - Fifteen built-in libraries: math (with bit operations), strings, lists, maps, conversion, time, dates, random numbers, JSON, CSV, hashes and encodings, paths, files, a small HTTP client, and the device's hardware (battery, buttons, lights, sensors, pins), which the host program gives
 - Error reports with the source line, a caret under the position, and a hint, and a [catalogue](docs/reference/errors.md) of every error code
 - Limits on nesting, recursion, size and matching work, so a script can fail without crashing its host
-- A C++ API for embedding the engine, plus a WebAssembly build target
+- A C++ API for embedding the engine, plus WebAssembly and Android builds, and builds without the libraries a device does not need
 
 ## Documentation
 

@@ -21,6 +21,7 @@ Build first: `make` for the first two, plus `cli/build.sh` for the shell tests.
 | Errors | `tests/errors/<area>/` | `name.cuff` that must fail; `name.expected_code` (optional) holds the error code it must fail with. |
 | Examples | `examples/` | Output must match `name.expected` where there is one; otherwise it only has to run. |
 | Example errors | `examples/error_cases/` | Must fail with the code in `name.expected_code`. |
+| `cuffc` command line | in the runners themselves | What `cuffc` does with a folder, a missing file, a name with Korean and a space, `--`, `-` (standard input), an unknown option and two scripts. |
 
 Environment variables: `CUFFC` (the binary to test), `CXX` (the compiler for the unit tests) and `UNIT_FLAGS` (their
 optimisation and extra flags). `run.sh` falls back to `gtimeout`, or to no timeout, where `timeout` is missing, as on a
@@ -113,7 +114,8 @@ checks and the manual checklist it prints at the end cover the shell. CI runs th
 
 `python3 tools/docs.py check` verifies that the generated pages are current, that every library function is documented and
 nothing documented is missing from the code, that every relative link and heading anchor resolves, that no limit's value is
-written outside the generated page, that the version is the same everywhere, and that every runnable example in the docs
+written outside the generated page, that the version is the same everywhere, that the build files' lists of libraries agree with the engine, that nothing in
+`engine/`, `main.cpp` or `wasm/` includes a file of `cuffsh` (`cli/`) or the IDE (`ide/`), and that every runnable example in the docs
 produces the output shown. See [Documentation](documentation.md).
 
 ## Sanitizers
@@ -181,6 +183,35 @@ The `Sanitizers` workflow runs both builds and both comparisons.
 
 `make EXTRA_CXXFLAGS=-DCUFF_DISABLE_NETWORK` then `CUFFC=./cuffc bash tests/run.sh`: everything passes except the
 `tests/errors/libraries/network_*.cuff` cases, which test the client that was left out.
+
+A build that [leaves libraries out](building.md#leaving-libraries-out) is tested by telling the runner which ones it left out:
+
+```sh
+make -B EXCLUDE_DLC="network hardware"
+EXCLUDED_DLC="network hardware" bash tests/run.sh
+```
+
+A test that stops because one of them is unknown (`use DLC:network` is `E5-004`, or `--hardware` is not an option) is counted as
+left out, and every other test must pass exactly as in the full build. A unit test that names one of the libraries is not built.
+The runner first checks that the binary really is without them, so a binary built without `EXCLUDE_DLC` cannot pass for one.
+`Build and test` runs this on Linux with every library that can be left out left out.
+
+## Android without a device
+
+A static Android build runs on Linux under QEMU's user-mode emulation, which is enough to run the whole suite on bionic, and on
+32-bit ARM as well as 64-bit:
+
+```sh
+NDK=/path/to/android-ndk; B=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+$B/aarch64-linux-android29-clang++ -std=c++17 -O2 -DNDEBUG -static -o /tmp/cuffc-a64 main.cpp
+printf '#!/bin/sh\nexec qemu-aarch64-static /tmp/cuffc-a64 "$@"\n' > /tmp/a64.sh && chmod +x /tmp/a64.sh
+CUFFC=/tmp/a64.sh bash tests/run.sh
+```
+
+(`armv7a-linux-androideabi29-clang++` and `qemu-arm-static` for 32-bit ARM.) A static executable needs API level 29 or later, whose
+thread-local storage bionic accepts. Two results are the emulation's, not the engine's: `libraries/dlc_datetime` shows an extra line,
+`__bionic_open_tzdata: couldn't find any tzdata`, because the host has no Android time zone data, and a test that takes several
+seconds natively can pass its 10-second limit under emulation.
 
 ## When CI fails and it passes for you
 

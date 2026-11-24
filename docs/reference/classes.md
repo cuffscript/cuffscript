@@ -340,6 +340,7 @@ The built-in class `Error` describes what went wrong. Its fields are all public:
 | `code` | `str` | the error code, such as `E4-006`, or `E7-001` for an error raised with `fail` |
 | `line`, `column` | `number` | where it happened (`0` for an error that was never raised) |
 | `hint` | `str` | the suggestion the engine gave, or an empty string |
+| `backtrace` | `list` | the calls the error came out of, innermost first, filled in when it is caught; empty for an error that was never raised. See [backtraces](../guide/errors-and-debugging.md#backtraces) |
 
 `Error("text")` makes one, and its `to_str()` is `[code] message`. A class can extend it to carry more.
 

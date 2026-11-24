@@ -6572,15 +6572,49 @@ class CuffScriptIDE:
         source_path = path_match.group(1) if path_match else None
         return int(match.group(1)), int(match.group(2)), source_path
 
+    # A row of the backtrace under an error report (engine 6.2.0 and later):
+    #     line 4 in f: return parse_port("x")
+    #     line 6 in Server.init ('./lib.cuff'): self.port = parse_port(p) (and 3 more times)
+    #     line 8: print(f(0))
+    #     line 2 of './lib.cuff': start()
+    # A row without a file is in the program that was run; a file is named as the program named the module.
+    TRACE_ROW = re.compile(
+        r"^ {4}line (\d+)(?: in [A-Za-z_][A-Za-z_0-9.]*)?(?: of '([^']+)'| \('([^']+)'\))?(?:: | \(|$)"
+    )
+
+    def _in_error_report(self, line_no):
+        """Whether an output line is the engine's text on stderr, where its error reports are."""
+        try:
+            return "error" in self.output.tag_names(f"{line_no}.0")
+        except tk.TclError:
+            return False
+
     def _error_context(self, output_line):
-        for line_no in range(output_line, max(0, output_line - 18), -1):
+        # A report with a backtrace can be longer than 18 lines: inside one, the search goes up to its first line.
+        limit = 18
+        if self._in_error_report(output_line):
+            limit = 600
+        for line_no in range(output_line, max(0, output_line - limit), -1):
+            if limit > 18 and line_no < output_line and not self._in_error_report(line_no):
+                break
             text = self.output.get(f"{line_no}.0", f"{line_no}.end")
             parsed = self._parse_error_header(text)
             if parsed:
                 return parsed
         return None
 
-    def extract_error_line(self, line_text):
+    def _trace_row(self, line_text):
+        """(line, source path) for a backtrace row; the path is "current code" for the program that was run."""
+        row = self.TRACE_ROW.match(line_text)
+        if not row:
+            return None
+        return int(row.group(1)), row.group(2) or row.group(3) or "current code"
+
+    def extract_error_line(self, line_text, in_report=False):
+        if in_report:
+            row = self._trace_row(line_text)
+            if row:
+                return row[0], None, row[1]
         parsed = self._parse_error_header(line_text)
         if parsed:
             return parsed
@@ -6617,7 +6651,9 @@ class CuffScriptIDE:
             output_index = self.output.index(f"@{event.x},{event.y}")
             output_line = int(output_index.split(".")[0])
             clicked_text = self.output.get(f"{output_line}.0", f"{output_line}.end")
-            clicked = self.extract_error_line(clicked_text)
+            clicked = self.extract_error_line(
+                clicked_text, self._in_error_report(output_line)
+            )
             context = self._error_context(output_line)
             if clicked and clicked[2] is not None:
                 source_line, source_column, source_path = clicked
@@ -6646,7 +6682,15 @@ class CuffScriptIDE:
             if not 1 <= source_line <= last_line:
                 return
             self.editor.focus_set()
-            column_index = max(0, (source_column or 1) - 1)
+            code = self.editor.get(f"{source_line}.0", f"{source_line}.end")
+            if source_column is None:
+                # A backtrace row names no column: the start of the code on the line.
+                column_index = len(code) - len(code.lstrip(" \t"))
+            else:
+                # The engine counts characters; Tk counts one outside the BMP (an emoji) as two.
+                column_index = self._tk_column(
+                    code, min(max(0, source_column - 1), len(code))
+                )
             self.editor.mark_set(tk.INSERT, f"{source_line}.{column_index}")
             self.editor.see(f"{source_line}.{column_index}")
             self.editor.tag_remove("sel", "1.0", tk.END)
@@ -6661,7 +6705,8 @@ class CuffScriptIDE:
             line_number = int(self.output.index(f"@{event.x},{event.y}").split(".")[0])
             line_text = self.output.get(f"{line_number}.0", f"{line_number}.end")
             clickable = (
-                self.extract_error_line(line_text) is not None
+                self.extract_error_line(line_text, self._in_error_report(line_number))
+                is not None
                 or self._error_context(line_number) is not None
             )
             self.output.config(cursor="hand2" if clickable else "xterm")

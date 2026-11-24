@@ -29,9 +29,16 @@ reg["my_func"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Valu
   method" hint and fills the Method column of the function index. A function with no receiver (`math_min`, `random_*`) gets no row.
 - For a brand-new library, create a new file in `engine/dlc/` (include only
   `DLCCommon.h`), write a `registerXxxDLC()` function, `#include` the file from
-  `NativeFunctions.h`, and add one row to `dlcTable()` in that file. The "unknown
-  library" hint is generated from the table, so there is no second list of names to
-  update. Make sure the name does not collide with an existing library.
+  `NativeFunctions.h`, and add one row to `dlcTable()` in that file, inside
+  `#ifndef CUFF_EXCLUDE_DLC_<NAME>` like the others. The "unknown library" hint is
+  generated from the table. The build files check the names given to `EXCLUDE_DLC`
+  against lists of their own (`DLC_NAMES` in `Makefile`, `Makefile.win`,
+  `android/jni/Android.mk`, `android/CMakeLists.txt`, `cli/build.sh`, `cli/build.bat`
+  and `tests/run.sh`): add the name to each, in the table's order;
+  `tools/docs.py check` fails until they agree. A command-line flag that only the
+  library reads goes inside the same `#ifndef` in `engine/EngineOptionsCli.h`, and
+  `tests/run.sh` (`dlc_flags`) learns it too. Make sure the name does not collide
+  with an existing library.
 - Name DLC functions `library_verb` (`math_sqrt`, `str_upper`, `list_sort`,
   `file_read`, ...). The name alone tells you which library a function belongs to,
   and because every library shares a single `natives_` map, it also lowers the risk
@@ -281,10 +288,19 @@ as `NetworkDLC.h` does with the HTTP client.
   its functions fail with `DLCFeatureUnavailable` (E5-005). The four
   `tests/errors/libraries/network_*.cuff` cases exercise the client itself, so they are
   expected to fail in such a build.
+- **Leaving libraries out.** `-DCUFF_EXCLUDE_DLC_<NAME>` (`make EXCLUDE_DLC="..."`)
+  takes a library's row out of `dlcTable()`, so nothing refers to its code and the
+  linker leaves it out; its methods and its command-line flags go with it. The
+  library's header is still included, so the types a host can set in
+  `Engine::Options` (`Hardware`, the options of the network and the file system)
+  exist in every build. Code outside a library must not call into it, or leaving
+  it out would leave that code broken; see [Building](building.md#leaving-libraries-out).
 - **Paths from scripts.** Wherever text written in a script becomes a file system
   path, use `std::filesystem::u8path()` rather than `std::filesystem::path(str)`,
   which reads the string in the ANSI code page on Windows and garbles non-ASCII
-  names. Paths the host hands in (`scriptDir`, `rootDir`) are used as given.
+  names. Paths the host hands in (`scriptDir`, `rootDir`) become paths through
+  `hostPath()` in `engine/common/PathSandbox.h`: UTF-8, or ANSI on Windows when
+  the string is not UTF-8.
 - **Text is UTF-8** everywhere inside the engine. Convert at the edge (a console, a
   file name from the OS), not in the middle.
 - **Dispatch.** The machine jumps between instructions through a table of labels, which GCC and Clang provide as an

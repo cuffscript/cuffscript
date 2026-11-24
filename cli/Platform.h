@@ -257,26 +257,16 @@ namespace cuff::cli::platform
         return true;
     }
 
-    // The engine turns its narrow path strings back into paths with the
-    // platform's native narrow encoding, so hand it exactly that.
-    inline std::string enginePath(const std::string &utf8)
-    {
-        try
-        {
-            return pathFromUtf8(utf8).string();
-        }
-        catch (const std::exception &)
-        {
-            return utf8;
-        }
-    }
+    // The engine reads the paths it is given as UTF-8 (engine/common/PathSandbox.h, hostPath), which is what the
+    // shell already has: a path is handed over as it is.
+    inline std::string enginePath(const std::string &utf8) { return utf8; }
 
     inline std::string parentDirectory(const std::string &pathUtf8)
     {
         try
         {
             const std::filesystem::path parent = pathFromUtf8(pathUtf8).parent_path();
-            return parent.empty() ? std::string(".") : parent.string();
+            return parent.empty() ? std::string(".") : parent.u8string();
         }
         catch (const std::exception &)
         {

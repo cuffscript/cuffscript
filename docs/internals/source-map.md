@@ -79,7 +79,7 @@ The stages that turn source text into a syntax tree, in order. They are chained 
 
 | File | What it does |
 | :--- | :--- |
-| `main.cpp` | `cuffc`: reads the script (at most the source limit), parses the command line, runs or dumps the program, sets the exit status. |
+| `main.cpp` | `cuffc`: reads the script (at most the source limit), parses the command line, runs or dumps the program, sets the exit status. On Windows it also reads the command line as UTF-16 and gives the console UTF-8 in both directions. It uses only `engine/`, never `cli/`. |
 | `cli/main.cpp` | `cuffsh`: parses the shell's options and starts the loop. |
 | `cli/Repl.h` | The read-evaluate-print loop and the `:` commands, over one long-lived `Engine`. |
 | `cli/LineEditor.h` | The prompt editor: cursor movement, history, multi-line entries, paste. |
