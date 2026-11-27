@@ -44,3 +44,59 @@ print(long())
 str g = "top"
 g = g + "level"
 print(g)
+
+note: a global and a field are read into a register and written back, so they too are added to in place, and every
+note: other holder still keeps what it had
+str whole = ""
+str before = ""
+list kept = []
+map keys = {}
+loop repeat number i = 1 ~ 3 do:
+    whole = whole + "글"
+    before = whole
+    add whole to kept
+    keys[whole] = i
+    whole = whole + "z"
+end
+print(whole, before, kept, keys, whole.length(), whole[2])
+
+class Log do:
+    str text = ""
+    constant str FIXED = "c"
+    private str hidden = "p"
+    func put(str s) do:
+        self.text = self.text + s
+        self.hidden = self.hidden + s
+        return self
+    end
+    func seen() do:
+        return self.hidden
+    end
+end
+class Loud extends Log do:
+    func shout(str s) do:
+        self.text = self.text + s.upper()
+        return self
+    end
+end
+use DLC:string
+Log lg = Log()
+str snapshot = ""
+loop repeat number i = 1 ~ 3 do:
+    lg.put("a")
+    snapshot = lg.text
+    lg.put("b")
+end
+print(lg.text, snapshot, lg.seen())
+Loud ld = Loud()
+ld.put("x").shout("y")
+print(ld.text, ld.seen())
+
+note: a constant field is not written: the error leaves its text as it was
+func touch(Log x) do:
+    x.FIXED = x.FIXED + "!"
+end
+touch(lg) or_else as Error e do:
+    print(e.code)
+end
+print(lg.FIXED)

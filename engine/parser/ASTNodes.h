@@ -62,8 +62,7 @@ namespace cuff
     {
         std::vector<std::unique_ptr<Expr>> elements;
         SourceLocation loc;
-        ListLiteral(std::vector<std::unique_ptr<Expr>> e, SourceLocation l)
-            : elements(std::move(e)), loc(l) {}
+        ListLiteral(std::vector<std::unique_ptr<Expr>> e, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct MapLiteral
@@ -75,7 +74,7 @@ namespace cuff
         };
         std::vector<Pair> pairs;
         SourceLocation loc;
-        MapLiteral(std::vector<Pair> p, SourceLocation l) : pairs(std::move(p)), loc(l) {}
+        MapLiteral(std::vector<Pair> p, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct FStringExpr
@@ -88,8 +87,7 @@ namespace cuff
         };
         std::vector<Segment> segments;
         SourceLocation loc;
-        FStringExpr(std::vector<Segment> s, SourceLocation l)
-            : segments(std::move(s)), loc(l) {}
+        FStringExpr(std::vector<Segment> s, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     enum class BinOp
@@ -151,8 +149,7 @@ namespace cuff
         std::unique_ptr<Expr> left;
         std::unique_ptr<Expr> right;
         SourceLocation loc;
-        BinaryOp(BinOp o, std::unique_ptr<Expr> l, std::unique_ptr<Expr> r, SourceLocation lc)
-            : op(o), left(std::move(l)), right(std::move(r)), loc(lc) {}
+        BinaryOp(BinOp o, std::unique_ptr<Expr> l, std::unique_ptr<Expr> r, SourceLocation lc); // defined at the end of this file, where Expr is complete
     };
 
     struct UnaryOp
@@ -160,8 +157,7 @@ namespace cuff
         UnOp op;
         std::unique_ptr<Expr> operand;
         SourceLocation loc;
-        UnaryOp(UnOp o, std::unique_ptr<Expr> e, SourceLocation l)
-            : op(o), operand(std::move(e)), loc(l) {}
+        UnaryOp(UnOp o, std::unique_ptr<Expr> e, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct IndexAccess
@@ -169,8 +165,7 @@ namespace cuff
         std::unique_ptr<Expr> target;
         std::unique_ptr<Expr> index;
         SourceLocation loc;
-        IndexAccess(std::unique_ptr<Expr> t, std::unique_ptr<Expr> i, SourceLocation l)
-            : target(std::move(t)), index(std::move(i)), loc(l) {}
+        IndexAccess(std::unique_ptr<Expr> t, std::unique_ptr<Expr> i, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct SliceAccess
@@ -179,8 +174,7 @@ namespace cuff
         std::unique_ptr<Expr> start;
         std::unique_ptr<Expr> end;
         SourceLocation loc;
-        SliceAccess(std::unique_ptr<Expr> t, std::unique_ptr<Expr> s, std::unique_ptr<Expr> e, SourceLocation l)
-            : target(std::move(t)), start(std::move(s)), end(std::move(e)), loc(l) {}
+        SliceAccess(std::unique_ptr<Expr> t, std::unique_ptr<Expr> s, std::unique_ptr<Expr> e, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct PatternLiteral
@@ -203,8 +197,7 @@ namespace cuff
         std::vector<std::unique_ptr<Expr>> args;
         SourceLocation loc;
         bool inWith = false; // written inside a `with` block of the same function: the object's methods are looked at first
-        FunctionCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
-            : functionName(std::move(n)), functionNameId(internName(functionName)), args(std::move(a)), loc(l) {}
+        FunctionCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     // target.name. A null target is the leading-dot form `.name`, the member of the innermost `with` object.
@@ -214,8 +207,7 @@ namespace cuff
         std::string name;
         uint32_t nameId;
         SourceLocation loc;
-        MemberAccess(std::unique_ptr<Expr> t, std::string n, SourceLocation l)
-            : target(std::move(t)), name(std::move(n)), nameId(internName(name)), loc(l) {}
+        MemberAccess(std::unique_ptr<Expr> t, std::string n, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     // target.name(args), or `.name(args)` with a null target.
@@ -226,8 +218,7 @@ namespace cuff
         uint32_t nameId;
         std::vector<std::unique_ptr<Expr>> args;
         SourceLocation loc;
-        MethodCall(std::unique_ptr<Expr> t, std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
-            : target(std::move(t)), name(std::move(n)), nameId(internName(name)), args(std::move(a)), loc(l) {}
+        MethodCall(std::unique_ptr<Expr> t, std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct SuperCall
@@ -236,8 +227,7 @@ namespace cuff
         uint32_t nameId;
         std::vector<std::unique_ptr<Expr>> args;
         SourceLocation loc;
-        SuperCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
-            : name(std::move(n)), nameId(internName(name)), args(std::move(a)), loc(l) {}
+        SuperCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     struct IsaExpr
@@ -246,8 +236,7 @@ namespace cuff
         std::string className;
         uint32_t classNameId;
         SourceLocation loc;
-        IsaExpr(std::unique_ptr<Expr> t, std::string c, SourceLocation l)
-            : target(std::move(t)), className(std::move(c)), classNameId(internName(className)), loc(l) {}
+        IsaExpr(std::unique_ptr<Expr> t, std::string c, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     // `await call` or `await task`. `call` is what follows the keyword: a FunctionCall, MethodCall or SuperCall, which
@@ -256,8 +245,7 @@ namespace cuff
     {
         std::unique_ptr<Expr> call;
         SourceLocation loc;
-        AwaitExpr(std::unique_ptr<Expr> c, SourceLocation l)
-            : call(std::move(c)), loc(l) {}
+        AwaitExpr(std::unique_ptr<Expr> c, SourceLocation l); // defined at the end of this file, where Expr is complete
     };
 
     enum class ExprKind
@@ -830,5 +818,36 @@ namespace cuff
         SourceRef source;
         std::vector<uint32_t> declaredNames; // the variables its top level declares, outside any block
     };
+
+    // Constructors of nodes that own an Expr: a constructor destroys what it took if it throws, and under C++20 and later
+    // the destructors of unique_ptr and vector are constexpr, which Clang instantiates where the constructor is defined.
+    // So they are defined here, where Expr is complete, and not in their classes.
+    inline ListLiteral::ListLiteral(std::vector<std::unique_ptr<Expr>> e, SourceLocation l)
+        : elements(std::move(e)), loc(l) {}
+    inline MapLiteral::MapLiteral(std::vector<MapLiteral::Pair> p, SourceLocation l)
+        : pairs(std::move(p)), loc(l) {}
+    inline FStringExpr::FStringExpr(std::vector<FStringExpr::Segment> s, SourceLocation l)
+        : segments(std::move(s)), loc(l) {}
+    inline FunctionCall::FunctionCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
+        : functionName(std::move(n)), functionNameId(internName(functionName)), args(std::move(a)), loc(l) {}
+    inline MethodCall::MethodCall(std::unique_ptr<Expr> t, std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
+        : target(std::move(t)), name(std::move(n)), nameId(internName(name)), args(std::move(a)), loc(l) {}
+    inline SuperCall::SuperCall(std::string n, std::vector<std::unique_ptr<Expr>> a, SourceLocation l)
+        : name(std::move(n)), nameId(internName(name)), args(std::move(a)), loc(l) {}
+
+    inline BinaryOp::BinaryOp(BinOp o, std::unique_ptr<Expr> l, std::unique_ptr<Expr> r, SourceLocation lc)
+        : op(o), left(std::move(l)), right(std::move(r)), loc(lc) {}
+    inline UnaryOp::UnaryOp(UnOp o, std::unique_ptr<Expr> e, SourceLocation l)
+        : op(o), operand(std::move(e)), loc(l) {}
+    inline IndexAccess::IndexAccess(std::unique_ptr<Expr> t, std::unique_ptr<Expr> i, SourceLocation l)
+        : target(std::move(t)), index(std::move(i)), loc(l) {}
+    inline SliceAccess::SliceAccess(std::unique_ptr<Expr> t, std::unique_ptr<Expr> s, std::unique_ptr<Expr> e, SourceLocation l)
+        : target(std::move(t)), start(std::move(s)), end(std::move(e)), loc(l) {}
+    inline MemberAccess::MemberAccess(std::unique_ptr<Expr> t, std::string n, SourceLocation l)
+        : target(std::move(t)), name(std::move(n)), nameId(internName(name)), loc(l) {}
+    inline IsaExpr::IsaExpr(std::unique_ptr<Expr> t, std::string c, SourceLocation l)
+        : target(std::move(t)), className(std::move(c)), classNameId(internName(className)), loc(l) {}
+    inline AwaitExpr::AwaitExpr(std::unique_ptr<Expr> c, SourceLocation l)
+        : call(std::move(c)), loc(l) {}
 
 }

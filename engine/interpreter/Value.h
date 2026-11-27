@@ -468,7 +468,10 @@ namespace cuff
     {
     public:
         ValueMap() { cycles.enter(this, CycleLink::Map); }
-        ValueMap(const ValueMap &o) : order_(o.order_), values_(o.values_), slots_(o.slots_) { cycles.enter(this, CycleLink::Map); }
+        ValueMap(const ValueMap &o) : order_(o.order_), values_(o.values_), hashes_(o.hashes_), slots_(o.slots_)
+        {
+            cycles.enter(this, CycleLink::Map);
+        }
         ValueMap &operator=(const ValueMap &o)
         {
             if (this != &o)
@@ -476,6 +479,7 @@ namespace cuff
                 ValueMap copy(o);
                 order_.swap(copy.order_);
                 values_.swap(copy.values_);
+                hashes_.swap(copy.hashes_);
                 slots_.swap(copy.slots_);
             }
             return *this;
@@ -484,9 +488,11 @@ namespace cuff
 
         CycleLink cycles;
 
-        void set(const std::string &key, Value v)
+        CUFF_NOINLINE void set(const std::string &key, Value v)
         {
-            const size_t at = find(key);
+            // The key is hashed once: for the search, for its place in the table and for every later rebuild of it.
+            uint32_t h = slots_.empty() ? 0 : hashOf(key);
+            const size_t at = slots_.empty() ? findInOrder(key) : findHashed(key, h);
             if (at != kNone)
             {
                 values_[at] = std::move(v);
@@ -501,11 +507,20 @@ namespace cuff
             if (values_.capacity() == n)
                 values_.reserve(n < 4 ? 4 : n * 2);
             if (n + 1 > kLookedThrough && (n + 1) * 4 > slots_.size() * 3)
+            {
+                if (slots_.empty())
+                    h = hashOf(key);
                 index(slots_.empty() ? 32 : slots_.size() * 2);
+            }
+            if (!slots_.empty() && hashes_.capacity() == n)
+                hashes_.reserve(n < 4 ? 4 : n * 2);
             order_.push_back(key);
             values_.push_back(std::move(v));
             if (!slots_.empty())
+            {
+                hashes_.push_back(h);
                 place(n);
+            }
         }
 
         bool has(const std::string &key) const { return find(key) != kNone; }
@@ -523,9 +538,14 @@ namespace cuff
                 return false;
             order_.erase(order_.begin() + static_cast<std::ptrdiff_t>(at));
             values_.erase(values_.begin() + static_cast<std::ptrdiff_t>(at));
+            if (!hashes_.empty())
+                hashes_.erase(hashes_.begin() + static_cast<std::ptrdiff_t>(at));
             // Every later key moved up by one, so the table is written again (in the memory it has).
             if (order_.size() <= kLookedThrough)
+            {
                 std::vector<uint32_t>().swap(slots_);
+                std::vector<uint32_t>().swap(hashes_);
+            }
             else if (!slots_.empty())
                 index(slots_.size());
             return true;
@@ -546,6 +566,7 @@ namespace cuff
                     slots *= 2;
                 if (slots > slots_.size())
                     index(slots);
+                hashes_.reserve(n);
             }
         }
 
@@ -559,6 +580,7 @@ namespace cuff
                 out.push_back(std::move(v));
             values_.clear();
             order_.clear();
+            std::vector<uint32_t>().swap(hashes_);
             std::vector<uint32_t>().swap(slots_);
         }
 
@@ -566,22 +588,27 @@ namespace cuff
         static constexpr size_t kNone = static_cast<uint32_t>(-1);
         static constexpr size_t kLookedThrough = 8;
 
-        size_t find(const std::string &key) const
+        static uint32_t hashOf(const std::string &key) { return static_cast<uint32_t>(std::hash<std::string>()(key)); }
+
+        CUFF_NOINLINE size_t find(const std::string &key) const { return slots_.empty() ? findInOrder(key) : findHashed(key, hashOf(key)); }
+
+        size_t findInOrder(const std::string &key) const
         {
-            if (slots_.empty())
-            {
-                for (size_t i = 0, n = order_.size(); i < n; ++i)
-                    if (order_[i] == key)
-                        return i;
-                return kNone;
-            }
+            for (size_t i = 0, n = order_.size(); i < n; ++i)
+                if (order_[i] == key)
+                    return i;
+            return kNone;
+        }
+
+        size_t findHashed(const std::string &key, uint32_t h) const
+        {
             const size_t mask = slots_.size() - 1;
-            for (size_t at = std::hash<std::string>()(key) & mask;; at = (at + 1) & mask)
+            for (size_t at = h & mask;; at = (at + 1) & mask)
             {
                 const uint32_t slot = slots_[at];
                 if (slot == 0)
                     return kNone;
-                if (order_[slot - 1] == key)
+                if (hashes_[slot - 1] == h && order_[slot - 1] == key)
                     return slot - 1;
             }
         }
@@ -590,23 +617,35 @@ namespace cuff
         void place(size_t i)
         {
             const size_t mask = slots_.size() - 1;
-            size_t at = std::hash<std::string>()(order_[i]) & mask;
+            size_t at = hashes_[i] & mask;
             while (slots_[at] != 0)
                 at = (at + 1) & mask;
             slots_[at] = static_cast<uint32_t>(i + 1);
         }
 
-        // Writes the table again, with `slots` places (a power of two, more than the keys there are).
+        // Writes the table again, with `slots` places (a power of two, more than the keys there are). The keys of a map
+        // that had no table yet are hashed now; the others keep theirs. Nothing changes if memory runs out on the way.
         void index(size_t slots)
         {
-            slots_.assign(slots, 0);
+            std::vector<uint32_t> hashes;
+            if (hashes_.size() != order_.size())
+            {
+                hashes.reserve(order_.capacity());
+                for (const std::string &key : order_)
+                    hashes.push_back(hashOf(key));
+            }
+            std::vector<uint32_t> table(slots, 0);
+            if (!hashes.empty())
+                hashes_.swap(hashes);
+            slots_.swap(table);
             for (size_t i = 0, n = order_.size(); i < n; ++i)
                 place(i);
         }
 
         std::vector<std::string> order_;
         std::vector<Value> values_;
-        std::vector<uint32_t> slots_; // 0 for a free place, otherwise a key's position plus one
+        std::vector<uint32_t> hashes_; // the hash of each key, in the order of the keys, once the map has a table
+        std::vector<uint32_t> slots_;  // 0 for a free place, otherwise a key's position plus one
     };
 
     // An instance of a class. The fields are in the order of ClassInfo::fields. `origin` is what the engine keeps

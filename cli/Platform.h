@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../engine/common/PathSandbox.h" // the engine's UTF-8 paths (utf8OfPath)
 #include <algorithm>
 #include <climits>
 #include <cstddef>
@@ -266,7 +267,7 @@ namespace cuff::cli::platform
         try
         {
             const std::filesystem::path parent = pathFromUtf8(pathUtf8).parent_path();
-            return parent.empty() ? std::string(".") : parent.u8string();
+            return parent.empty() ? std::string(".") : cuff::utf8OfPath(parent);
         }
         catch (const std::exception &)
         {

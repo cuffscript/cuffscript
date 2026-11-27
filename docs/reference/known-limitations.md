@@ -22,7 +22,7 @@ cannot do yet. Every item links to the page that defines the behaviour. The [des
 
 - **No static members, abstract classes, interfaces, operator overloading or multiple inheritance.** A class has one optional parent, and an object has its fields and methods and nothing else. See [classes](classes.md).
 - **No `protected`.** A member is public, or `private` to the class that declares it; a child class cannot see its parent's private members.
-- **The fields of a class are fixed.** An object cannot gain a field that its class does not declare (`E4-033`), and a field's declared type is checked on its default value only.
+- **The fields of a class are fixed.** An object cannot gain a field that its class does not declare (`E4-033`).
 - **A class is declared at the top level of a file** and cannot be declared in a block, in a function or in a method (`E4-036`).
 - **Methods are not values**, like functions: `object.method` without the parentheses is an error (`E4-040`).
 - **There are no destructors.** An object is freed when nothing refers to it any more (a cycle of objects too, a little later), and nothing of the program runs when that happens.

@@ -17,7 +17,7 @@ in which the engine became a bytecode machine. The items before them that descri
 tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so. Items 71 to 78 record
 6.0.0: item 71 replaces item 1 (the queue of `async` calls became tasks), item 74 replaces the part of item 11 that says a
 cycle is never freed, and item 78 replaces the parts of items 59 and 64 that let a shell entry declare a name again. Item 79
-records 6.1.0, and items 80 and 81 record 6.2.0.
+records 6.1.0, items 80 and 81 record 6.2.0, and item 82 records 6.3.0.
 
 ## 1. The `async` / `await` execution model
 
@@ -2122,3 +2122,27 @@ from before the libraries counted calls 5.1% fewer; that arrangement of the loop
   loop that does nothing but catch 40,000 errors in a function runs 13% more instructions (an error was already about 38,000
   instructions to raise, catch and describe); the benchmarks that do not fail are unchanged.
 
+## 82. v6.3.0: fixes, speed and portability
+
+- **`t = t + more` in place for a global and a field too.** 6.2.0 added to a text in place only when the variable was its one
+  holder, which is a local: a top-level variable or a field is read into a register first, so the text has two holders, and
+  the `+` still copied it. Most beginners' programs build text at the top level. The `+` now looks at the instruction after it:
+  when that writes the result back into the global (`SetG`, `SetGU`) or into a field on `SetField`'s fast path, and that
+  place holds the same text, the place and the register are its only two holders and the place is about to be overwritten
+  with the result, so the text is added to where it is. A field is added to only where its write cannot fail (not constant,
+  not private to another class, of a type that `str` fits), because a write that then failed would leave the field changed.
+  Building a string of 20,000 pieces at the top level runs 36 times fewer instructions, in a method's field 21 times.
+- **A map's table keeps each key's hash.** A map of more than 8 keys finds them through a table; each new key was hashed for
+  the search, again for its place, and once more every time the table grew. The table now keeps a 32-bit hash per key (4
+  bytes a key, only once the map has a table), so a key is hashed once, the table is rebuilt from the kept hashes, and a
+  search compares the hash before the text. Storing 50,000 keys and adding 100,000 items runs 11% fewer instructions. A
+  map of 8 keys or fewer is as it was.
+- **C++20 and C++23.** The engine is C++17, but a host that includes it may be built with a later standard, where the engine did
+  not compile: `u8path` is deprecated and `path::u8string()` is a `std::u8string`, so `pathOfUtf8` and `utf8OfPath` turn
+  UTF-8 text into a path and back the same way under every standard. Under C++20 the destructors of `unique_ptr` and
+  `vector` are `constexpr`, and Clang instantiates them where an inline constructor is defined; the constructors of the
+  syntax-tree nodes that own an `Expr` are therefore defined after `Expr` is complete. CI compiles `cuffc` and the embedding
+  example as C++20 and C++23 with GCC and Clang.
+- **An HTTP status is three digits.** It was read with `atoi`, so `abc` was status 0 and a number too long for an `int` was
+  undefined behaviour; a status line whose code is not three digits is now "malformed status line from server".
+- **Size.** `cuffc` has the same size as 6.2.0 (its code is 2.4 KB larger, inside the same pages).

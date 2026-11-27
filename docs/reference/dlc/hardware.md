@@ -28,7 +28,7 @@ on every device. A wrong type is `E4-005`, and the wrong number of arguments is 
 | `hw_battery()` | A map: `"level"`, how full the battery is from 0 to 100, and `"charging"`, whether it is being charged. |
 | `hw_button(button)` | `true` while the button is held down. |
 | `hw_led(light, on)` | Turns the light on (`true`) or off (`false`). |
-| `hw_beep(hertz, seconds)` | Sounds the buzzer: 880 Hz for 0.2 seconds when nothing is given. `hertz` is from 20 to 20000 and `seconds` from 0 to 10 (`E4-025`). Whether the call returns at once or when the sound ends is the device's. |
+| `hw_beep([hertz [, seconds]])` | Sounds the buzzer: 880 Hz for 0.2 seconds when nothing is given, and for 0.2 seconds when only `hertz` is. `hertz` is from 20 to 20000 and `seconds` from 0 to 10 (`E4-025`). Whether the call returns at once or when the sound ends is the device's. |
 | `hw_screen_text(line, text)` | Shows `text` on a line of the device's screen, counted from 0. How many lines there are, and how much of a line shows, is the device's: a line it does not have is `E4-044`. |
 | `hw_serial()` | What has arrived on the serial line since the last read, as a `str`; `""` when nothing has. It does not wait. |
 | `hw_serial(text)` | Sends `text` on the serial line. Which line, and at what speed, is set by the host. |

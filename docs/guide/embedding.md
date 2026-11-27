@@ -1,7 +1,7 @@
 # Embedding the engine
 
 The language engine is a set of C++17 headers under `engine/`. There is nothing to link: include the header you need and
-compile with `-I<repository root>`. A complete, buildable host program lives in
+compile with `-I<repository root>`, as C++17 or later (C++20 and C++23 too). A complete, buildable host program lives in
 [`examples/embedding`](../../examples/embedding/README.md); this page explains what it does and what to decide before you
 ship one. Every type and function is listed in the [C++ API reference](../reference/cpp-api.md).
 
@@ -169,7 +169,7 @@ engine.run("use DLC:hardware\nhw_led(0, hw_battery()[\"level\"] < 20)\n");
 | `battery` | `hw_battery()` | `BatteryState{level, charging}`, `level` from 0 to 100 |
 | `button` | `hw_button(button)` | `bool`, true while held down |
 | `led` | `hw_led(light, on)` | |
-| `beep` | `hw_beep(hertz, seconds)`: 20 to 20000 Hz, up to 10 s | |
+| `beep` | `hw_beep([hertz [, seconds]])`: 20 to 20000 Hz, up to 10 s | |
 | `screenText` | `hw_screen_text(line, text)` | |
 | `serialRead`, `serialWrite` | `hw_serial()`, `hw_serial(text)` | `std::string`: what arrived since the last read, or `""` |
 | `sensor` | `hw_sensor(name)` | `double` |

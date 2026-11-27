@@ -5,6 +5,27 @@
 
 namespace cuff
 {
+    // UTF-8 text as a path, and a path as UTF-8 text, the same under C++17 and C++20. C++20 deprecates u8path, and its
+    // u8string() is a std::u8string; the engine keeps its text in std::string, so a host can build it as either.
+    inline std::filesystem::path pathOfUtf8(const std::string &text)
+    {
+#if defined(__cpp_lib_char8_t)
+        return std::filesystem::path(std::u8string(text.begin(), text.end()));
+#else
+        return std::filesystem::u8path(text);
+#endif
+    }
+
+    inline std::string utf8OfPath(const std::filesystem::path &path)
+    {
+#if defined(__cpp_lib_char8_t)
+        const std::u8string text = path.u8string();
+        return std::string(text.begin(), text.end());
+#else
+        return path.u8string();
+#endif
+    }
+
     // A path that the host hands the engine as a string: the script's folder (`scriptDir`) and Engine::Options::rootDir.
     // It is UTF-8, as every other string of the engine is. On Windows, a string that is not UTF-8 is read in the ANSI
     // code page instead, as every such path was before 6.2.0, so a host that still passes one keeps working.
@@ -33,7 +54,7 @@ namespace cuff
                 utf8 = false;
             i += len;
         }
-        return utf8 ? std::filesystem::u8path(text) : std::filesystem::path(text);
+        return utf8 ? pathOfUtf8(text) : std::filesystem::path(text);
 #else
         return std::filesystem::path(text);
 #endif

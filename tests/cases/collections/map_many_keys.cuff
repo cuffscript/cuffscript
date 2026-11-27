@@ -1,0 +1,44 @@
+note: a map looks its keys up in order up to 8 keys and through a table after that; every key must be found the
+note: same way on both sides of that line, as the map grows, shrinks and grows again, and in a copy
+use DLC:map, DLC:json
+
+func check(map m, number upto) do:
+    number found = 0
+    loop repeat number i = 1 ~ upto do:
+        if m.has_key(f"k{i}") and m[f"k{i}"] is i do:
+            found = found + 1
+        end
+    end
+    return found
+end
+
+map m = {}
+list sizes = []
+loop repeat number i = 1 ~ 40 do:
+    m[f"k{i}"] = i
+    add check(m, i) to sizes
+end
+print(sizes)
+
+loop repeat number i = 40 ~ 6 do:
+    remove f"k{i}" from m
+end
+print(length(m), check(m, 5), m.keys())
+loop repeat number i = 6 ~ 20 do:
+    m[f"k{i}"] = i
+end
+print(length(m), check(m, 20), m.keys()[1], m.keys()[20])
+
+map c = m.copy()
+c["k21"] = 21
+remove "k3" from c
+print(length(m), check(m, 20), m.has_key("k21"), length(c), c.has_key("k3"), check(c, 2), c["k21"])
+
+map lit = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6, "g": 7, "h": 8, "i": 9, "j": 10, "k": 11}
+lit["a"] = 100
+lit["l"] = 12
+print(lit["a"], lit["k"], lit["l"], length(lit), lit.has_key("z"))
+
+map j = from_json("{\"x1\":1,\"x2\":2,\"x3\":3,\"x4\":4,\"x5\":5,\"x6\":6,\"x7\":7,\"x8\":8,\"x9\":9,\"x10\":10}")
+j["x11"] = 11
+print(j["x1"], j["x10"], j["x11"], length(j), j.keys()[11])

@@ -332,9 +332,9 @@ static int runCli(int argc, char *argv[])
             return 1;
         }
         source = readLimited(file);
-        // UTF-8, as the engine reads every path it is given (u8string: string() throws on Windows for a name
+        // UTF-8, as the engine reads every path it is given (utf8OfPath: string() throws on Windows for a name
         // outside the ANSI code page).
-        scriptDir = p.has_parent_path() ? p.parent_path().u8string() : ".";
+        scriptDir = p.has_parent_path() ? cuff::utf8OfPath(p.parent_path()) : std::string(".");
     }
     else
     {

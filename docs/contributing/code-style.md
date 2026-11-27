@@ -27,7 +27,9 @@ Types and classes are `PascalCase`, functions and variables `camelCase`, constan
 
 Code that touches the platform (sockets, the terminal, file names) lives in one place each (`engine/net/HttpClient.h`, `cli/`) and
 behind `#ifdef`s that are compiled and run on at least one platform in CI. The Windows build targets Vista (`_WIN32_WINNT` in `engine/common/Attributes.h`), and a header declares an API newer than that only for a newer target, which the MinGW-w64 headers of MSYS2 enforce and older ones did not. So an API from Windows 8 or later is not called directly: look it up with `GetProcAddress` and cope with its absence, as `availableStackBytes` does. A path built from script text uses
-`std::filesystem::u8path`, not `path(str)`, which reads the string in the ANSI code page on Windows. Engine code that can sit between a `throw` and its `catch` does not force a frame pointer (`__builtin_frame_address`,
+`pathOfUtf8` (`engine/common/PathSandbox.h`), not `path(str)`, which reads the string in the ANSI code page on Windows; a path turned
+back into text uses `utf8OfPath`. Both are the same under C++17 and C++20, where `u8path` is deprecated and `u8string()` is a
+`std::u8string`. Engine code that can sit between a `throw` and its `catch` does not force a frame pointer (`__builtin_frame_address`,
 `alloca`, variable-length arrays): on Windows, GCC then describes the saved `xmm` registers of such a frame wrongly to the
 unwinder, and an exception passing through it corrupts them (design notes, item 45).
 

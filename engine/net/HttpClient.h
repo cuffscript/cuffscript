@@ -567,9 +567,12 @@ namespace cuff::net
                         return progressed_ = false, lineProblem(l);
                     const size_t sp1 = text.find(' ');
                     const size_t sp2 = sp1 == std::string::npos ? std::string::npos : text.find(' ', sp1 + 1);
-                    if (sp1 == std::string::npos)
+                    // The status is three digits (RFC 9112 section 4): anything else is not a response.
+                    const size_t codeEnd = sp2 == std::string::npos ? text.size() : sp2;
+                    if (sp1 == std::string::npos || codeEnd - sp1 - 1 != 3 || !ascii::isDigit(text[sp1 + 1]) || !ascii::isDigit(text[sp1 + 2]) ||
+                        !ascii::isDigit(text[sp1 + 3]))
                         return fail("malformed status line from server");
-                    response.status = std::atoi(text.substr(sp1 + 1, sp2 == std::string::npos ? std::string::npos : sp2 - sp1 - 1).c_str());
+                    response.status = (text[sp1 + 1] - '0') * 100 + (text[sp1 + 2] - '0') * 10 + (text[sp1 + 3] - '0');
                     state_ = State::Headers;
                     return Result::More;
                 }

@@ -70,22 +70,22 @@ stripped; the file itself shrinks in whole 4 KB pages):
 
 | Library | Code and data | Share of `cuffc` |
 | :--- | ---: | ---: |
-| `math` | 42.6 KB | 3.6% |
-| `string` | 17.4 KB | 1.5% |
-| `time` | 3.1 KB | 0.3% |
-| `datetime` | 21.6 KB | 1.8% |
-| `random` | 8.5 KB | 0.7% |
-| `list` | 27.4 KB | 2.3% |
-| `map` | 8.6 KB | 0.7% |
-| `json` | 29.2 KB | 2.5% |
-| `network` | 35.5 KB | 3.0% |
-| `filesystem` | 37.8 KB | 3.2% |
-| `csv` | 18.8 KB | 1.6% |
-| `hash` | 43.1 KB | 3.7% |
-| `path` | 15.2 KB | 1.3% |
-| `hardware` | 35.6 KB | 3.0% |
+| `math` | 41.7 KB | 3.5% |
+| `string` | 17.2 KB | 1.4% |
+| `time` | 3.6 KB | 0.3% |
+| `datetime` | 20.6 KB | 1.7% |
+| `random` | 8.7 KB | 0.7% |
+| `list` | 27.8 KB | 2.3% |
+| `map` | 9.6 KB | 0.8% |
+| `json` | 28.0 KB | 2.4% |
+| `network` | 34.6 KB | 2.9% |
+| `filesystem` | 37.1 KB | 3.1% |
+| `csv` | 20.3 KB | 1.7% |
+| `hash` | 44.2 KB | 3.7% |
+| `path` | 15.4 KB | 1.3% |
+| `hardware` | 35.1 KB | 2.9% |
 
-Leaving all fourteen out takes 354 KB of code and data, 30% of the binary (860,704 bytes instead of 1,225,248). That is more than
+Leaving all fourteen out takes 354 KB of code and data, 30% of the binary (868,896 bytes instead of 1,225,248). That is more than
 the fourteen numbers add up to (344 KB), because a helper that two libraries share goes only when both do.
 
 To test such a build, give the runner the same names: see [Testing](testing.md#a-reduced-build).
@@ -98,10 +98,14 @@ Before sending a change, build with the same strictness on the compilers you hav
 g++     -std=c++17 -Wall -Wextra -Werror -O2 -o /tmp/cuffc main.cpp
 clang++ -std=c++17 -Wall -Wextra -Werror -O2 -o /tmp/cuffc main.cpp
 clang++ -std=c++17 -stdlib=libc++ -Wall -Wextra -Werror -fsyntax-only main.cpp   # the macOS standard library
+g++     -std=c++20 -Wall -Wextra -Werror -fsyntax-only main.cpp                    # a host built as C++20
+clang++ -std=c++23 -Wall -Wextra -Werror -fsyntax-only main.cpp                    # or as C++23
 ```
 
 Header-only code that compiles with libstdc++ can still miss an `#include` that libc++ needs, which is the usual way a build
-that passes on Linux fails on macOS. For Windows without a Windows machine, a MinGW-w64 cross compiler
+that passes on Linux fails on macOS. The engine is written in C++17, and a host that includes it may be built as C++20 or C++23,
+where `std::filesystem::u8path` is deprecated and `path::u8string()` is a `std::u8string`: a path made from UTF-8 text, or turned
+into it, goes through `pathOfUtf8` and `utf8OfPath` (`engine/common/PathSandbox.h`). For Windows without a Windows machine, a MinGW-w64 cross compiler
 (`x86_64-w64-mingw32-g++`) catches errors in the `#ifdef _WIN32` code, and the result can be run under Wine.
 
 Sanitizer builds are described in [Testing](testing.md#sanitizers).

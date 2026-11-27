@@ -39,7 +39,7 @@ namespace cuff
                                                        const FilesystemDLCOptions &opts, const SourceLocation &loc)
     {
         namespace fs = std::filesystem;
-        fs::path rel = fs::u8path(rawPath);  // plain construction would read it as ANSI on Windows
+        fs::path rel = pathOfUtf8(rawPath);  // plain construction would read it as ANSI on Windows
         if (rel.has_root_name() || rel.has_root_directory())
             throwFilesystemAccessDenied(fn, rawPath, loc);
         fs::path full = opts.root / rel;
@@ -213,7 +213,7 @@ namespace cuff
                     return Value::makeEmpty();
                 if (names.size() >= limits::kMaxCollectionItems)
                     throw CuffRuntimeError(ErrorCode::SizeLimitExceeded, "file_list(): folder has too many entries", loc);
-                names.push_back(it->path().filename().u8string());
+                names.push_back(utf8OfPath(it->path().filename()));
             }
             if (ec)
                 return Value::makeEmpty();

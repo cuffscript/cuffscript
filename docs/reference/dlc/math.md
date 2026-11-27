@@ -22,7 +22,7 @@ The arithmetic operators `%` and `**` do the same work as `math_mod` and `math_p
 | `math_floor(x)`, `math_ceil(x)` | Round down, round up. |
 | `math_trunc(x)` | Rounds toward zero. |
 | `math_sign(x)` | `-1`, `0` or `1`. |
-| `math_min(a, b, ...)`, `math_max(a, b, ...)` | The smallest or largest of one or more numbers, or of the numbers in a single list. Called with no argument it is `E4-010`; an empty list is `E4-025`; an element that is not a number is `E4-005`. |
+| `math_min(a, ...)`, `math_max(a, ...)` | The smallest or largest of one or more numbers, or of the numbers in a single list. Called with no argument it is `E4-010`; an empty list is `E4-025`; an element that is not a number is `E4-005`. |
 | `math_clamp(value, low, high)` | `value`, kept between `low` and `high`. `low` greater than `high` is `E4-025`. |
 | `math_mod(a, b)` | The remainder of `a / b`, the same as `a % b`. The result takes the sign of `b`, so `math_mod(-7, 3)` is `2` and `math_mod(7, -3)` is `-2`. A `b` of `0` is `E4-006`. |
 | `math_log(x [, base])` | The natural logarithm, or the logarithm to `base`. `x` must be positive, and `base` must be positive and not `1` (`E4-025`). |

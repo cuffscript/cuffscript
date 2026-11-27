@@ -3977,16 +3977,55 @@ namespace cuff
             return v.isBool() ? v.asBool() : v.truthy();
         }
 
-        CUFF_NOINLINE void binarySlow(Value &out, const BinaryOp &b, const Value &l, const Value &r)
+        // The place that the instruction after `at` overwrites with the value in register `out`, when that is a global
+        // (`SetG`, `SetGU`) or a field whose write cannot fail (`SetField` on its fast path: the field is not constant,
+        // private to another class, or of a type that `str` does not fit); otherwise null.
+        const Value *placeOverwritten(const Instr *at, const Value &out, const Value &text) const
         {
-            // `t = t + more`, where `t` is the only value that holds its text: the text is added to where it is, so a
-            // loop that builds a str piece by piece copies it once and not once per piece. Any other value holding
-            // the same text (another variable, an element, a constant of the program) makes a new str, as before.
-            if (b.op == BinOp::Add && &out == &l && &l != &r && l.isStr() && r.isStr() && l.asStrPtr().use_count() == 1)
+            const Instr &n = at[1];
+            const Frame &f = *top_;
+            const auto reg = [&f](int32_t off) -> const Value &
+            { return reinterpret_cast<const Reg *>(reinterpret_cast<const char *>(f.regs) + off)->v; };
+            const Op op = static_cast<Op>(n.op);
+            if ((op != Op::SetG && op != Op::SetGU && op != Op::SetField) || &reg(n.b) != &out)
+                return nullptr;
+            if (op != Op::SetField)
+                return &f.proto->gcells[static_cast<size_t>(n.a)]->v; // a str fits SetG's type: the global holds one
+            const Value &holder = reg(n.a);
+            if (!holder.isObject())
+                return nullptr;
+            const ObjectData &o = *holder.asObject();
+            const bc::FieldCache &cache = f.proto->fieldCaches[static_cast<size_t>(n.c)];
+            if (o.cls->serial != cache.serial)
+                return nullptr;
+            const ClassInfo::Field &field = o.cls->fields[cache.index];
+            if (field.isConstant || (field.isPrivate && f.owner != field.declaredIn) ||
+                !(field.typeKind == 0 || isKind(text, field.typeKind)))
+                return nullptr;
+            return &o.fields[cache.index];
+        }
+
+        CUFF_NOINLINE void binarySlow(Value &out, const BinaryOp &b, const Value &l, const Value &r, const Instr *at)
+        {
+            // `t = t + more`, where nothing else holds the text of `t`: the text is added to where it is, so a loop that
+            // builds a str piece by piece copies it once and not once per piece. `t` is a local, the only holder; or a
+            // global or a field, read into a register and written back by the next instruction, so that the place and
+            // that register are the two holders and the place is about to be overwritten with the result. Any other
+            // value holding the same text (another variable, an element, a constant of the program) makes a new str.
+            if (b.op == BinOp::Add && &l != &r && l.isStr() && r.isStr())
             {
-                checkStringSize(l.asStr().size() + r.asStr().size(), b.loc);
-                const_cast<StrData &>(l.asStrData()).append(r.asStr()); // made by make_shared<StrData>: not a const object
-                return;
+                const long holders = l.asStrPtr().use_count();
+                const Value *place = nullptr;
+                if ((holders == 1 && &out == &l) ||
+                    (holders == 2 && (place = placeOverwritten(at, out, l)) != nullptr && place != &r && place->isStr() &&
+                     place->asStrPtr() == l.asStrPtr()))
+                {
+                    checkStringSize(l.asStr().size() + r.asStr().size(), b.loc);
+                    const_cast<StrData &>(l.asStrData()).append(r.asStr()); // made by make_shared<StrData>: not a const object
+                    if (&out != &l)
+                        out = l;
+                    return;
+                }
             }
             Value v = evalBinaryOpSlow(b, l, r);
             out = std::move(v);
@@ -4175,7 +4214,7 @@ namespace cuff
             CUFF_RA.v.setNumber(RESULT);                                                                               \
             CUFF_VM_NEXT();                                                                                            \
         }                                                                                                              \
-        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r);                                                             \
+        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r, i);                                                             \
         CUFF_VM_NEXT();                                                                                                \
     }
 #define CUFF_DIVIDE(NAME, RIGHT, RIGHT_IS_NUMBER)                                                                      \
@@ -4191,7 +4230,7 @@ namespace cuff
             CUFF_RA.v.setNumber(x / y);                                                                                \
             CUFF_VM_NEXT();                                                                                            \
         }                                                                                                              \
-        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r);                                                             \
+        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r, i);                                                             \
         CUFF_VM_NEXT();                                                                                                \
     }
 #define CUFF_MODULO(NAME, RIGHT, RIGHT_IS_NUMBER)                                                                      \
@@ -4210,7 +4249,7 @@ namespace cuff
             CUFF_RA.v.setNumber(m);                                                                                    \
             CUFF_VM_NEXT();                                                                                            \
         }                                                                                                              \
-        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r);                                                             \
+        binarySlow(CUFF_RA.v, *CUFF_NODE(BinaryOp), l, r, i);                                                             \
         CUFF_VM_NEXT();                                                                                                \
     }
 #define CUFF_COMPARE(NAME, OP)                                                                                         \
@@ -5160,13 +5199,13 @@ namespace cuff
             namespace fs = std::filesystem;
             const std::string shown = (relPath.empty() ? std::string() : relPath + "/") + moduleName + ".cuff";
 
-            fs::path rel = fs::u8path(relPath);  // plain construction would read it as ANSI on Windows
+            fs::path rel = pathOfUtf8(relPath);  // plain construction would read it as ANSI on Windows
             if (rel.has_root_name() || rel.has_root_directory())
                 throw ModuleError(ErrorCode::ModuleAccessDenied,
                                   "absolute module paths are not allowed ('use " + moduleName + " from " + relPath + "')", loc,
                                   "use a path relative to the running script, e.g. ./lib");
 
-            fs::path full = hostPath(scriptDir_) / rel / fs::u8path(moduleName + ".cuff");
+            fs::path full = hostPath(scriptDir_) / rel / pathOfUtf8(moduleName + ".cuff");
             std::error_code ec;
             fs::path canon = fs::weakly_canonical(full, ec);
             if (ec)
@@ -5177,7 +5216,7 @@ namespace cuff
                                   "module '" + shown + "' resolves outside the allowed directory", loc,
                                   "keep imported modules inside the script's directory, or run with --root <dir> to widen it");
 
-            const std::string key = canon.u8string();  // string() throws on Windows for a name outside the ANSI code page
+            const std::string key = utf8OfPath(canon);  // string() throws on Windows for a name outside the ANSI code page
 
             if (importedPaths_.count(key))
                 return;

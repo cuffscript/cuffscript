@@ -123,6 +123,22 @@ namespace
 
 int main()
 {
+    // ---- DLC:network status line: three digits, or the response is refused ----
+    {
+        const auto status = [](const std::string &reply)
+        {
+            cuff::net::detail::ResponseReader reader(1 << 20);
+            const auto result = reader.feed(reply.data(), reply.size(), true);
+            return result == cuff::net::detail::ResponseReader::Result::Complete ? reader.response.status : -1;
+        };
+        check(status("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok") == 200, "status 200 is read");
+        check(status("HTTP/1.0 404\r\n\r\n") == 404, "a status line without a reason phrase is read");
+        check(status("HTTP/1.1 abc OK\r\n\r\n") == -1, "a status that is not a number is refused");
+        check(status("HTTP/1.1 99999999999999999999 OK\r\n\r\n") == -1, "a status too long to be a number is refused");
+        check(status("HTTP/1.1 20 OK\r\n\r\n") == -1, "a status of two digits is refused");
+        check(status("HTTP/1.1 2000 OK\r\n\r\n") == -1, "a status of four digits is refused");
+    }
+
     // ---- DLC:network address policy ----
     check(blockedV4(0x7F000001), "127.0.0.1 is blocked");
     check(blockedV4(0x0A010203), "10.1.2.3 is blocked");

@@ -141,6 +141,12 @@ int main()
 
     // ---- size limits ----
     expectError("string doubling", "str s = \"aaaaaaaa\"\nloop repeat number i = 1 ~ 40 do:\n    s = s + s\nend\n", "E4-026");
+    // A global is added to in place when it is written back at once (`s = s + t`): past the limit, the error leaves it as
+    // it was. 64 MiB + (64 MiB + 1) is one byte too long.
+    expectOk("a global appended in place keeps its text past the limit",
+             "use DLC:string\nstr s = str_repeat(\"a\", 67108864)\nstr t = str_repeat(\"b\", 67108865)\n"
+             "func grow() do:\n    global s\n    global t\n    s = s + t\nend\nstr code = \"\"\ngrow() or_else as Error e do:\n    code = e.code\nend\n"
+             "if code is not \"E4-026\" or length(s) is not 67108864 or s[-1] is not \"a\" do:\n    number bad = 1 / 0\nend\n");
     expectError("oversized range", "use DLC:list\nprint(list_range(1, 1000000000))\n", "E4-026");
     expectError("repeat_str too large", "use DLC:string\nprint(str_repeat(\"abcdefgh\", 1000000000))\n", "E4-026");
     expectError("index beyond exact range", "list a = [1]\nprint(a[1000000000000000000000000000000])\n", "E4-025");

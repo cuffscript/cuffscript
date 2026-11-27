@@ -49,6 +49,18 @@ jobs:
                 shell: bash
                 run: python3 tests/coverage.py
             -
+                name: Compile as C++20 and C++23, as a host may
+                if: matrix.os == 'ubuntu-latest'
+                shell: bash
+                run: |
+                    for std in c++20 c++23; do
+                        for cxx in g++ clang++; do
+                            echo "$cxx -std=$std"
+                            "$cxx" -std=$std -Wall -Wextra -Werror -fsyntax-only main.cpp
+                            "$cxx" -std=$std -Wall -Wextra -Werror -fsyntax-only -I. examples/embedding/host.cpp
+                        done
+                    done
+            -
                 name: Build without every library that can be left out, and test it
                 if: matrix.os == 'ubuntu-latest'
                 shell: bash

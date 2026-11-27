@@ -18,6 +18,7 @@ All of them take their permissions from the workflow file: the checks only read 
 
 - **Linux and macOS** (`ubuntu-latest`, `macos-latest`, not stopped by each other's failure): `make`, then `bash tests/run.sh`. macOS first installs GNU coreutils with Homebrew, because the test runner uses `timeout`, which a stock macOS does not have.
 - **Windows** (`windows-latest`): installs MSYS2 with the MinGW-w64 toolchain, puts it on `PATH`, builds with `mingw32-make -f Makefile.win`, runs `tests/run.ps1`, and builds the shell with `cli\build.bat`.
+- **Later C++ standards** (Linux): `cuffc` and the embedding example compiled as C++20 and as C++23 with GCC and Clang, warnings as errors, since a host that includes the engine may use either.
 - **Reduced builds**: on Linux, `cuffc` without every library that can be left out, with the suite run on it in its `EXCLUDED_DLC` mode (see [Testing](testing.md#a-reduced-build)), and `cuffsh` without `network` and `hardware`; on Windows, `cuffc.exe` and `cuffsh.exe` without `network` and `hardware`, each checked to have dropped `--hardware` from its help.
 - **Android** (`ubuntu-latest`): `android/build.sh` with the NDK that the runner has, for the four ABIs, and once more for arm64-v8a without `network` and `hardware`. A runner with no NDK (a local `act` image) skips the job with a note.
 
