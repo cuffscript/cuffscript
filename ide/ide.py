@@ -156,6 +156,11 @@ class CuffScriptIDE:
         ).split()
     )
     BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}"}
+    CLOSING_BRACKETS = frozenset(BRACKET_PAIRS.values())
+    QUOTES = "\"'"
+    # A bracket or quote typed in code is closed at once only when the cursor is followed by one of these (or by the end of
+    # the line), so typing in front of a word inserts just the one character.
+    AUTO_CLOSE_BEFORE = frozenset(" \t\n)]},;:")
     BRACKET_SCAN_LIMIT = 20000
     MAX_OUTPUT_LINES = 20000
     IDENTIFIER_START = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
@@ -3555,6 +3560,7 @@ class CuffScriptIDE:
         editor.bind("<Shift-Tab>", self.remove_indent)
         editor.bind("<Return>", self.insert_newline)
         editor.bind("<BackSpace>", self.smart_backspace)
+        editor.bind("<KeyPress>", self.auto_pair)
 
     def _set_output(self, text="", tag=None, append=False):
         if not hasattr(self, "output"):
@@ -4531,6 +4537,25 @@ class CuffScriptIDE:
             indent = re.match(r"[ \t]*", current_line).group(0)
             if self.editor.tag_ranges("sel"):
                 self.editor.delete("sel.first", "sel.last")
+            # Enter between a pair of brackets, `[|]`: the closing one goes to a line of its own and the cursor to an
+            # indented line between them.
+            opening = self.editor.get("insert-1c", tk.INSERT)
+            if (
+                opening in self.BRACKET_PAIRS
+                and self.editor.get(tk.INSERT, "insert+1c")
+                == self.BRACKET_PAIRS[opening]
+                and self._cursor_context()[0] == "code"
+            ):
+                self.editor.edit_separator()
+                self.editor.insert(tk.INSERT, "\n" + indent + "    ")
+                self.editor.mark_set("pair_close", tk.INSERT)
+                self.editor.mark_gravity("pair_close", tk.LEFT)
+                self.editor.insert(tk.INSERT, "\n" + indent)
+                self.editor.mark_set(tk.INSERT, "pair_close")
+                self.editor.mark_unset("pair_close")
+                self.editor.edit_separator()
+                self.editor.see(tk.INSERT)
+                return "break"
             stripped = current_line.rstrip()
             if re.search(r"\bdo:\s*$", stripped) and not re.search(
                 r"\bend\s*$", full_line.strip()
@@ -4542,6 +4567,9 @@ class CuffScriptIDE:
             return None
 
     def smart_backspace(self, event=None):
+        if not self.editor.tag_ranges("sel") and self._at_empty_pair():
+            self.editor.delete("insert-1c", "insert+1c")
+            return "break"
         line_start = self.editor.index("insert linestart")
         before_cursor = self.editor.get(line_start, tk.INSERT)
         if before_cursor and not before_cursor.strip():
@@ -4553,6 +4581,150 @@ class CuffScriptIDE:
                 remove_count = min(4, trailing_spaces)
                 self.editor.delete(f"insert-{remove_count}c", tk.INSERT)
                 return "break"
+        return None
+
+    def _cursor_context(self, index=tk.INSERT):
+        """Where `index` is: ("code", None), ("string", the quote that opened it) or ("comment", None).
+
+        Strings and `note:` comments come from the text of the line, so a quote or `note:` typed a moment ago counts before
+        the highlighter has run; a `note:` block over several lines comes from the highlighter's tags.
+        """
+        editor = self.editor
+        comment = editor.tag_prevrange("comment", index)
+        if (
+            comment
+            and editor.compare(comment[0], "<", index)
+            and editor.compare(index, "<=", comment[1])
+            and editor.compare(comment[0], "<", f"{index} linestart")
+        ):
+            return ("comment", None)
+        before = editor.get(f"{index} linestart", index)
+        quote = None
+        i = 0
+        while i < len(before):
+            char = before[i]
+            if quote:
+                if char == "\\":
+                    i += 2
+                    continue
+                if char == quote:
+                    quote = None
+            elif char in self.QUOTES:
+                quote = char
+            elif (
+                before.startswith("note", i)
+                and before[i + 4 : i + 5] == ":"
+                and not self._is_ident_part(before[i - 1] if i else "")
+            ):
+                return ("comment", None)
+            i += 1
+        return ("string", quote) if quote else ("code", None)
+
+    def _at_empty_pair(self):
+        """Whether the cursor is between an opening bracket and its closing one, `(|)`, or inside an empty string, `"|"`."""
+        pair = self.editor.get("insert-1c", "insert+1c")
+        if len(pair) != 2:
+            return False
+        if self.BRACKET_PAIRS.get(pair[0]) == pair[1]:
+            return self._cursor_context()[0] == "code"
+        if pair[0] in self.QUOTES and pair[0] == pair[1]:
+            return self._cursor_context() == ("string", pair[0])
+        return False
+
+    def _wrap_selection(self, opening, closing):
+        """Puts the selected text between `opening` and `closing` and keeps it selected; False when nothing is selected."""
+        try:
+            start = self.editor.index("sel.first")
+            end = self.editor.index("sel.last")
+        except tk.TclError:
+            return False
+        text = self.editor.get(start, end)
+        self.editor.edit_separator()
+        self.editor.delete(start, end)
+        self.editor.insert(start, opening + text + closing)
+        inner_start = f"{start}+1c"
+        inner_end = f"{start}+{1 + len(text)}c"
+        self.editor.tag_remove("sel", "1.0", tk.END)
+        self.editor.tag_add("sel", inner_start, inner_end)
+        self.editor.mark_set(tk.INSERT, inner_end)
+        self.editor.edit_separator()
+        return True
+
+    def _insert_pair(self, opening, closing):
+        self.editor.edit_separator()
+        self.editor.insert(tk.INSERT, opening + closing)
+        self.editor.mark_set(tk.INSERT, "insert-1c")
+        self.editor.edit_separator()
+        self.editor.see(tk.INSERT)
+
+    def auto_pair(self, event):
+        """Brackets and quotes typed in the editor: an opening one is closed at once with the cursor between the two, a
+        closing one typed in front of the same character steps over it, and a selection is put between the pair. Inside a
+        string or a comment only the step over a string's own closing quote applies."""
+        char = getattr(event, "char", "")
+        if not char or len(char) != 1:
+            return None
+        # Command is Mod1 on macOS. Other platforms are not checked: AltGr, which types brackets on many keyboards, reports
+        # Control and Alt on Windows, and Windows reports Num Lock as a modifier.
+        if sys.platform == "darwin" and event.state & 0x08:
+            return None
+        if char in self.BRACKET_PAIRS:
+            closing = self.BRACKET_PAIRS[char]
+            if self._wrap_selection(char, closing):
+                return "break"
+            after = self.editor.get(tk.INSERT, "insert+1c")
+            if self._cursor_context()[0] != "code" or (
+                after and after not in self.AUTO_CLOSE_BEFORE
+            ):
+                return None
+            self._insert_pair(char, closing)
+            return "break"
+        if char in self.CLOSING_BRACKETS:
+            if (
+                self.editor.tag_ranges("sel")
+                or self.editor.get(tk.INSERT, "insert+1c") != char
+            ):
+                return None
+            if self._cursor_context()[0] != "code":
+                return None
+            self.editor.mark_set(tk.INSERT, "insert+1c")
+            self.editor.see(tk.INSERT)
+            return "break"
+        if char in self.QUOTES:
+            if self._wrap_selection(char, char):
+                return "break"
+            where, quote = self._cursor_context()
+            before = self.editor.get("insert-1c", tk.INSERT)
+            after = self.editor.get(tk.INSERT, "insert+1c")
+            if where == "string":
+                line = self.editor.get("insert linestart", tk.INSERT)
+                escaped = (len(line) - len(line.rstrip("\\"))) % 2 == 1
+                if (
+                    quote == char and after == char and not escaped
+                ):  # the string's own closing quote
+                    self.editor.mark_set(tk.INSERT, "insert+1c")
+                    self.editor.see(tk.INSERT)
+                    return "break"
+                return None
+            if where == "comment":
+                return None
+            # f"..." and p"..." keep their prefix; after any other letter, digit or quote (it's, x'') one quote is typed.
+            prefix = (
+                before in "fp"
+                and char == '"'
+                and before != ""
+                and not self._is_ident_part(self.editor.get("insert-2c", "insert-1c"))
+            )
+            if (
+                before
+                and not prefix
+                and (self._is_ident_part(before) or before in self.QUOTES)
+            ):
+                return None
+            if after and after not in self.AUTO_CLOSE_BEFORE:
+                return None
+            self._insert_pair(char, char)
+            return "break"
         return None
 
     def undo(self):
@@ -6595,7 +6767,11 @@ class CuffScriptIDE:
         if self._in_error_report(output_line):
             limit = 600
         for line_no in range(output_line, max(0, output_line - limit), -1):
-            if limit > 18 and line_no < output_line and not self._in_error_report(line_no):
+            if (
+                limit > 18
+                and line_no < output_line
+                and not self._in_error_report(line_no)
+            ):
                 break
             text = self.output.get(f"{line_no}.0", f"{line_no}.end")
             parsed = self._parse_error_header(text)
