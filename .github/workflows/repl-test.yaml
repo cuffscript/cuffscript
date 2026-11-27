@@ -79,9 +79,12 @@ jobs:
                     chmod +x build.sh tests/run_tests.sh
                     ./build.sh
 
+            # A hung suite stops itself after CUFFSH_TEST_HANG seconds (cli/tests/harness.py) and shows where; this limit
+            # is for whatever else could hang, so that it fails here rather than at the job's limit.
             -   name: Test cuffsh
                 shell: bash
                 working-directory: cli
+                timeout-minutes: 25
                 run: PYTHON=python ./tests/run_tests.sh
 
     # The interactive suites need a POSIX pseudo-terminal, so on Windows the native checks run: piped scripts, error

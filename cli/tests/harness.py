@@ -1,10 +1,16 @@
-import os, pty, select, time, signal, struct, fcntl, termios
+import faulthandler, os, pty, select, time, signal, struct, fcntl, termios
 import pyte
 import re, wcwidth
 
 # Every wait in the suites goes through Session.pump(), so this one factor slows them all down for a slow or
 # heavily loaded machine: CUFFSH_TEST_SCALE=3 waits three times as long for the shell to answer.
 TIME_SCALE = float(os.environ.get("CUFFSH_TEST_SCALE", "1"))
+
+# A suite that is still running after CUFFSH_TEST_HANG seconds (default 300, times CUFFSH_TEST_SCALE) has hung: it
+# stops with the line it was on, so a CI run fails there and then, not at the job's time limit with nothing shown.
+faulthandler.dump_traceback_later(
+    float(os.environ.get("CUFFSH_TEST_HANG", "300")) * TIME_SCALE, exit=True
+)
 
 
 class WideAwareScreen(pyte.Screen):
@@ -86,25 +92,32 @@ class Session:
                 r, _, _ = select.select([self.fd], [], [], min(0.05, left))
             except OSError:
                 break
-            if self.fd in r:
-                try:
-                    chunk = os.read(self.fd, 65536)
-                except OSError:
-                    chunk = b""
-                if not chunk:
-                    # The other end of the pty is gone, so the child is exiting. Reading a closed pty master gives EIO on
-                    # Linux and end-of-file on macOS; both mean the same. The child is not reaped at the instant its
-                    # pty closes, so wait for it here: looking once and finding it "still running" is a race.
-                    self._poll(1.0 * TIME_SCALE)
-                    return
-                self.raw += chunk
-                if self.answer_queries:
-                    if b"\x1b[?u" in chunk and self.kitty:
-                        self._write(b"\x1b[?0u")
-                    if b"\x1b[c" in chunk:
-                        self._write(b"\x1b[?62;c")
-                self.stream.feed(_STRIP.sub(b"", chunk))
+            if self.fd in r and not self._read_once():
+                return
         self._poll()
+
+    def _read_once(self):
+        """Reads what the child has printed. Returns False when the child is gone."""
+        try:
+            chunk = os.read(self.fd, 65536)
+        except BlockingIOError:
+            return True
+        except OSError:
+            chunk = b""
+        if not chunk:
+            # The other end of the pty is gone, so the child is exiting. Reading a closed pty master gives EIO on
+            # Linux and end-of-file on macOS; both mean the same. The child is not reaped at the instant its
+            # pty closes, so wait for it here: looking once and finding it "still running" is a race.
+            self._poll(1.0 * TIME_SCALE)
+            return False
+        self.raw += chunk
+        if self.answer_queries:
+            if b"\x1b[?u" in chunk and self.kitty:
+                self._write(b"\x1b[?0u")
+            if b"\x1b[c" in chunk:
+                self._write(b"\x1b[?62;c")
+        self.stream.feed(_STRIP.sub(b"", chunk))
+        return True
 
     def _poll(self, wait_exit=0.0):
         end = time.time() + wait_exit
@@ -126,11 +139,36 @@ class Session:
     def _write(self, data):
         """Writes to the child. A child that has already exited is not an error here (macOS reports EIO for a write to a
         pty whose other end is closed; Linux accepts it): what the test checks is what the child did before it left.
+
+        The write never blocks: while the pty takes no more input, what the child prints is read. A blocking write of a
+        large input waits for the child to read it, while the child, drawing what it has read, waits for its output to be
+        read once the pty's small output buffer is full (macOS), and both wait forever. A child that neither reads nor
+        exits for 30 seconds (times CUFFSH_TEST_SCALE) gets the rest no more, and the test's check reports it.
         """
+        view = memoryview(data)
+        end = time.time() + 30 * TIME_SCALE
+        flags = fcntl.fcntl(self.fd, fcntl.F_GETFL)
+        fcntl.fcntl(self.fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         try:
-            os.write(self.fd, data)
-        except OSError:
-            pass
+            while view and time.time() < end:
+                try:
+                    r, w, _ = select.select([self.fd], [self.fd], [], 0.05)
+                except OSError:
+                    return
+                if self.fd in r and not self._read_once():
+                    return
+                if self.fd in w:
+                    try:
+                        view = view[os.write(self.fd, view[:4096]):]
+                    except BlockingIOError:
+                        pass
+                    except OSError:
+                        return
+        finally:
+            try:
+                fcntl.fcntl(self.fd, fcntl.F_SETFL, flags)
+            except OSError:
+                pass
 
     def send(self, data, wait=0.15):
         if isinstance(data, str):

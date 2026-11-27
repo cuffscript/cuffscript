@@ -98,11 +98,16 @@ both `cuffc` and `cuffsh` and requires identical text (this check is skipped whe
 | :--- | :--- |
 | `PYTHON` | The interpreter to use (default `python3`). |
 | `CUFFSH_TEST_SCALE` | Multiplies every wait, for a slow or heavily loaded machine. `run_tests.ps1 -TimeScale N` sets it. |
+| `CUFFSH_TEST_HANG` | Seconds (default 300, times the scale) after which a suite that is still running stops and prints the line it was on. |
 
 The harness (`cli/tests/harness.py`) is written for the differences between operating systems' pseudo-terminals: reading a pty
 whose other end has closed raises an error on Linux and returns end-of-file on macOS, a write to such a pty fails on macOS but is
 accepted on Linux, and a child is not yet reaped at the moment its pty closes. All three mean "the child is exiting", and the harness
 waits for it and carries on; a test that checks an exit status must not look once and conclude the child is still running.
+The harness never blocks on a write to the shell: while the pty takes no more input, it reads what the shell prints. A blocking
+write of a large input (a 20 KB paste) waits for the shell to read it while the shell, drawing what it has read, waits for its
+output to be read once the pty's output buffer is full, and both wait for ever; macOS's buffers are small enough for that to
+happen on some runs and not others.
 
 `cli/tests/requirements.txt` lists the Python packages (`-InstallDeps` installs them for `run_tests.ps1`). The interactive
 suites need a Unix pseudo-terminal and assert Unix behaviour (the terminal modes `termios` reports, `SIGINT`, `SIGTERM` and
