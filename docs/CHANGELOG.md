@@ -1,3 +1,11 @@
+## v6.4.1 - 2026-11-28
+
+## Description
+ 
+- **Fixed: on Windows, `--help` showed the program's path as garbage when it held characters outside the ANSI code page.** `cuffc --help` and `cuffsh --help` printed the path they were started as (the `Usage:` line) from `argv`, which is in the ANSI code page, to a console that shows UTF-8, so a folder such as `C:\Users\...\작업\` came out as `�۾�\�ڵ�` on a Korean Windows. They now print it from the command line as UTF-8, which 6.2.0 already used for every other argument. `cuffsh` switches the console to UTF-8 only once its terminal is set up, which `--help` comes before, so it now does so for as long as the help is printed and puts the code page back afterwards. Other platforms are unchanged.
+
+---
+
 ## v6.4.0 - 2026-11-28
 
 ## Description
