@@ -32,8 +32,14 @@ namespace
     // use --timeout 0 for such programs.
     constexpr uint64_t kDefaultTimeoutMs = 15000;
 
+    // `prog` is UTF-8, as the whole command line is (Platform.h).
     void printUsage(const char *prog)
     {
+#ifdef _WIN32
+        // The console shows UTF-8 only once Terminal has set it up, which --help comes before.
+        const UINT savedCp = GetConsoleOutputCP();
+        const bool cpChanged = savedCp != 0 && savedCp != CP_UTF8 && SetConsoleOutputCP(CP_UTF8);
+#endif
         std::cout << "CuffScript Interactive Shell " << cuff::cli::kVersion << "\n"
                   << "Enter runs what you've typed; Shift+Enter (or Alt+Enter) inserts a newline\n"
                   << "(for if/loop/func/class/with and other multi-line code) instead of running it yet.\n\n"
@@ -50,6 +56,11 @@ namespace
                   << "after " << kDefaultTimeoutMs << " ms. The engine cannot cancel a running entry, so --timeout is the\n"
                   << "main safety net for a runaway loop; with --timeout 0, Ctrl+C during execution\n"
                   << "closes the whole shell instead (see :help).\n";
+#ifdef _WIN32
+        std::cout.flush();
+        if (cpChanged)
+            SetConsoleOutputCP(savedCp);
+#endif
     }
 
 } // namespace
@@ -57,7 +68,7 @@ namespace
 int main(int argc, char **argv)
 {
     const std::vector<std::string> args = cuff::cli::platform::commandLineArgs(argc, argv);
-    const char *prog = argc > 0 ? argv[0] : "cuffsh";
+    const std::string prog = args.empty() ? std::string("cuffsh") : args[0];
 
     cuff::cli::Repl::Options options;
     options.engineConfig.timeoutMs = static_cast<uint32_t>(kDefaultTimeoutMs);
@@ -68,7 +79,7 @@ int main(int argc, char **argv)
 
         if (arg == "-h" || arg == "--help")
         {
-            printUsage(prog);
+            printUsage(prog.c_str());
             return 0;
         }
         if (arg == "--version")

@@ -253,8 +253,10 @@ static int runCli(int argc, char *argv[])
     // The arguments as UTF-8: argv is in the ANSI code page, which cannot hold every file name.
     const std::vector<std::string> all = commandLineArgs(argc, argv);
     const std::vector<std::string> args(all.begin() + (all.empty() ? 0 : 1), all.end());
+    const std::string prog = all.empty() ? std::string("cuffc") : all[0];
 #else
     const std::vector<std::string> args(argv + 1, argv + argc);
+    const std::string prog = argc > 0 ? argv[0] : "cuffc";
 #endif
 
     bool debugMode = false;
@@ -285,7 +287,7 @@ static int runCli(int argc, char *argv[])
             }
             if (arg == "-h" || arg == "--help")
             {
-                printUsage(std::cout, argv[0]);
+                printUsage(std::cout, prog.c_str());
                 return 0;
             }
             std::string error;
