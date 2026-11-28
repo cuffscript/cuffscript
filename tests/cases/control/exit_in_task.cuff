@@ -1,0 +1,11 @@
+note: exit() inside a task ends the whole program, with the main program waiting for that task.
+use DLC:time
+async func quit_soon() do:
+    time_sleep(0.01)
+    print("task ends the program")
+    exit(0)
+end
+Task t = quit_soon()
+print("waiting")
+await t
+print("not reached")

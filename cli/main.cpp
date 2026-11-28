@@ -37,8 +37,9 @@ namespace
         std::cout << "CuffScript Interactive Shell " << cuff::cli::kVersion << "\n"
                   << "Enter runs what you've typed; Shift+Enter (or Alt+Enter) inserts a newline\n"
                   << "(for if/loop/func/class/with and other multi-line code) instead of running it yet.\n\n"
-                  << "Usage: " << prog << " [options] [file.cuff]\n"
+                  << "Usage: " << prog << " [options] [file.cuff [arguments...]]\n"
                   << "  file.cuff              run this script in the session before the prompt\n"
+                  << "  arguments...           given to the script as args(); everything after the file is one\n"
                   << "                         appears\n"
                   << cuff::engineOptionsHelp()
                   << "  --no-color             disable colored output\n"
@@ -104,12 +105,10 @@ int main(int argc, char **argv)
         }
         else
         {
-            if (!options.startupFile.empty())
-            {
-                std::cerr << "Error: only one script file may be given\n";
-                return 2;
-            }
+            // Every argument after the script is the script's own (args()), even one that looks like an option.
             options.startupFile = arg;
+            options.engineConfig.arguments.assign(args.begin() + static_cast<std::ptrdiff_t>(i) + 1, args.end());
+            break;
         }
     }
 

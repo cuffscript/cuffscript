@@ -488,10 +488,16 @@ namespace cuff
 
         CycleLink cycles;
 
-        CUFF_NOINLINE void set(const std::string &key, Value v)
+        CUFF_NOINLINE void set(const std::string &key, Value v) { setHashed(key, std::move(v), nullptr); }
+
+        // The same for a key held in a str value, whose hash it may already know.
+        void set(const StrData &key, Value v) { setHashed(key.text(), std::move(v), &key); }
+
+        CUFF_NOINLINE void setHashed(const std::string &key, Value v, const StrData *known)
         {
             // The key is hashed once: for the search, for its place in the table and for every later rebuild of it.
-            uint32_t h = slots_.empty() ? 0 : hashOf(key);
+            auto hashKey = [&]() { return known ? known->hash() : hashOf(key); };
+            uint32_t h = slots_.empty() ? 0 : hashKey();
             const size_t at = slots_.empty() ? findInOrder(key) : findHashed(key, h);
             if (at != kNone)
             {
@@ -509,7 +515,7 @@ namespace cuff
             if (n + 1 > kLookedThrough && (n + 1) * 4 > slots_.size() * 3)
             {
                 if (slots_.empty())
-                    h = hashOf(key);
+                    h = hashKey();
                 index(slots_.empty() ? 32 : slots_.size() * 2);
             }
             if (!slots_.empty() && hashes_.capacity() == n)
@@ -528,6 +534,12 @@ namespace cuff
         const Value *get(const std::string &key) const
         {
             const size_t at = find(key);
+            return at == kNone ? nullptr : &values_[at];
+        }
+
+        const Value *get(const StrData &key) const
+        {
+            const size_t at = slots_.empty() ? findInOrder(key.text()) : findHashed(key.text(), key.hash());
             return at == kNone ? nullptr : &values_[at];
         }
 
@@ -588,6 +600,7 @@ namespace cuff
         static constexpr size_t kNone = static_cast<uint32_t>(-1);
         static constexpr size_t kLookedThrough = 8;
 
+        // The same hash as StrData::hash.
         static uint32_t hashOf(const std::string &key) { return static_cast<uint32_t>(std::hash<std::string>()(key)); }
 
         CUFF_NOINLINE size_t find(const std::string &key) const { return slots_.empty() ? findInOrder(key) : findHashed(key, hashOf(key)); }

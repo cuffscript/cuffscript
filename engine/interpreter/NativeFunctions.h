@@ -164,6 +164,37 @@ namespace cuff
         };
     }
 
+    // What print writes: the values with a space between them, then a line feed. The line is put together and written
+    // at once: each write to the stream costs more than the text it writes. A long str is written as it is, not copied.
+    // Showing an object can run its to_str and fail; what came before it is written first, as it would have been.
+    CUFF_NOINLINE inline void writeLine(std::ostream &out, std::vector<Value> &args)
+    {
+        std::string line;
+        try
+        {
+            for (size_t i = 0; i < args.size(); ++i)
+            {
+                if (i)
+                    line += ' ';
+                if (args[i].isStr() && args[i].asStr().size() > 4096)
+                {
+                    out.write(line.data(), static_cast<std::streamsize>(line.size()));
+                    line.clear();
+                    out << args[i].asStr();
+                }
+                else
+                    args[i].appendDisplay(line);
+            }
+        }
+        catch (...)
+        {
+            out.write(line.data(), static_cast<std::streamsize>(line.size()));
+            throw;
+        }
+        line += '\n';
+        out.write(line.data(), static_cast<std::streamsize>(line.size()));
+    }
+
     inline void registerBuiltins(std::unordered_map<std::string, NativeFn> &reg)
     {
         // What every program asks of a str, a list or a map, whichever libraries it loads.
@@ -176,36 +207,15 @@ namespace cuff
         {
             throw CuffRuntimeError(ErrorCode::UnsupportedOperation, "task_done() needs the interpreter", loc);
         };
+        // The same for args, which gives what the host put in the interpreter's Config.
+        reg["args"] = [](std::vector<Value> &, const SourceLocation &loc) -> Value
+        {
+            throw CuffRuntimeError(ErrorCode::UnsupportedOperation, "args() needs the interpreter", loc);
+        };
 
         reg["print"] = [](std::vector<Value> &args, const SourceLocation &) -> Value
         {
-            // The line is put together and written at once: each write to the stream costs more than the text it
-            // writes. A long str is written as it is, not copied. Showing an object can run its to_str and fail; what
-            // came before it is written first, as it would have been.
-            std::string line;
-            try
-            {
-                for (size_t i = 0; i < args.size(); ++i)
-                {
-                    if (i)
-                        line += ' ';
-                    if (args[i].isStr() && args[i].asStr().size() > 4096)
-                    {
-                        std::cout.write(line.data(), static_cast<std::streamsize>(line.size()));
-                        line.clear();
-                        std::cout << args[i].asStr();
-                    }
-                    else
-                        args[i].appendDisplay(line);
-                }
-            }
-            catch (...)
-            {
-                std::cout.write(line.data(), static_cast<std::streamsize>(line.size()));
-                throw;
-            }
-            line += '\n';
-            std::cout.write(line.data(), static_cast<std::streamsize>(line.size()));
+            writeLine(std::cout, args);
             return Value::makeEmpty();
         };
 
@@ -221,6 +231,42 @@ namespace cuff
                 line.pop_back();
             ensureStringSize(line.size(), loc);
             return Value::makeStr(std::move(line));
+        };
+
+        // print, to standard error: for what is not the program's output (progress, warnings, a usage line). What
+        // the program printed before comes first when both go to one place.
+        reg["print_error"] = [](std::vector<Value> &args, const SourceLocation &) -> Value
+        {
+            std::cout.flush();
+            writeLine(std::cerr, args);
+            std::cerr.flush();
+            return Value::makeEmpty();
+        };
+
+        reg["assert"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgRange("assert", args, 1, 2, loc);
+            const std::string *message = args.size() == 2 ? &expectStr("assert", args, 1, loc) : nullptr;
+            if (args[0].truthy())
+                return Value::makeEmpty();
+            throw CuffRuntimeError(ErrorCode::AssertionFailed, message ? *message : std::string("assertion failed"), loc);
+        };
+
+        // Ends the program at once with this status (0 when none is given): no `or_else` stops it, and tasks that are
+        // still running do not finish. The host decides what the status means; cuffc ends with it.
+        reg["exit"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value
+        {
+            expectArgRange("exit", args, 0, 1, loc);
+            int status = 0;
+            if (!args.empty())
+            {
+                const double d = expectNumber("exit", args, 0, loc);
+                if (!(d >= 0 && d <= 255) || d != std::floor(d))
+                    throw ValueError("exit() expects a whole number from 0 to 255, got " + formatCuffNumber(d), loc);
+                status = static_cast<int>(d);
+            }
+            std::cout.flush();
+            throw ProgramExit{status};
         };
 
         reg["type_of"] = [](std::vector<Value> &args, const SourceLocation &loc) -> Value

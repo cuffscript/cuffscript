@@ -1,0 +1,8 @@
+list 0
+0
+2
+E7-002 n must be positive, got -1
+E7-002 assertion failed
+E7-002 assertion failed 20
+empty
+to standard error, last so that every runner sees the same order

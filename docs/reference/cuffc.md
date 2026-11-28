@@ -3,7 +3,7 @@
 `cuffc` runs a CuffScript program from a file or from standard input. Build it with `make` (see [Building](../contributing/building.md)).
 
 ```text
-cuffc [options] [script.cuff]
+cuffc [options] [script.cuff [arguments...]]
 ```
 
 ```sh
@@ -13,17 +13,20 @@ cuffc --max-steps 1000000 --timeout 2000 job.cuff
 cuffc --no-network --no-filesystem untrusted.cuff
 cuffc --ast hello.cuff                # show how the program was understood, without running it
 cuffc --bytecode hello.cuff           # run it, showing the bytecode each part is compiled to
+cuffc rename.cuff photos --dry-run    # args() gives the script ["photos", "--dry-run"]
 ```
 
 With no file, or with `-`, the script is read from standard input. After `--`, every argument is a file name, so a file called `--odd.cuff` can be run with
-`cuffc -- --odd.cuff`. Exactly one script can be given.
+`cuffc -- --odd.cuff`. Every argument after the script belongs to the script, even one that looks like an option: the script reads
+them with [`args()`](builtins.md#arguments-exit-and-assert). The options of `cuffc` itself come before the script.
 
 ## Options
 
 <!-- BEGIN GENERATED: help-cuffc -->
 ```text
-Usage: cuffc [options] [script.cuff]
+Usage: cuffc [options] [script.cuff [arguments...]]
   (no file, or -)        read the script from stdin
+  arguments...           given to the script as args(); everything after the script is one
   --ast                  print tokens + AST instead of running the script
   --bytecode             run the script, printing each piece of bytecode as it is compiled
   -h, --help             show this help and exit
@@ -55,7 +58,7 @@ By default modules may be loaded from the script's own directory only.
 
 A number given to `--max-steps` or `--timeout` must be a non-negative decimal integer: a sign, a space, trailing text or a value that is too large is a command-line error.
 
-An option that `cuffc` does not know is an error (exit status 2), and so is giving more than one script, an option that needs a value and has none,
+An option that `cuffc` does not know is an error (exit status 2), and so is an option that needs a value and has none,
 or a malformed value. The engine options (`--root`, `--max-steps`, `--timeout`, `--no-network`, `--allow-private-network`, `--no-filesystem`, `--hardware`) are shared with
 [`cuffsh`](cuffsh.md): both programs read them with the same code, so they mean the same thing in both, and a host that embeds the engine can read them with
 `parseEngineOption` ([C++ API](cpp-api.md#command-line-options)).
@@ -85,6 +88,7 @@ give it as a file.
 | 0 | The script ran to the end (or `--help` was asked for, or `--ast` parsed the program). |
 | 1 | The script failed with an error (any error code, including a budget running out), or the file could not be read. |
 | 2 | The command line was wrong. |
+| any | The script called [`exit(status)`](builtins.md#arguments-exit-and-assert): `cuffc` ends with that status, from 0 to 255, and prints nothing of its own. |
 
 An error is printed to the standard error stream, starting with `ERROR: `, in the form described in
 [reading an error report](../guide/errors-and-debugging.md#reading-an-error-report). A file that cannot be opened is reported as `Error: Cannot open file '<name>'` and also exits with status 1.

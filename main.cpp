@@ -27,8 +27,9 @@ namespace
 {
     void printUsage(std::ostream &out, const char *prog)
     {
-        out << "Usage: " << prog << " [options] [script.cuff]\n"
+        out << "Usage: " << prog << " [options] [script.cuff [arguments...]]\n"
             << "  (no file, or -)        read the script from stdin\n"
+            << "  arguments...           given to the script as args(); everything after the script is one\n"
             << "  --ast                  print tokens + AST instead of running the script\n"
             << "  --bytecode             run the script, printing each piece of bytecode as it is compiled\n"
             << "  -h, --help             show this help and exit\n"
@@ -259,7 +260,6 @@ static int runCli(int argc, char *argv[])
     bool debugMode = false;
     bool onlyPaths = false; // after "--" every argument is a file name, even one that starts with '-'
     std::string path;
-    bool havePath = false;
     cuff::Engine::Options options;
 
     for (size_t i = 0; i < args.size(); ++i)
@@ -302,14 +302,12 @@ static int runCli(int argc, char *argv[])
             }
         }
 
-        if (havePath)
-        {
-            std::cerr << "Error: only one script file may be given\n";
-            return 2;
-        }
-        havePath = true;
+        // The first argument that is not an option is the script; every one after it is the script's own (args()),
+        // even one that looks like an option.
         if (arg != "-")
             path = arg;
+        options.arguments.assign(args.begin() + static_cast<std::ptrdiff_t>(i) + 1, args.end());
+        break;
     }
 
     std::string source;
@@ -360,7 +358,7 @@ static int runCli(int argc, char *argv[])
         std::cerr << "ERROR: " << result.error << "\n";
         return 1;
     }
-    return 0;
+    return result.exited ? result.exitStatus : 0;
 }
 
 int main(int argc, char *argv[])

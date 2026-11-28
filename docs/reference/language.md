@@ -943,6 +943,10 @@ loads the file `./lib/greetings.cuff`.
 | Function | Result |
 | :--- | :--- |
 | `print(...)`, `input([prompt])` | See section 5.4. |
+| `print_error(...)` | `print`, to standard error. |
+| `args()` | The arguments the program was given (`cuffc script.cuff a b`), as a list of `str`. |
+| `exit()`, `exit(status)` | Ends the program at once with a status from 0 to 255 (0 when left out). It is not an error: no `or_else` stops it, and tasks still waiting do not finish. |
+| `assert(condition)`, `assert(condition, message)` | `E7-002`, with the message or "assertion failed", when the condition is false. |
 | `type_of(x)` | The type name: `"number"`, `"str"`, `"boolean"`, `"list"`, `"map"`, `"match"`, `"pattern"` or `"empty"`; for an object, the name of its class. |
 | `to_number(x)` | A number is returned as it is; `true` and `false` give `1` and `0`; a string is read as plain decimal text (`E4-025` for any other text, [exactly which is listed here](dlc/convert.md#what-to_number-accepts)). Any other type is `E4-005`. |
 | `to_str(x)` | The display form of any value (section 2). |

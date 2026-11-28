@@ -6,6 +6,7 @@
 #include "../common/CuffError.h"
 #include "../common/SourceText.h"
 #include <functional>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
@@ -18,45 +19,85 @@
 namespace cuff
 {
 
-    using NativeFn = std::function<Value(std::vector<Value> &, const SourceLocation &)>;
-
-    inline void expectArgCount(const char *fn, std::vector<Value> &args, size_t n, const SourceLocation &loc)
+    // A function that a program calls by name. Nearly all of them are plain functions (lambdas that capture nothing),
+    // and those are kept as a pointer: a std::function made from each would bring code of its own for each of them (a
+    // manager and an invoker), and a call through it would go through that. One that keeps state (the interpreter,
+    // a host's function) is kept in a std::function.
+    class NativeFn
     {
-        if (args.size() != n)
-            throw ArgumentError(std::string(fn) + "() expects " + std::to_string(n) + " argument(s), got " + std::to_string(args.size()), loc);
+    public:
+        using Plain = Value (*)(std::vector<Value> &, const SourceLocation &);
+
+        NativeFn() = default;
+        template <typename F, std::enable_if_t<std::is_convertible_v<F, Plain>, int> = 0>
+        NativeFn(F &&f) : plain_(static_cast<Plain>(f)) {}
+        template <typename F, std::enable_if_t<!std::is_convertible_v<F, Plain> && !std::is_same_v<std::decay_t<F>, NativeFn>, int> = 0>
+        NativeFn(F &&f) : general_(std::forward<F>(f)) {}
+
+        Value operator()(std::vector<Value> &args, const SourceLocation &loc) const
+        {
+            return plain_ ? plain_(args, loc) : general_(args, loc);
+        }
+        explicit operator bool() const { return plain_ != nullptr || static_cast<bool>(general_); }
+
+    private:
+        Plain plain_ = nullptr;
+        std::function<Value(std::vector<Value> &, const SourceLocation &)> general_;
+    };
+
+    // The failures of the checks below, kept out of line: the checks themselves are then a compare and a branch
+    // that every library function inlines, while the text of the message is built only when it is needed.
+    [[noreturn]] CUFF_COLD inline void throwArgCount(const char *fn, size_t got, size_t lo, size_t hi, const SourceLocation &loc)
+    {
+        const std::string want = lo == hi ? std::to_string(lo) : std::to_string(lo) + "-" + std::to_string(hi);
+        throw ArgumentError(std::string(fn) + "() expects " + want + " argument(s), got " + std::to_string(got), loc);
     }
 
-    inline void expectArgRange(const char *fn, std::vector<Value> &args, size_t lo, size_t hi, const SourceLocation &loc)
+    [[noreturn]] CUFF_COLD inline void throwArgType(const char *fn, const std::vector<Value> &args, size_t i, const char *want,
+                                                   const SourceLocation &loc)
     {
-        if (args.size() < lo || args.size() > hi)
-            throw ArgumentError(std::string(fn) + "() expects " + std::to_string(lo) + "-" + std::to_string(hi) + " argument(s), got " + std::to_string(args.size()), loc);
+        throw TypeError(std::string(fn) + "() expects argument " + std::to_string(i + 1) + " to be " + want + ", got " +
+                            valueTypeName(args[i].type()),
+                        loc);
     }
 
-    inline double expectNumber(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
+    CUFF_NOINLINE inline void expectArgCount(const char *fn, std::vector<Value> &args, size_t n, const SourceLocation &loc)
     {
-        if (!args[i].isNumber())
-            throw TypeError(std::string(fn) + "() expects argument " + std::to_string(i + 1) + " to be a number, got " + valueTypeName(args[i].type()), loc);
+        if (CUFF_UNLIKELY(args.size() != n))
+            throwArgCount(fn, args.size(), n, n, loc);
+    }
+
+    CUFF_NOINLINE inline void expectArgRange(const char *fn, std::vector<Value> &args, size_t lo, size_t hi, const SourceLocation &loc)
+    {
+        if (CUFF_UNLIKELY(args.size() < lo || args.size() > hi))
+            throwArgCount(fn, args.size(), lo, hi, loc);
+    }
+
+    CUFF_NOINLINE inline double expectNumber(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
+    {
+        if (CUFF_UNLIKELY(!args[i].isNumber()))
+            throwArgType(fn, args, i, "a number", loc);
         return args[i].asNumber();
     }
 
-    inline const std::string &expectStr(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
+    CUFF_NOINLINE inline const std::string &expectStr(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
     {
-        if (!args[i].isStr())
-            throw TypeError(std::string(fn) + "() expects argument " + std::to_string(i + 1) + " to be a str, got " + valueTypeName(args[i].type()), loc);
+        if (CUFF_UNLIKELY(!args[i].isStr()))
+            throwArgType(fn, args, i, "a str", loc);
         return args[i].asStr();
     }
 
-    inline const ValueList &expectList(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
+    CUFF_NOINLINE inline const ValueList &expectList(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
     {
-        if (!args[i].isList())
-            throw TypeError(std::string(fn) + "() expects argument " + std::to_string(i + 1) + " to be a list, got " + valueTypeName(args[i].type()), loc);
+        if (CUFF_UNLIKELY(!args[i].isList()))
+            throwArgType(fn, args, i, "a list", loc);
         return *args[i].asList();
     }
 
-    inline const ValueMap &expectMap(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
+    CUFF_NOINLINE inline const ValueMap &expectMap(const char *fn, std::vector<Value> &args, size_t i, const SourceLocation &loc)
     {
-        if (!args[i].isMap())
-            throw TypeError(std::string(fn) + "() expects argument " + std::to_string(i + 1) + " to be a map, got " + valueTypeName(args[i].type()), loc);
+        if (CUFF_UNLIKELY(!args[i].isMap()))
+            throwArgType(fn, args, i, "a map", loc);
         return *args[i].asMap();
     }
 
@@ -226,14 +267,18 @@ namespace cuff
         {
             const StrData &sd = v.asStrData();
             const std::string &s = sd.text();
-            std::string out;
-            out.reserve(s.size());
             if (sd.ascii())
             {
-                for (char ch : s)
-                    out += upper ? ascii::upper(ch) : ascii::lower(ch);
+                // Changed in place in a copy: one pass with no check of the length for each character.
+                std::string out(s);
+                const char from = upper ? 'a' : 'A';
+                for (char &ch : out)
+                    if (static_cast<unsigned char>(ch - from) < 26)
+                        ch = static_cast<char>(ch ^ 0x20);
                 return Value::makeStr(std::move(out));
             }
+            std::string out;
+            out.reserve(s.size());
             for (size_t i = 0; i < s.size();)
             {
                 unsigned int cp;

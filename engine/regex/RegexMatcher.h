@@ -33,7 +33,7 @@ namespace cuff::regex
     {
         size_t stepLimit = 200000;
         // Matching recurses via continuations, so it needs a larger stack margin than the interpreter.
-        size_t depthLimit = 3000;
+        size_t depthLimit = limits::kRegexMatchDepth;
         std::chrono::milliseconds timeLimit{500};
         // Wall-clock cutoff for a whole operation; the per-attempt limits don't accumulate.
         std::chrono::steady_clock::time_point operationDeadline{};
@@ -54,14 +54,25 @@ namespace cuff::regex
             return tryMatchAt(text, 0, out, true);
         }
 
-        bool search(const std::string &text, size_t fromPos, MatchOutcome &out)
+        // `first`, when given, holds every byte a match can begin with (a pattern that can match nothing has none):
+        // a position whose byte is not among them cannot begin a match, so no attempt is made there.
+        bool search(const std::string &text, size_t fromPos, MatchOutcome &out, const RNode::ByteSet *first = nullptr)
         {
             size_t p = fromPos;
-            while (p <= text.size())
+            const size_t n = text.size();
+            while (p <= n)
             {
+                if (first)
+                {
+                    // A match needs at least one byte, so none begins at the end.
+                    while (p < n && !first->has(static_cast<unsigned char>(text[p])))
+                        p += cuff::utf8::seqLen(static_cast<unsigned char>(text[p]));
+                    if (p >= n)
+                        return false;
+                }
                 if (tryMatchAt(text, p, out, false))
                     return true;
-                if (p == text.size())
+                if (p == n)
                     break;
                 // Advance by codepoint so a match never starts inside a UTF-8 sequence.
                 p += cuff::utf8::seqLen(static_cast<unsigned char>(text[p]));
@@ -284,7 +295,7 @@ namespace cuff::regex
                 return pos + len;
             }
 
-            if (!charEquals(lead, node.charTest))
+            if (node.hasBytes ? !node.bytes[ci_ ? 1 : 0].has(lead) : !charEquals(lead, node.charTest))
                 return std::string::npos;
             return pos + 1;
         }

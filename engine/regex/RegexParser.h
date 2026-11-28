@@ -4,6 +4,7 @@
 #include "../common/CuffError.h"
 #include "../common/Limits.h"
 #include "../common/SourceText.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>
@@ -59,6 +60,22 @@ namespace cuff::regex
         RNodeKind kind;
 
         std::function<bool(unsigned char)> charTest;
+        // charTest for every byte, worked out once when the pattern is compiled (prepareForMatching): bit b of
+        // bytes[0] is charTest(b), and of bytes[1] the same with ASCII case ignored. Matching reads these instead of
+        // calling charTest.
+        struct ByteSet
+        {
+            uint64_t words[4] = {0, 0, 0, 0};
+            bool has(unsigned char c) const { return (words[c >> 6] >> (c & 63)) & 1; }
+            void add(unsigned char c) { words[c >> 6] |= uint64_t(1) << (c & 63); }
+            void addAll(const ByteSet &o)
+            {
+                for (int w = 0; w < 4; ++w)
+                    words[w] |= o.words[w];
+            }
+        };
+        ByteSet bytes[2];
+        bool hasBytes = false;
         bool negated = false;
         bool isAnyCodepoint = false;
         std::string multiByteLiteral;

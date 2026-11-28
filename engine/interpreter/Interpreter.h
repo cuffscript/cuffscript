@@ -79,6 +79,8 @@ namespace cuff
             // Free lists, maps and objects that only refer to each other (see CycleHeap). Off, such a cycle stays
             // until the engine goes.
             bool collectCycles = true;
+            // What args() gives the program: `cuffc script.cuff a b` passes "a" and "b".
+            std::vector<std::string> arguments;
             // The parts of the device that DLC:hardware reaches, each a function of the host (dlc/HardwareDLC.h). None
             // is given unless the host gives it, and a part that is not given is E4-044.
             Hardware hardware;
@@ -435,6 +437,9 @@ namespace cuff
         static constexpr int kMaxCallDepth = limits::kMaxCallDepth;
 
         uintptr_t stackLimit_ = 0;
+#if defined(__EMSCRIPTEN__)
+        size_t nestedRuns_ = 0; // runs of the machine inside one another (tooDeeplyNested)
+#endif
         uint64_t stepsLeft_ = UINT64_MAX;
         uint32_t tickCount_ = 0;
         bool timed_ = false;
@@ -555,8 +560,19 @@ namespace cuff
         // a default value or a module.
         CUFF_ALWAYS_INLINE void guardNative(const SourceLocation &loc) const
         {
-            if (stackPointer() < stackLimit_)
+            if (stackPointer() < stackLimit_ || tooDeeplyNested())
                 throwStackExhausted(loc);
+        }
+
+        // WebAssembly runs on the JavaScript engine's stack, which the stack pointer above does not measure and which
+        // is far smaller: there, how many runs of the machine are inside one another is counted as well.
+        bool tooDeeplyNested() const
+        {
+#if defined(__EMSCRIPTEN__)
+            return nestedRuns_ >= limits::kMaxNestedRunsWasm;
+#else
+            return false;
+#endif
         }
 
         [[noreturn]] CUFF_COLD static void throwStackExhausted(const SourceLocation &loc)
@@ -567,7 +583,7 @@ namespace cuff
         // The same check for work whose text is not that of the code that is running.
         void guardNative(const SourceLocation &loc, const SourceRef &source) const
         {
-            if (stackPointer() >= stackLimit_)
+            if (stackPointer() >= stackLimit_ && !tooDeeplyNested())
                 return;
             StackOverflowError e("native stack budget exhausted — calls and blocks are nested too deeply", loc);
             e.attachSource(source);
@@ -690,6 +706,18 @@ namespace cuff
                 if (!task)
                     throw TypeError("task_done() expects a task, got " + typeNameOf(args[0]), loc);
                 return Value::makeBool(task->state == Task::State::Done || task->state == Task::State::Failed);
+            };
+            natives_["args"] = [this](std::vector<Value> &args, const SourceLocation &loc) -> Value
+            {
+                expectArgCount("args", args, 0, loc);
+                auto list = std::make_shared<ValueList>();
+                list->items.reserve(config_.arguments.size());
+                for (const std::string &argument : config_.arguments)
+                {
+                    ensureStringSize(argument.size(), loc);
+                    list->items.push_back(Value::makeStr(argument));
+                }
+                return Value::makeList(std::move(list));
             };
             classCount_ = 0; // the limit is on the classes a program declares
             errMessageIdx_ = errorClass_->fieldIndex.at(internName("message"));
@@ -1043,10 +1071,15 @@ namespace cuff
             slot.meta = meta | (old & bc::kMetaWatched);
         }
 
-        const NativeFn *findNative(const std::string &name, uint32_t id)
+        CUFF_ALWAYS_INLINE const NativeFn *findNative(const std::string &name, uint32_t id)
         {
-            if (id < nativeById_.size() && nativeById_[id])
+            if (CUFF_LIKELY(id < nativeById_.size() && nativeById_[id]))
                 return nativeById_[id];
+            return findNativeByName(name, id);
+        }
+
+        CUFF_NOINLINE const NativeFn *findNativeByName(const std::string &name, uint32_t id)
+        {
             auto it = natives_.find(name);
             if (it == natives_.end())
                 return nullptr;
@@ -1468,7 +1501,7 @@ namespace cuff
             {
                 if (!indexVal.isStr())
                     throw TypeError("map keys are strings — cannot index with a " + valueTypeName(indexVal.type()), loc);
-                const Value *v = target.asMap()->get(indexVal.asStr());
+                const Value *v = target.asMap()->get(indexVal.asStrData());
                 if (!v)
                     throw KeyError("key \"" + indexVal.asStr() + "\" does not exist in this map", loc);
                 return *v;
@@ -2142,7 +2175,7 @@ namespace cuff
                 ValueMap &map = *container.asMap();
                 if (map.size() >= limits::kMaxCollectionItems && !map.has(index.asStr()))
                     throwSizeLimit("collection", loc);
-                map.set(index.asStr(), std::move(newVal));
+                map.set(index.asStrData(), std::move(newVal));
                 return;
             }
             throw TypeError("cannot index-assign into a " + typeNameOf(container) + " value", loc);
@@ -2323,7 +2356,7 @@ namespace cuff
                 auto &items = from.asList()->items;
                 if (at >= items.size())
                     return false;
-                out = std::move(items[at]);
+                out.take(items[at]);
             }
             else
             {
@@ -2815,9 +2848,10 @@ namespace cuff
         Value callNative(const NativeFn &fn, Reg *args, uint32_t argc, const SourceLocation &loc)
         {
             PooledArgs pooled(this);
-            pooled.v.reserve(argc);
+            if (pooled.v.capacity() < argc)
+                pooled.v.reserve(argc);
             for (uint32_t k = 0; k < argc; ++k)
-                pooled.v.push_back(std::move(args[k].v));
+                pooled.v.emplace_back(std::move(args[k].v));
             return fn(pooled.v, loc);
         }
 
@@ -2849,7 +2883,7 @@ namespace cuff
             if (const NativeFn *native = findNative(*site.name, nameId))
             {
                 Value out = callNative(*native, args, argc, loc);
-                *ret = std::move(out);
+                ret->take(out);
                 if (CUFF_UNLIKELY(pendingWait_ != nullptr))
                     beginWait(ret, loc);
                 return false;
@@ -3822,6 +3856,14 @@ namespace cuff
         // the way. For a run of the loop that C++ needs the result of.
         void runToEnd(size_t stopCount)
         {
+#if defined(__EMSCRIPTEN__)
+            struct Nesting
+            {
+                size_t &count;
+                explicit Nesting(size_t &c) : count(c) { ++count; }
+                ~Nesting() { --count; }
+            } nesting(nestedRuns_);
+#endif
             while (!runLoop(stopCount))
             {
                 try
@@ -4904,7 +4946,7 @@ namespace cuff
                                 CUFF_TICK(CUFF_NODE(LoopStmt)->loc);
                                 if (i->x != 0 && CUFF_UNLIKELY(!isKind(item, i->x)))
                                     checkLoopValue(*CUFF_NODE(LoopStmt), item);
-                                CUFF_RB.v = std::move(item);
+                                CUFF_RB.v.take(item);
                             }
                         }
                         if (!more)

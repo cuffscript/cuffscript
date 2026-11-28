@@ -12,6 +12,10 @@ These functions are always available. No `use` is needed.
 | `to_boolean(x)` | The truthiness of any value: `false`, `0`, `empty` and an empty string, list or map are false; everything else is true. |
 | `copy(x)` | A new list, map or object with the same elements or fields. The copy is shallow: a list or object inside it is shared with the original. Any other value is `E4-005`. |
 | `length(x)`, `contains(x, v)`, `index_of(x, v)` | The size of a string, list or map; whether it holds `v`; where `v` first is. See [below](#length-contains-and-index_of). |
+| `print_error(a, b, ...)` | The same as `print`, but to standard error: for what is not the program's output, such as progress or a warning. See [below](#arguments-exit-and-assert). |
+| `args()` | The arguments the program was given, as a `list` of `str`: `cuffc script.cuff a b` gives `["a", "b"]`. See [below](#arguments-exit-and-assert). |
+| `exit()`, `exit(status)` | Ends the program at once, with `status` (a whole number from 0 to 255; 0 when it is left out). See [below](#arguments-exit-and-assert). |
+| `assert(condition)`, `assert(condition, message)` | Nothing when `condition` is true (truthy, as an `if` tests it); otherwise the error `E7-002` with `message`, or "assertion failed". See [below](#arguments-exit-and-assert). |
 | `task_done(t)` | Whether the task `t` has finished, with a result or an error ([tasks](language.md#65-asynchronous-functions-and-tasks)). `t.done()` is the same. Any other value is `E4-005`. |
 | `pattern(text)`, `pattern(text, flags)` | A `pattern` made from a string while the program runs. `flags` is a string made of `i` (ignore case) and `m` (lines). A syntax error in the text is an `E3-0xx` error. For a pattern known in advance, write the literal `p"..."` instead. |
 
@@ -66,6 +70,37 @@ done
 
 Strings inside a list or a map are shown with quotes; the string on its own is not. Use `to_str` when you need the display text as a value, for
 example to join it to other text: `"total: " + to_str(42)`.
+
+## Arguments, exit and assert
+
+These four make a script a command-line program: it reads what it was given, checks it, says what is wrong on standard error, and ends with
+a status that the shell or another program can test.
+
+```cuff
+func main() do:
+    list given = args()
+    if length(given) is 0 do:
+        print_error("usage: greet NAME...")
+        exit(2)
+    end
+    loop each str name in given do:
+        assert(name is not "", "a name cannot be empty")
+        print(f"Hello, {name}!")
+    end
+end
+main()
+```
+
+- **`args()`** is a new list each time it is called, so changing it changes nothing else. A host that embeds the engine sets what it holds
+  (`EngineOptions::arguments`, see [embedding](../guide/embedding.md)); `cuffc` and `cuffsh` give it every argument after the script, and
+  without any it is an empty list.
+- **`exit(status)`** is not an error: it ends the program where it is, with no report, and no `or_else` stops it. Tasks that are still
+  waiting do not finish, as if the program had reached its end with nothing left to wait for. A status outside 0 to 255, or one that is
+  not a whole number, is `E4-025`. `cuffc` ends with the status; a host receives it in `Engine::Outcome` (`exited`, `exitStatus`).
+- **`assert(condition, message)`** raises `E7-002` when the condition is false, which `or_else` catches like any other error. The message must
+  be a `str` (`E4-005`). Use `fail` for an error that carries an object of your own.
+- **`print_error(...)`** writes what `print` would, to standard error. What the program printed before it comes first, so the two stay in
+  order when both go to one place.
 
 ## `length`, `contains` and `index_of`
 

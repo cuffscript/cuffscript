@@ -115,9 +115,12 @@ class CuffScriptIDE:
     }
     # Kept equal to the engine's by `python3 tools/docs.py check`.
     BUILTINS = {
+        "args",
+        "assert",
         "contains",
         "copy",
         "count",
+        "exit",
         "find",
         "find_all",
         "index_of",
@@ -126,6 +129,7 @@ class CuffScriptIDE:
         "match",
         "pattern",
         "print",
+        "print_error",
         "replace",
         "replace_all",
         "split",
@@ -4542,8 +4546,7 @@ class CuffScriptIDE:
             opening = self.editor.get("insert-1c", tk.INSERT)
             if (
                 opening in self.BRACKET_PAIRS
-                and self.editor.get(tk.INSERT, "insert+1c")
-                == self.BRACKET_PAIRS[opening]
+                and self.editor.get(tk.INSERT, "insert+1c") == self.BRACKET_PAIRS[opening]
                 and self._cursor_context()[0] == "code"
             ):
                 self.editor.edit_separator()
@@ -4587,8 +4590,7 @@ class CuffScriptIDE:
         """Where `index` is: ("code", None), ("string", the quote that opened it) or ("comment", None).
 
         Strings and `note:` comments come from the text of the line, so a quote or `note:` typed a moment ago counts before
-        the highlighter has run; a `note:` block over several lines comes from the highlighter's tags.
-        """
+        the highlighter has run; a `note:` block over several lines comes from the highlighter's tags."""
         editor = self.editor
         comment = editor.tag_prevrange("comment", index)
         if (
@@ -4673,17 +4675,12 @@ class CuffScriptIDE:
             if self._wrap_selection(char, closing):
                 return "break"
             after = self.editor.get(tk.INSERT, "insert+1c")
-            if self._cursor_context()[0] != "code" or (
-                after and after not in self.AUTO_CLOSE_BEFORE
-            ):
+            if self._cursor_context()[0] != "code" or (after and after not in self.AUTO_CLOSE_BEFORE):
                 return None
             self._insert_pair(char, closing)
             return "break"
         if char in self.CLOSING_BRACKETS:
-            if (
-                self.editor.tag_ranges("sel")
-                or self.editor.get(tk.INSERT, "insert+1c") != char
-            ):
+            if self.editor.tag_ranges("sel") or self.editor.get(tk.INSERT, "insert+1c") != char:
                 return None
             if self._cursor_context()[0] != "code":
                 return None
@@ -4699,9 +4696,7 @@ class CuffScriptIDE:
             if where == "string":
                 line = self.editor.get("insert linestart", tk.INSERT)
                 escaped = (len(line) - len(line.rstrip("\\"))) % 2 == 1
-                if (
-                    quote == char and after == char and not escaped
-                ):  # the string's own closing quote
+                if quote == char and after == char and not escaped:  # the string's own closing quote
                     self.editor.mark_set(tk.INSERT, "insert+1c")
                     self.editor.see(tk.INSERT)
                     return "break"
@@ -4709,17 +4704,10 @@ class CuffScriptIDE:
             if where == "comment":
                 return None
             # f"..." and p"..." keep their prefix; after any other letter, digit or quote (it's, x'') one quote is typed.
-            prefix = (
-                before in "fp"
-                and char == '"'
-                and before != ""
-                and not self._is_ident_part(self.editor.get("insert-2c", "insert-1c"))
+            prefix = before in "fp" and char == '"' and before != "" and not self._is_ident_part(
+                self.editor.get("insert-2c", "insert-1c")
             )
-            if (
-                before
-                and not prefix
-                and (self._is_ident_part(before) or before in self.QUOTES)
-            ):
+            if before and not prefix and (self._is_ident_part(before) or before in self.QUOTES):
                 return None
             if after and after not in self.AUTO_CLOSE_BEFORE:
                 return None
@@ -5520,7 +5508,7 @@ class CuffScriptIDE:
         mark = "'" if '"' in value else '"'
         return f"{mark}{value}{mark}"
 
-    def start_run(self, path=None, flags=(), clear=True):
+    def start_run(self, path=None, flags=(), clear=True, script_args=()):
         if self.running:
             self.status_var.set("A script is already running")
             return
@@ -5663,7 +5651,7 @@ class CuffScriptIDE:
 
         worker = threading.Thread(
             target=self._run_worker,
-            args=(argument, temp_path, run_dir, self.stop_event, all_flags),
+            args=(argument, temp_path, run_dir, self.stop_event, all_flags, list(script_args)),
             daemon=True,
         )
         self.worker_thread = worker
@@ -5685,7 +5673,7 @@ class CuffScriptIDE:
             return
         self.poll_job = self.root.after(40, self._poll_run_result)
 
-    def _run_worker(self, argument, cleanup_path, run_dir, stop_event, flags):
+    def _run_worker(self, argument, cleanup_path, run_dir, stop_event, flags, script_args=()):
         process = None
         status = "finished"
         exit_code = None
@@ -5697,8 +5685,13 @@ class CuffScriptIDE:
                 ) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
             else:
                 creation_options["start_new_session"] = True
+            # The script's own arguments follow it, so it gets them from args(); with none, the command line is the
+            # one engines before 6.4.0 understand too.
+            command = [str(self.engine_path), *flags, argument]
+            if script_args:
+                command = [str(self.engine_path), *flags, "--", argument, *script_args]
             process = subprocess.Popen(
-                [str(self.engine_path), *flags, argument],
+                command,
                 cwd=str(run_dir),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -6248,14 +6241,20 @@ class CuffScriptIDE:
         return self.flag_info or self.FALLBACK_FLAGS
 
     def _parse_run_args(self, args):
+        """Options anywhere before `--`, then the file; every word after the file that is not an option, and every
+        word after `--` once the file is known, is an argument of the script (its args()). Returns the options, the
+        file (a list of at most one) and the script's arguments."""
         info = self._known_flags()
-        flags, files = [], []
+        flags, files, script_args = [], [], []
         literal = False
         index = 0
         while index < len(args):
             token = args[index]
             if literal or not token.startswith("-") or token == "-":
-                files.append(token)
+                if files:
+                    script_args.append(token)
+                else:
+                    files.append(token)
             elif token == "--":
                 literal = True
             else:
@@ -6268,9 +6267,7 @@ class CuffScriptIDE:
                     index += 1
                     flags.append(args[index])
             index += 1
-        if len(files) > 1:
-            raise ValueError("Only one script file can be specified")
-        return flags, files
+        return flags, files, script_args
 
     @staticmethod
     def _split_command(line):
@@ -6324,8 +6321,8 @@ class CuffScriptIDE:
         return {
             "RUN": (
                 lambda args: self.cmd_run(args),
-                "[file] [options]",
-                "Run a file (the current tab when no file is given)",
+                "[file] [options] [arguments]",
+                "Run a file (the current tab when no file is given); words after the file go to its args(), after -- even ones that start with -",
             ),
             "AST": (
                 lambda args: self.cmd_run(args, ["--ast"]),
@@ -6334,7 +6331,7 @@ class CuffScriptIDE:
             ),
             "BYTECODE": (
                 lambda args: self.cmd_run(args, ["--bytecode"]),
-                "[file] [options]",
+                "[file] [options] [arguments]",
                 "Run using bytecode",
             ),
             "SET": (
@@ -6405,16 +6402,16 @@ class CuffScriptIDE:
                 self._prepare_command_input()
 
     def cmd_run(self, args, extra=()):
-        flags, files = self._parse_run_args(args) if args else ([], [])
+        flags, files, script_args = self._parse_run_args(args) if args else ([], [], [])
         path = self._resolve_path(files[0]) if files else None
-        self.start_run(path, [*extra, *flags], clear=False)
+        self.start_run(path, [*extra, *flags], clear=False, script_args=script_args)
 
     def cmd_set(self, args):
         if args in (["--reset"], ["reset"]):
             self.run_flags = []
         elif args:
-            flags, files = self._parse_run_args(args)
-            if files:
+            flags, files, script_args = self._parse_run_args(args)
+            if files or script_args:
                 raise ValueError(
                     "%SET accepts options only, for example: %SET --timeout 2000"
                 )
@@ -6767,11 +6764,7 @@ class CuffScriptIDE:
         if self._in_error_report(output_line):
             limit = 600
         for line_no in range(output_line, max(0, output_line - limit), -1):
-            if (
-                limit > 18
-                and line_no < output_line
-                and not self._in_error_report(line_no)
-            ):
+            if limit > 18 and line_no < output_line and not self._in_error_report(line_no):
                 break
             text = self.output.get(f"{line_no}.0", f"{line_no}.end")
             parsed = self._parse_error_header(text)

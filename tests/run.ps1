@@ -205,6 +205,9 @@ $korean = Join-Path $cliDir ([string][char]0xD55C + [char]0xAE00 + ' ' + [char]0
 $null = New-Item -ItemType Directory -Path $korean -Force
 $script = Join-Path $korean ([string][char]0xC2A4 + [char]0xD06C + [char]0xB9BD + [char]0xD2B8 + '.cuff') # "스크립트.cuff"
 [System.IO.File]::WriteAllText($script, "print(`"ok`")`n", $Utf8)
+$argsScript = Join-Path $cliDir 'args.cuff'
+[System.IO.File]::WriteAllText($argsScript, "print(args())`nexit(length(args()))`n", $Utf8)
+$hangul = [string][char]0xD55C + [char]0xAE00 # "한글"
 $none = Join-Path $cliDir 'none.cuff'
 Invoke-CliCase 'a folder is not a script' 1 "Cannot open file '$cliDir'" @($cliDir)
 Invoke-CliCase 'a file that is not there' 1 "Cannot open file '$none'" @($none)
@@ -212,7 +215,8 @@ Invoke-CliCase 'a name with Korean and a space' 0 'ok' @($script)
 Invoke-CliCase 'a file name after --' 0 'ok' @('--', $script)
 Invoke-CliCase 'the script from stdin (-)' 0 'from stdin' @('-') 'print("from stdin")'
 Invoke-CliCase 'an unknown option' 2 "unknown option '--nope'" @('--nope')
-Invoke-CliCase 'two scripts' 2 'only one script file may be given' @($none, $none)
+Invoke-CliCase 'arguments after the script, and exit()' 3 "[`"a b`", `"--nope`", `"$hangul`"]" @($argsScript, 'a b', '--nope', $hangul)
+Invoke-CliCase 'arguments after - (stdin)' 0 '["x"]' @('-', 'x') 'print(args())'
 Remove-Item -Recurse -Force $cliDir -ErrorAction SilentlyContinue
 
 Write-Host ''

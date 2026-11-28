@@ -1,4 +1,4 @@
-// Browser/WASM entry point for the CuffScript engine.
+// Browser/WASM entry point for the CuffScript engine. A program run here has no arguments: args() is an empty list.
 // Compiled by `make wasm` (see Makefile). Not part of the native `cuffc` build.
 //
 // print()/input() inside the interpreter talk to std::cout/std::cin as usual
@@ -16,11 +16,13 @@ struct RunOutcome
 {
     bool success;
     std::string error;
+    bool exited;    // the program called exit()
+    int exitStatus; // with this status (0 when it did not)
 };
 
 static RunOutcome toOutcome(const cuff::Engine::Outcome &result)
 {
-    return RunOutcome{result.success, result.error};
+    return RunOutcome{result.success, result.error, result.exited, result.exitStatus};
 }
 
 // Parses and executes `source`. `scriptDir` resolves relative
@@ -37,7 +39,7 @@ RunOutcome cuffDump(const std::string &source)
 {
     const cuff::Engine::Parsed parsed = cuff::Engine::parse(source);
     cuff::Engine::dump(parsed);
-    return RunOutcome{parsed.success, parsed.error};
+    return RunOutcome{parsed.success, parsed.error, false, 0};
 }
 
 // Runs `source` and writes each piece of bytecode to stdout as the engine compiles it, in order with what the
@@ -53,7 +55,9 @@ EMSCRIPTEN_BINDINGS(cuffscript_wasm)
 {
     value_object<RunOutcome>("RunOutcome")
         .field("success", &RunOutcome::success)
-        .field("error", &RunOutcome::error);
+        .field("error", &RunOutcome::error)
+        .field("exited", &RunOutcome::exited)
+        .field("exitStatus", &RunOutcome::exitStatus);
 
     function("cuffRun", &cuffRun);
     function("cuffDump", &cuffDump);

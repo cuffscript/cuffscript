@@ -105,6 +105,9 @@ std::optional<cuff::Value> v = engine.get("volume");             // 0
 
 - `call` checks the arguments as a script's call is checked, fills in default values, and gives the function's value. An `async` function
   runs to its end. A failure is reported like a failed run, without a source line when it is the call itself that is wrong.
+- A program that calls [`exit(status)`](../reference/builtins.md#arguments-exit-and-assert) ends the `run` or `call` there: the outcome is a success
+  with no report, `exited` set and the status in `exitStatus`. The engine can run again afterwards. What the status means is the host's to
+  decide; `cuffc` ends with it.
 - `get` gives the value of a top-level variable, or nothing. A list, map or object is shared with the program.
 - `set` assigns as a script would, so a `number` variable stays a number and a `constant` cannot be changed; a new name is declared as `any`.
 - `addFunction` lends the program a function. Its arguments come checked through `Args`, its value goes back as a `Value`, and a failure it
@@ -128,6 +131,7 @@ wait while it runs) and it cannot use the engine that called it. The full list i
 | `allowPrivateNetworkTargets` | Whether `DLC:network` may reach loopback and private addresses. | `false` |
 | `filesystemEnabled` | Whether `DLC:filesystem` calls are allowed. | `true` |
 | `collectCycles` | Whether the engine frees, as a program runs, lists, maps and objects that refer only to each other (see [memory](../reference/cpp-api.md#memory)). Off, they wait for `collectCycles()` or the engine's end. | `true` |
+| `arguments` | What the program's [`args()`](../reference/builtins.md#arguments-exit-and-assert) gives, in order (`std::vector<std::string>`, UTF-8). `cuffc` puts there every argument after the script. | empty |
 | `hardware` | The parts of the device that [`DLC:hardware`](../reference/dlc/hardware.md) reaches, each a function of the host; see [below](#giving-a-program-hardware). | none |
 | `onCompiled` | A function the engine calls with each piece of bytecode as it compiles it (`const bc::Proto&`); `cuffc --bytecode` prints them with `BytecodePrinter::print` from `engine/debug/BytecodePrinter.h`. | none |
 

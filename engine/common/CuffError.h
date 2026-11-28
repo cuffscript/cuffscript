@@ -34,6 +34,13 @@ namespace cuff
         uint32_t repeated = 0;
     };
 
+    // What exit() throws: the program asked to end now, with this status. It is not an error, so it is no CuffError
+    // and no `or_else` sees it; Engine turns it into an Outcome that has `exited` set.
+    struct ProgramExit
+    {
+        int status = 0;
+    };
+
     class CuffError : public std::runtime_error
     {
     public:

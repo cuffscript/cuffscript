@@ -1,0 +1,24 @@
+note: assert passes quietly on any true value and fails with E7-002, which or_else catches.
+print(type_of(args()), length(args()))
+list given = args()
+add "changed" to given
+print(length(args()))
+assert(true)
+assert([1], "a list that is not empty is true")
+assert(0 < 1)
+func check(number n) do:
+    assert(n > 0, f"n must be positive, got {n}")
+    return n
+end
+print(check(2))
+check(-1) or_else as Error e do:
+    print(e.code, e.message)
+end
+assert(empty) or_else as Error e do:
+    print(e.code, e.message)
+end
+assert("") or_else as Error e do:
+    print(e.code, e.message, e.line)
+end
+print(to_str(empty))
+print_error("to standard error, last so that every runner sees the same order")

@@ -608,3 +608,33 @@ print(roll >= 1 and roll <= 6, length(deck), list_sum(deck))
 ```output
 true 5 15
 ```
+
+## Command-line scripts
+
+**Read the arguments, check them, and end with a status** (`cuffc count.cuff a b c` runs it with three arguments; here it runs with
+none, so it takes the usage path):
+
+```cuff
+func main() do:
+    list given = args()
+    if length(given) is 0 do:
+        print_error("usage: count WORD...")
+        return 2
+    end
+    loop each str word in given do:
+        assert(word is not "", "a word cannot be empty")
+        print(f"{word}: {length(word)}")
+    end
+    return 0
+end
+number status = main()
+print("status", status)
+```
+
+```output
+status 2
+```
+
+`print_error` writes to standard error, which the example's output does not show. A real script would end with `exit(status)`
+instead of printing it: the shell, a makefile or another program can then test the status. See
+[arguments, exit and assert](../reference/builtins.md#arguments-exit-and-assert).

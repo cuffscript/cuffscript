@@ -151,6 +151,7 @@ _This table is generated from `engine/common/ErrorCodes.h` by `tools/docs.py`. C
 | Code | Meaning | `or_else` can catch it |
 | :--- | :--- | :---: |
 | <a id="e7-001"></a>`E7-001` | An error raised by the program itself with `fail`. | yes |
+| <a id="e7-002"></a>`E7-002` | An `assert` whose condition was false. | yes |
 
 ### Internal Errors
 
@@ -595,6 +596,21 @@ func withdraw(number balance, number amount) do:
     return balance - amount
 end
 print(withdraw(10, 50))
+```
+
+**E7-002.** An [`assert`](builtins.md#arguments-exit-and-assert) found its condition false. The message is the one the program gave
+`assert`, or "assertion failed" when it gave none. It is an ordinary error: `or_else` catches it.
+
+```cuff error E7-002
+func average(list xs) do:
+    assert(length(xs) > 0, "average() of no numbers")
+    number sum = 0
+    loop each number x in xs do:
+        sum = sum + x
+    end
+    return sum / length(xs)
+end
+print(average([]))
 ```
 
 ### Codes without an example

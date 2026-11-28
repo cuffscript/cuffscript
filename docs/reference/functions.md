@@ -9,6 +9,8 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 
 | Function | Library | Method |
 | :--- | :--- | :--- |
+| [`args`](builtins.md) | always available |  |
+| [`assert`](builtins.md) | always available |  |
 | [`contains`](builtins.md) | always available | `contains` |
 | [`copy`](builtins.md) | always available | `copy` |
 | [`count`](builtins.md) | always available | `count` |
@@ -21,6 +23,7 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`datetime_offset`](dlc/datetime.md) | `DLC:datetime` |  |
 | [`datetime_parse`](dlc/datetime.md) | `DLC:datetime` |  |
 | [`datetime_parts`](dlc/datetime.md) | `DLC:datetime` |  |
+| [`exit`](builtins.md) | always available |  |
 | [`file_add`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_copy`](dlc/filesystem.md) | `DLC:filesystem` |  |
 | [`file_exist`](dlc/filesystem.md) | `DLC:filesystem` |  |
@@ -130,6 +133,7 @@ _This table is generated from the engine's library tables by `tools/docs.py`. Ch
 | [`path_with_extension`](dlc/path.md) | `DLC:path` |  |
 | [`pattern`](builtins.md) | always available |  |
 | [`print`](builtins.md) | always available |  |
+| [`print_error`](builtins.md) | always available |  |
 | [`random_choice`](dlc/random.md) | `DLC:random` |  |
 | [`random_float`](dlc/random.md) | `DLC:random` |  |
 | [`random_int`](dlc/random.md) | `DLC:random` |  |

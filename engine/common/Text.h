@@ -116,6 +116,7 @@ namespace cuff
         void append(const std::string &more)
         {
             text_ += more;
+            hashKnown_ = false;
             if (asciiState_ == 1 && isAscii(more.data(), more.size()))
                 return;
             if (asciiState_ == 1)
@@ -172,10 +173,24 @@ namespace cuff
             return off;
         }
 
+        // The hash a map uses for this text as a key, worked out once: a key that is looked up again and again, such as
+        // a literal, is hashed the first time only.
+        uint32_t hash() const
+        {
+            if (!hashKnown_)
+            {
+                hash_ = static_cast<uint32_t>(std::hash<std::string>()(text_));
+                hashKnown_ = true;
+            }
+            return hash_;
+        }
+
     private:
         static constexpr uint32_t kUnknown = static_cast<uint32_t>(-1);
 
         std::string text_;
+        mutable uint32_t hash_ = 0;
+        mutable bool hashKnown_ = false;
         mutable uint32_t cpCount_ = kUnknown;
         mutable uint32_t cursorCp_ = 0;
         mutable uint32_t cursorByte_ = 0;

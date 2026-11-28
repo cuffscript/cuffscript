@@ -73,6 +73,16 @@ namespace cuff::limits
     constexpr size_t kDefaultStackBudget = 4u * 1024 * 1024;
 #endif
 
+    // @internal Nested runs in WebAssembly | E4-017
+    // How many runs of the machine may be inside one another in WebAssembly: an object's `to_str` that shows another
+    // object, a default value that makes an object whose default value makes another. Natively the stack budget above
+    // bounds this; WebAssembly runs on the JavaScript engine's stack, which cannot be measured, and deeper would end
+    // in a JavaScript RangeError instead of E4-017.
+#ifndef CUFF_WASM_NESTED_RUNS
+#define CUFF_WASM_NESTED_RUNS 100
+#endif
+    constexpr size_t kMaxNestedRunsWasm = CUFF_WASM_NESTED_RUNS;
+
     // @internal Stack per nested engine call
     // Native stack one call that the engine makes from inside the machine is assumed to need at most: an object's
     // `to_str` run while a value is shown, or a default value that makes another object. Measured at about 1.1 KiB
@@ -165,6 +175,17 @@ namespace cuff::limits
     // @limit Pattern repeat count | E3-004
     // The largest count in a repeat such as `[num]100000`.
     constexpr int kMaxRegexQuantifier = 100000;
+
+    // @internal Pattern match depth
+    // How deeply one attempt to match a pattern may nest: a repeated group, such as `(ab)+`, nests once more for each
+    // repeat (a repeated single character does not). Deeper is E3-103. In WebAssembly it is 240: the JavaScript
+    // engine's stack, which it runs on, is far smaller than a native thread's and cannot be measured, and deeper would
+    // end there in a JavaScript RangeError instead of the error.
+#if defined(__EMSCRIPTEN__)
+    constexpr size_t kRegexMatchDepth = 240;
+#else
+    constexpr size_t kRegexMatchDepth = 3000;
+#endif
 
     // @internal Pattern cache size
     // Compiled patterns kept for reuse; the cache is emptied when it fills.

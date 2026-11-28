@@ -75,7 +75,8 @@ namespace cuff::cli
 
         // The process exit status: an interactive session always ends with 0, and a
         // session fed from a pipe or a file ends with 1 when the startup file or the
-        // script it ran failed, like cuffc.
+        // script it ran failed, like cuffc. A program that calls exit() ends the
+        // session with its status, wherever it runs.
         int run()
         {
             const bool interactive = term_.inputIsTerminal();
@@ -86,10 +87,14 @@ namespace cuff::cli
             bool ok = true;
             if (!opts_.startupFile.empty())
                 ok = loadFile(opts_.startupFile);
+            if (exited_)
+                return exitStatus_;
 
             if (!interactive)
             {
                 ok = runNonInteractive() && ok;
+                if (exited_)
+                    return exitStatus_;
                 return ok ? 0 : 1;
             }
 
@@ -111,10 +116,14 @@ namespace cuff::cli
                 {
                     if (!dispatchMeta(trimmed))
                         break; // ':exit' / ':quit'
+                    if (exited_) // a file run by :load called exit()
+                        return exitStatus_;
                     continue;
                 }
 
                 executeSource(entry, scriptDir_);
+                if (exited_)
+                    return exitStatus_;
             }
             return 0;
         }
@@ -124,6 +133,9 @@ namespace cuff::cli
         Options opts_;
         cuff::Engine session_;
         std::string scriptDir_ = ".";
+        // The program called exit(): the session ends there, with its status.
+        bool exited_ = false;
+        int exitStatus_ = 0;
 
         // stdin isn't a terminal (piped or redirected): there is no prompt and
         // no Shift+Enter to press, so the whole input is one script, exactly
@@ -155,6 +167,11 @@ namespace cuff::cli
             }
             if (!outcome.success)
                 printEngineError(outcome.error);
+            if (outcome.exited)
+            {
+                exited_ = true;
+                exitStatus_ = outcome.exitStatus;
+            }
             return outcome.success;
         }
 

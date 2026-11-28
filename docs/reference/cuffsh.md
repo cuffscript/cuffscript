@@ -30,8 +30,9 @@ CuffScript Interactive Shell <version>
 Enter runs what you've typed; Shift+Enter (or Alt+Enter) inserts a newline
 (for if/loop/func/class/with and other multi-line code) instead of running it yet.
 
-Usage: cuffsh [options] [file.cuff]
+Usage: cuffsh [options] [file.cuff [arguments...]]
   file.cuff              run this script in the session before the prompt
+  arguments...           given to the script as args(); everything after the file is one
                          appears
   --root <dir>           allow 'use ... from' to load modules anywhere under <dir>
   --max-steps <n>        stop after <n> loop iterations + function calls (0 = unlimited)
@@ -54,7 +55,8 @@ closes the whole shell instead (see :help).
 ```
 <!-- END GENERATED: help-cuffsh -->
 
-`file.cuff` runs in the session before the prompt appears. The engine options are the ones `cuffc` takes
+`file.cuff` runs in the session before the prompt appears, and every argument after it is the script's own: its
+[`args()`](builtins.md#arguments-exit-and-assert) gives them, as `cuffc` does. The engine options are the ones `cuffc` takes
 (see [`cuffc`](cuffc.md#options)); `--no-color`, `--no-banner`, `--version` and `-h` are the shell's own.
 
 ## Editing
@@ -104,7 +106,8 @@ against the one that called it.
 If standard input is not a terminal (`echo ... | cuffsh`, `cuffsh < file`) there is no prompt: the whole input
 runs as one script, exactly as `cuffc` reads it from standard input, and an error is printed as `ERROR: ...`
 on standard error. The exit status is the one `cuffc` gives: 0 when the script ran, 1 when it failed. An interactive session
-always ends with 0. If the terminal cannot do cursor movement (`TERM=dumb`, very old Windows consoles), a plain
+ends with 0. A program that calls `exit(status)`, at the prompt, in `file.cuff` or in a file run with `:load`, ends the shell with that
+status. If the terminal cannot do cursor movement (`TERM=dumb`, very old Windows consoles), a plain
 line prompt is used instead, without Shift+Enter.
 
 ## Does Shift+Enter work in my terminal?

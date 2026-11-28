@@ -28,6 +28,8 @@ struct Engine::Outcome
     bool success = true;
     std::string error;   // the full report, empty on success
     Value value;         // what call() returned; empty otherwise
+    bool exited = false; // the program called exit(): it ended there, a success with no report
+    int exitStatus = 0;  // the status it gave exit(), from 0 to 255
 };
 ```
 

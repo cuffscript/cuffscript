@@ -1,0 +1,21 @@
+note: exit() ends the program at once: an or_else does not catch it, and tasks that were started do not run.
+async func never_runs() do:
+    print("a task that never runs")
+end
+
+func finish() do:
+    print("finishing")
+    exit()
+end
+
+Task t = never_runs()
+func risky() do:
+    fail "boom"
+end
+risky() or_else as Error e do:
+    print("caught", e.message)
+    finish() or_else as Error e2 do:
+        print("not reached: exit is not an error")
+    end
+end
+print("not reached either")

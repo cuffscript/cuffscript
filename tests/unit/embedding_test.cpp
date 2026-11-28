@@ -282,6 +282,37 @@ namespace
         const auto broken = Engine::parse("number x = \n");
         check(!broken.success && has(broken.error, "[E2-001]") && !broken.ast, "parse() reports a syntax error");
     }
+
+    // exit() ends a run with a status and no report, args() gives Options::arguments, and the engine goes on.
+    void exitAndArgumentsTests()
+    {
+        Engine::Options options;
+        options.arguments = {"one", "two words", "--flag"};
+        Engine engine(options);
+        std::string out = printed([&] { check(engine.run("print(args())\n").success, "args() runs"); });
+        check(out == "[\"one\", \"two words\", \"--flag\"]\n", "args() gives Options::arguments in order: " + out);
+
+        Engine::Outcome r;
+        out = printed([&] { r = engine.run("print(\"a\")\nexit(3)\nprint(\"b\")\n"); });
+        check(r.success && r.error.empty() && r.exited && r.exitStatus == 3 && out == "a\n", "exit(3) ends the run with status 3 and no report");
+        r = engine.run("number left = 1\n");
+        check(r.success && !r.exited && r.exitStatus == 0, "the engine runs again after exit(), and a run that ends by itself has not exited");
+
+        check(engine.run("func leave(number code) do:\n    exit(code)\nend\n").success, "a function that exits is declared");
+        r = engine.call("leave", {Value::makeNumber(0)});
+        check(r.success && r.exited && r.exitStatus == 0, "exit() in a call() ends the call the same way");
+
+        r = engine.run("func f() do:\n    exit()\nend\nf() or_else as Error e do:\n    print(\"caught\")\nend\n");
+        check(r.exited && r.exitStatus == 0, "or_else does not catch exit()");
+
+        r = engine.run("exit(-1)\n");
+        check(!r.success && !r.exited && has(r.error, "[E4-025]"), "a status outside 0 to 255 is E4-025");
+
+        r = Engine::execute("exit(9)\n");
+        check(r.success && r.exited && r.exitStatus == 9, "execute() gives the status");
+        out = printed([] { Engine::execute("print(args())\n"); });
+        check(out == "[]\n", "with no arguments args() is an empty list");
+    }
 }
 
 int main()
@@ -291,6 +322,7 @@ int main()
     hostFunctionTests();
     cycleTests();
     oneShotAndNamesTests();
+    exitAndArgumentsTests();
     std::cout << pass << " passed, " << fail << " failed\n";
     return fail == 0 ? 0 : 1;
 }

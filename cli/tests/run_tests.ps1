@@ -448,6 +448,12 @@ if ($runNative) {
     $r = Invoke-Proc $Cuffsh @($sf) $null
     Check 'startup file path containing spaces' ($r.Out -ceq "spaces ok`n") ($r.Out + '|' + $r.Err)
 
+    # every word after the startup file is the script's own (args()), and exit() ends the shell with its status
+    $af = Join-Path $tmp 'args.cuff'
+    [System.IO.File]::WriteAllBytes($af, (Bytes "print(args())`nexit(3)`n"))
+    $r = Invoke-Proc $Cuffsh @($af, 'b.cuff', '--x') $null
+    Check 'words after the startup file go to args(), exit(3) ends the shell with 3' (($r.ExitCode -eq 3) -and ($r.Out -ceq "[`"b.cuff`", `"--x`"]`n")) ($r.Out + '|' + $r.Err)
+
     # ---- oversized input is refused, not buffered without limit
     $chunk = [System.Text.Encoding]::ASCII.GetBytes(('a' * 1048576))
     $big = New-Object byte[] (17 * 1048576)
@@ -465,7 +471,6 @@ if ($runNative) {
   $r = Invoke-Proc $Cuffsh @('--timeout', 'abc'); Check '--timeout abc -> exit 2' ($r.ExitCode -eq 2) $r.Err
   $r = Invoke-Proc $Cuffsh @('--timeout', '-5'); Check '--timeout -5 -> exit 2' ($r.ExitCode -eq 2) $r.Err
   $r = Invoke-Proc $Cuffsh @('--max-steps', 'x'); Check '--max-steps x -> exit 2' ($r.ExitCode -eq 2) $r.Err
-  $r = Invoke-Proc $Cuffsh @('a.cuff', 'b.cuff'); Check 'two script files -> exit 2' (($r.ExitCode -eq 2) -and ($r.Err -cmatch 'only one')) $r.Err
 
   # ---- resource limits come from the engine and the session survives them
   $loop = "number c = 0`nloop while true do:`n    c = c + 1`nend`nprint(`"after`")`n"

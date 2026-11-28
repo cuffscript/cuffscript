@@ -8,8 +8,15 @@ namespace cuff
     inline void jsonEscapeInto(const std::string &s, std::string &out)
     {
         out += '"';
-        for (unsigned char c : s)
+        // The characters that need no escape are copied a run at a time.
+        size_t run = 0;
+        for (size_t i = 0; i < s.size(); ++i)
         {
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c >= 0x20 && c != '"' && c != '\\')
+                continue;
+            out.append(s, run, i - run);
+            run = i + 1;
             switch (c)
             {
             case '"': out += "\\\""; break;
@@ -27,12 +34,9 @@ namespace cuff
                     out += hex[(c >> 4) & 0xF];
                     out += hex[c & 0xF];
                 }
-                else
-                {
-                    out += static_cast<char>(c);
-                }
             }
         }
+        out.append(s, run, s.size() - run);
         out += '"';
     }
 
@@ -292,7 +296,21 @@ namespace cuff
                 if (c == '"') { ++pos_; break; }
                 if (c < 0x20)
                     fail("raw control character in string (must be escaped)");
-                if (c != '\\') { out += static_cast<char>(c); ++pos_; continue; }
+                if (c != '\\')
+                {
+                    // A run of plain characters is copied at once.
+                    size_t end = pos_ + 1;
+                    while (end < t_.size())
+                    {
+                        const unsigned char d = static_cast<unsigned char>(t_[end]);
+                        if (d == '"' || d == '\\' || d < 0x20)
+                            break;
+                        ++end;
+                    }
+                    out.append(t_, pos_, end - pos_);
+                    pos_ = end;
+                    continue;
+                }
                 ++pos_;
                 if (atEnd())
                     fail("unterminated escape sequence");
@@ -353,6 +371,25 @@ namespace cuff
                 if (atEnd() || !(peek() >= '0' && peek() <= '9'))
                     fail("digit expected in exponent");
                 while (!atEnd() && peek() >= '0' && peek() <= '9') ++pos_;
+            }
+            // A whole number of up to 15 digits is exact as a double, and is most of what JSON holds: it is read here,
+            // without the copy and the general reading below.
+            const bool negative = t_[start] == '-';
+            const size_t digitsAt = start + (negative ? 1 : 0);
+            if (pos_ - digitsAt <= 15)
+            {
+                bool whole = true;
+                double v = 0;
+                for (size_t k = digitsAt; k < pos_ && whole; ++k)
+                {
+                    const char ch = t_[k];
+                    if (ch < '0' || ch > '9')
+                        whole = false;
+                    else
+                        v = v * 10 + (ch - '0');
+                }
+                if (whole)
+                    return Value::makeNumber(negative ? -v : v);
             }
             double d = numtext::parse(t_.substr(start, pos_ - start));
             if (!std::isfinite(d))

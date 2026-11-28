@@ -100,6 +100,7 @@ namespace cuff
         ExecutionTimeout = 6002, // The run exceeded `--timeout`.
         OutOfMemory = 6003, // The host ran out of memory.
         ProgramError = 7001, // An error raised by the program itself with `fail`.
+        AssertionFailed = 7002, // An `assert` whose condition was false.
         InternalError = 9001, // A bug in the engine: please report it.
     };
 

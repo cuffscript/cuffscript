@@ -17,7 +17,7 @@ in which the engine became a bytecode machine. The items before them that descri
 tree-walking evaluator of their time; what a program observes is unchanged unless items 67 to 69 say so. Items 71 to 78 record
 6.0.0: item 71 replaces item 1 (the queue of `async` calls became tasks), item 74 replaces the part of item 11 that says a
 cycle is never freed, and item 78 replaces the parts of items 59 and 64 that let a shell entry declare a name again. Item 79
-records 6.1.0, items 80 and 81 record 6.2.0, and item 82 records 6.3.0.
+records 6.1.0, items 80 and 81 record 6.2.0, item 82 records 6.3.0, and item 83 records 6.4.0.
 
 ## 1. The `async` / `await` execution model
 
@@ -2146,3 +2146,49 @@ from before the libraries counted calls 5.1% fewer; that arrangement of the loop
 - **An HTTP status is three digits.** It was read with `atoi`, so `abc` was status 0 and a number too long for an `int` was
   undefined behaviour; a status line whose code is not three digits is now "malformed status line from server".
 - **Size.** `cuffc` has the same size as 6.2.0 (its code is 2.4 KB larger, inside the same pages).
+
+## 83. v6.4.0: four built-ins, and speed where programs spend it
+
+- **`args`, `exit`, `assert`, `print_error`.** The built-ins are what a program needs without `use`, and a script run from a
+  command line needed four more: its arguments, a way to end with a status, a check that fails loudly, and a line on
+  standard error. None of them belongs to a library: they are about the program, not about a kind of value. A function of the
+  program with the same name still wins (it always did), so no program that worked stops working.
+- **`exit` is not an error.** It throws `ProgramExit`, which is no `CuffError`, so no `or_else` sees it and no report is made;
+  the frames and tasks are let go as for an error that no handler may catch. `Engine::Outcome` says `exited` and gives the
+  status, and `success` stays true: what the status means is the host's to decide. A status is a whole number from 0 to 255,
+  what every operating system can pass on.
+- **Arguments belong to the script.** `cuffc` took one script and refused a second; now everything after the script is its
+  own, even what looks like an option, as `python` and `node` do. Options for `cuffc` itself come before the script. The engine
+  takes them as `EngineOptions::arguments` and copies them into a new list at each `args()`, so a program that changes the
+  list changes nothing else.
+- **`assert` is `E7-002`**, a program error that `or_else` catches like `fail`. Its condition is truthy as an `if`'s is.
+- **Patterns skip where no match can begin.** A pattern is compiled into a tree that the matcher walks with backtracking, and
+  `find`, `count`, `split` and the rest tried it at every character. Each character test now also holds a table of the 256
+  bytes it accepts (exactly, and with case ignored), worked out once when the pattern is compiled, and the pattern as a whole
+  the bytes a match can begin with. A pattern that always takes at least one character is tried only where the text has one of those bytes;
+  every other place, the attempt would have failed at its first character, so nothing a program sees changes. Splitting,
+  counting and replacing in a short line run 2.4 times fewer instructions. 5,000 generated patterns and texts give the same
+  results as 6.3.0, flags and errors included.
+- **A library call costs less.** The checks every library function makes of its arguments were inlined into each function
+  with the message built in the same place; the message is now built in a function of its own that is only called when the
+  check fails, and the check is a compare and a branch. The machine finds a library function by its name's number without a
+  call, and hands its result over without the general move. A loop that calls `length` twice a pass runs 25% fewer
+  instructions (with the plain pointers below). The checks stay out of line, so the binary does not grow by inlining them into some 300 functions.
+- **A library function is a pointer when it can be.** `NativeFn` was a `std::function`, and each of the some 300 library
+  functions, a lambda that captures nothing, brought its own manager and invoker with it. `NativeFn` now keeps such a
+  function as a plain pointer and keeps a `std::function` only for one that holds state (the interpreter's `task_done` and
+  `args`, a host's function). A call goes straight to the function, and `cuffc` is 21 KB of code smaller: smaller than 6.3.0
+  even with the four new built-ins.
+- **A map key that is a `str` value remembers its hash.** A text's hash is kept beside it once it has been worked out (8 bytes
+  more for each text; glibc gives the allocation the same size as before), and appending to the text forgets it. A map looked up with the
+  same text again and again, such as a literal key in a loop, hashes it once: 1,000 keys looked up 100 times run 35% fewer
+  instructions.
+- **Smaller things.** `loop each` takes each item out of its snapshot without the general assignment (28% on a loop that only
+  adds); `str_upper` and `str_lower` change an ASCII text in place in a copy; `from_json` and `to_json` copy runs of plain
+  characters at once and read a whole number of up to 15 digits without the general reader.
+- **WebAssembly stops before the JavaScript stack does.** A repeated group in a pattern, an object's `to_str` that shows
+  another object, and a field default that makes an object of its own class nest inside the engine. Natively the engine
+  measures its stack; in WebAssembly it runs on the JavaScript engine's stack, which it cannot see, and these ended in a
+  `RangeError` thrown out of `cuffRun`. The WebAssembly build now counts: a pattern attempt may nest 240 deep (3,000
+  natively) and the machine may run inside itself 100 times, then `E3-103` and `E4-017` as natively. Under Node 22 the
+  thresholds at which the `RangeError` came were above 350 and between 160 and 250.

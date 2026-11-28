@@ -20,7 +20,105 @@ namespace cuff::regex
         RNodePtr root;
         int groupCount = 0;
         std::string source;
+        // The bytes a match can begin with, exactly and with ASCII case ignored; meaningless when `canBeEmpty`.
+        RNode::ByteSet first[2];
+        bool canBeEmpty = true;
     };
+
+    // Works out, once, what matching then only looks up: each character test as a table of the bytes it accepts.
+    inline void prepareForMatching(RNode &node)
+    {
+        if (node.kind == RNodeKind::CharTest && node.charTest && !node.isAnyCodepoint && node.multiByteLiteral.empty())
+        {
+            for (int b = 0; b < 256; ++b)
+            {
+                const auto c = static_cast<unsigned char>(b);
+                const bool exact = node.charTest(c);
+                if (exact)
+                    node.bytes[0].add(c);
+                if (exact || node.charTest(toggleAsciiCase(c)))
+                    node.bytes[1].add(c);
+            }
+            node.hasBytes = true;
+        }
+        if (node.child)
+            prepareForMatching(*node.child);
+        for (const RNodePtr &c : node.children)
+            prepareForMatching(*c);
+    }
+
+    // The bytes that a match of `node` can begin with, added to `out` (exactly, and with case ignored); true when it
+    // can match without taking a byte, so that what follows it can begin the match too. Anything not known for sure
+    // adds every byte.
+    inline bool firstBytes(const RNode &node, RNode::ByteSet out[2])
+    {
+        auto every = [&]()
+        {
+            for (int k = 0; k < 2; ++k)
+                for (int w = 0; w < 4; ++w)
+                    out[k].words[w] = ~uint64_t(0);
+        };
+        switch (node.kind)
+        {
+        case RNodeKind::CharTest:
+            if (node.hasBytes)
+            {
+                out[0].addAll(node.bytes[0]);
+                out[1].addAll(node.bytes[1]);
+                if (node.negated) // a character of more than one byte passes a negated test
+                    for (int b = 0x80; b < 256; ++b)
+                    {
+                        out[0].add(static_cast<unsigned char>(b));
+                        out[1].add(static_cast<unsigned char>(b));
+                    }
+            }
+            else if (!node.multiByteLiteral.empty())
+            {
+                const auto lead = static_cast<unsigned char>(node.multiByteLiteral[0]);
+                out[0].add(lead);
+                out[1].add(lead);
+            }
+            else
+                every();
+            return false;
+        case RNodeKind::OneOf:
+        {
+            bool empty = false;
+            for (const std::string &alt : node.alternatives)
+            {
+                if (alt.empty())
+                {
+                    empty = true;
+                    continue;
+                }
+                const auto c = static_cast<unsigned char>(alt[0]);
+                out[0].add(c);
+                out[1].add(c);
+                if (c < 0x80)
+                    out[1].add(toggleAsciiCase(c));
+            }
+            return empty;
+        }
+        case RNodeKind::WordBoundary:
+        case RNodeKind::StartAnchor:
+        case RNodeKind::EndAnchor:
+            return true;
+        case RNodeKind::Group:
+        case RNodeKind::NamedGroup:
+            return node.child ? firstBytes(*node.child, out) : true;
+        case RNodeKind::Sequence:
+            for (const RNodePtr &c : node.children)
+                if (!firstBytes(*c, out))
+                    return false;
+            return true;
+        case RNodeKind::Quantified:
+            return (node.child ? firstBytes(*node.child, out) : true) || node.minCount == 0;
+        case RNodeKind::Preset:
+            break;
+        }
+        every();
+        return true;
+    }
 
     // Parses `pattern` into a CompiledPattern, applying the pattern size limit. Pattern literals are compiled with
     // this when the program is parsed; RegexEngine::compile adds a cache for patterns built at run time.
@@ -35,6 +133,8 @@ namespace cuff::regex
         RNodePtr root = parser.parse(groupCount);
 
         auto compiled = std::make_shared<CompiledPattern>();
+        prepareForMatching(*root);
+        compiled->canBeEmpty = firstBytes(*root, compiled->first);
         compiled->root = root;
         compiled->groupCount = groupCount;
         compiled->source = pattern;
@@ -248,7 +348,7 @@ namespace cuff::regex
                          const Flags &flags, const cuff::SourceLocation &loc, MatchOutcome &out, Clock::time_point deadline)
         {
             RegexMatcher matcher(pat->root, pat->groupCount, flags.caseInsensitive, flags.multiline, loc, limitsUntil(deadline));
-            return matcher.search(text, fromPos, out);
+            return matcher.search(text, fromPos, out, pat->canBeEmpty ? nullptr : &pat->first[flags.caseInsensitive ? 1 : 0]);
         }
 
         [[noreturn]] static void throwTooManyMatches(const cuff::SourceLocation &loc)

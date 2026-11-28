@@ -243,13 +243,15 @@ CLI_DIR=$(mktemp -d "${TMPDIR:-/tmp}/cuff_cli.XXXXXX")
 trap 'rm -rf "$UNIT_DIR" "$CLI_DIR"' EXIT
 mkdir "$CLI_DIR/한글 폴더"
 printf 'print("ok")\n' >"$CLI_DIR/한글 폴더/스크립트.cuff"
+printf 'print(args())\nexit(length(args()))\n' >"$CLI_DIR/args.cuff"
 cli_case "a folder is not a script" 1 "Cannot open file '$CLI_DIR'" "$CLI_DIR"
 cli_case "a file that is not there" 1 "Cannot open file '$CLI_DIR/none.cuff'" "$CLI_DIR/none.cuff"
 cli_case "a name with Korean and a space" 0 "ok" "$CLI_DIR/한글 폴더/스크립트.cuff"
 cli_case "a file name after --" 0 "ok" -- "$CLI_DIR/한글 폴더/스크립트.cuff"
 CLI_STDIN='print("from stdin")' cli_case "the script from stdin (-)" 0 "from stdin" -
 cli_case "an unknown option" 2 "unknown option '--nope'" --nope
-cli_case "two scripts" 2 "only one script file may be given" "$CLI_DIR/none.cuff" "$CLI_DIR/none.cuff"
+cli_case "arguments after the script, and exit()" 3 '["a b", "--nope", "한글"]' "$CLI_DIR/args.cuff" "a b" --nope 한글
+CLI_STDIN='print(args())' cli_case "arguments after - (stdin)" 0 '["x"]' - x
 
 echo ""
 if [ -n "$EXCLUDED" ]; then

@@ -1,6 +1,9 @@
 export interface RunOutcome {
   success: boolean;
   error: string;
+  // The program called exit(): it ended there with `exitStatus` (0 to 255). `success` is true and `error` empty.
+  exited: boolean;
+  exitStatus: number;
 }
 
 export interface CuffScriptFS {

@@ -1,0 +1,2 @@
+number items = 0
+assert(items > 0, "no items")

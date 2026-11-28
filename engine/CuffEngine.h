@@ -98,6 +98,10 @@ namespace cuff
             bool success = true;
             std::string error; // the full report, empty on success
             Value value;       // what call() returned; `empty` otherwise
+            // The program called exit(): it ended there, with `exitStatus` (0 to 255). That is a success with no
+            // report, whatever the status; a script runner ends with the status (cuffc does).
+            bool exited = false;
+            int exitStatus = 0;
         };
         using Result = Outcome; // the name this had in 5.x
 
@@ -324,6 +328,12 @@ namespace cuff
             try
             {
                 body(outcome);
+            }
+            catch (const ProgramExit &request)
+            {
+                outcome.value = Value();
+                outcome.exited = true;
+                outcome.exitStatus = request.status;
             }
             catch (...)
             {
